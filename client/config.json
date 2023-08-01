@@ -1,0 +1,114 @@
+{
+  "navBar":{
+    "logoName": "EBG-Logo.png",
+    "bgColor": "",
+    "url":""
+  },
+  "appInfo":{
+    "title": "Geneid Portal",
+    "gb":{
+      "description": "This portal tracks the progress of the Earth Biogenome Project (EBP) and its affiliated projects, giving the biodiversity community the opportunity to share photos, vernacular names, and gene annotations of sequenced species"
+    },
+    "es-ct":{
+      "description": "Aquest portal segueix el progrés del projecte del biogenoma de la Terra (EBP) i els seus projectes afiliats, donant a la comunitat de biodiversitat l'oportunitat de compartir fotos, noms vernacles i anotacions genètiques d'espècies seqüenciades"
+    }
+  },
+  "languages":[
+    {
+      "code": "gb",
+      "name": "english"
+    },
+    {
+      "code": "es-ct",
+      "name": "catalan"
+    }
+  ],
+  "dashboardInfoBlocks":[
+    {
+      "model":"assemblies",
+      "field":"metadata.submission_date",
+      "title":"dashboard.charts.dateLineChart.title",
+      "label":"dashboard.charts.dateLineChart.label",
+      "isDate":true,
+      "color":"#2c82e0",
+      "type":"dateline",
+      "class":"flex lg6 md6 sm12 xs12"
+    },
+    {
+      "model":"organisms",
+      "field":"insdc_status",
+      "title":"dashboard.charts.secondPiechart.title",
+      "label":"dashboard.charts.secondPiechart.label",
+      "class":"flex lg3 md3 sm12 xs12",
+      "type":"pie"
+    }
+  ],
+  "assemblyInfoBlocks":[
+    {
+      "model":"assemblies",
+      "field":"metadata.assembly_level",
+      "title":"assemblyList.charts.pieChart.title",
+      "label":"assemblyList.charts.pieChart.title",
+      "class":"flex lg3 md3 sm12 xs12",
+      "type":"pie"
+    },
+    {
+      "type":"dateline",
+      "isDate":true,
+      "field":"metadata.submission_date",
+      "label":"assemblyList.charts.dateLineChart.label",
+      "title":"assemblyList.charts.dateLineChart.title",
+      "color":"#2c82e0",
+      "model":"assemblies",
+      "class":"flex lg6 md6 sm12 xs12"
+    },
+    {
+      "type":"contribution",
+      "title":"assemblyList.charts.contributorList.title",
+      "model":"assemblies",
+      "field":"metadata.submitter",
+      "class":"flex lg3 md3 sm12 xs12"
+    }
+  ],
+  "annotations":{},
+  "navigationRoutes":[
+    {
+      "name": "dashboard",
+      "displayName": "menu.dashboard",
+      "meta": {
+        "icon": "vuestic-iconset-dashboard"
+      }
+    },
+    {
+      "name": "taxons",
+      "displayName": "menu.taxons",
+      "meta": {
+        "icon": "fa-circle-nodes"
+      }
+    },
+    {
+      "name": "organisms",
+      "displayName": "menu.organisms",
+      "meta": {
+        "icon": "fa-paw",
+        "name": "organisms"
+      }
+    },
+    {
+      "name": "assemblies",
+      "displayName": "menu.assemblies",
+      "meta": {
+        "icon": "fa-dna",
+        "name": "assemblies"
+      }
+    },
+    {
+      "name": "annotations",
+      "displayName": "menu.annotations",
+      "meta": {
+        "icon": "fa-bars-progress",
+        "name": "annotations"
+      }
+    }
+  ]
+}

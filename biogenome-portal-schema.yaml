@@ -1,0 +1,485 @@
+openapi: 3.0.0
+
+info:
+  version: "2.0.0"
+  title: "BioGenome Portal API"
+  contact:
+    email: "emilio.righi@crg.eu"
+
+servers:
+  - url: https://ebp.biogenoma.cat/api
+    description: server containing all the data submitted to INSDC under the EBP umbrella
+  - url: https://data.biogenoma.cat/api
+    description: server containing all the data generated under the CBP umbrella 
+
+tags:
+- name: "organisms"
+- name: "assemblies"
+- name: "taxons"
+- name: "annotations"
+
+paths:     
+  /organisms:
+    get:
+      tags:
+        - "organisms"
+      summary: "Endpoint to retrieve a paginated list of organisms"
+      parameters:
+        - in: 'query'
+          name: 'parent_taxid'
+          schema:
+            type: 'string'
+        - in: 'query'
+          name: 'bioproject'
+          schema:
+            type: 'string'
+        - in: 'query'
+          name: 'filter'
+          schema:
+            type: 'string'
+        - in: 'query'
+          name: 'filter_option'
+          schema:
+            type: "string"
+            enum:
+            - "taxid"
+            - "common_name"
+            - "tolid"
+            - "scientific_name"
+        - in: "query"
+          name: "country"
+          schema:
+            type: "string"
+          description: "country code"
+        - in: 'query'
+          name: 'sort_order'
+          schema:
+            type: 'string'
+            enum:
+            - "asc"
+            - "desc"
+        - in: 'query'
+          name: 'sort_column'
+          schema:
+            type: 'string'
+            enum:
+            - "scientific_name"
+            - "taxid"
+            - "tolid"
+        - in: 'query'
+          name: 'goat_status'
+          schema:
+            $ref: '#/components/schemas/GoaTStatus'
+        - in: 'query'
+          name: 'insdc_status'
+          schema:
+            $ref: '#/components/schemas/INSDCStatus'
+        - in: 'query'
+          name: 'target_list_status'
+          schema:
+            $ref: '#/components/schemas/TargetListStatus'
+        - in: 'query'
+          name: 'offset'
+          schema:
+            type: 'number'
+            default: 0
+        - in: 'query'
+          name: 'limit'
+          schema:
+            type: 'number'
+            default: 20
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  data:
+                    type: "array"
+                    items:
+                      $ref: "#/components/schemas/Organism"
+                  total:
+                    type: "number"
+
+  /organisms/{taxid}:
+    get:
+      tags:
+        - "organisms"
+      parameters:
+        - in: 'path'
+          name: 'taxid'
+          required: true
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organism"
+        "404":
+          description: "Organism not found"
+
+  /organisms/{taxid}/{model}:
+    get:
+      tags:
+        - "organisms"
+      parameters:
+        - in: 'path'
+          name: 'taxid'
+          required: true
+          schema:
+            type: "string"
+        - in: 'path'
+          name: 'model'
+          required: true
+          schema:
+            type: 'string'
+            enum:
+              - 'taxons''
+              - 'assemblies'
+              - 'annotations'
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organism"
+        "404":
+          description: "Organism not found"
+                  
+  /assemblies:
+    get:
+      tags:
+        - "assemblies"
+      summary: "Endpoint to retrieve a paginated list of assemblies"
+      parameters:
+        - in: 'query'
+          name: 'filter'
+          schema:
+            type: 'string'
+        - in: 'query'
+          name: 'filter_option'
+          schema:
+            type: "string"
+            enum:
+            - "taxid"
+            - "scientific_name"
+            - "assembly_name"
+        - in: 'query'
+          name: 'assembly_level'
+          schema:
+            type: "string"
+            enum:
+            - "Chromosome"
+            - "Complete Genome"
+            - "Contig"
+            - "Scaffold"
+        - in: 'query'
+          name: 'start_date'
+          schema:
+            type: "string"
+        - in: 'query'
+          name: 'end_date'
+          schema:  
+            type: "string"
+        - in: 'query'
+          name: 'submitter'
+          schema:  
+            type: "string"
+        - in: 'query'
+          name: 'sort_order'
+          schema:  
+            type: "string"
+            enum:
+            - "asc"
+            - "desc"
+        - in: 'query'
+          name: 'sort_column'
+          schema:
+            type: "string"
+            enum:
+            - "contig_n50"
+            - "size"
+            - "submission_date"
+        - in: 'query'
+          name: 'offset'
+          schema:
+            type: 'number'
+            default: 0
+        - in: 'query'
+          name: 'limit'
+          schema:
+            type: 'number'
+            default: 20
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  data:
+                    type: "array"
+                    items:
+                      $ref: "#/components/schemas/Assembly"
+                  total:
+                    type: "number"
+
+  /assemblies/{accession}:
+    get:
+      tags:
+        - "assemblies"
+      parameters:
+        - in: 'path'
+          name: 'accession'
+          required: true
+          schema:
+            type: 'string'
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Assembly"
+        "404":
+          description: "Assembly not found"
+
+ 
+  /annotations:
+    get:
+      tags:
+        - "annotations"
+      summary: "Endpoint to retrieve a paginated list of genomic annotations"
+      parameters:
+        - in: 'query'
+          name: 'filter'
+          schema:
+            type: 'string'
+        - in: 'query'
+          name: 'offset'
+          schema:
+            type: 'number'
+            default: 0
+        - in: 'query'
+          name: 'limit'
+          schema:
+            type: 'number'
+            default: 20
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  data:
+                    type: "array"
+                    items:
+                      $ref: "#/components/schemas/Annotation"
+                  total:
+                    type: "number"
+        "405":
+          description: "Invalid input"
+
+  /annotations/{id}:
+    get:
+      tags:
+        - "annotations"
+      parameters:
+        - in: 'path'
+          name: 'id'
+          required: true
+          schema:
+            type: 'string'
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Annotation"
+        "404":
+          description: "annotation not found"
+          
+  /taxons:
+    get:
+      tags:
+        - "taxons"
+      summary: "Endpoint to retrieve a paginated list of taxons"
+      parameters:
+        - in: 'query'
+          name: 'filter'
+          schema:  
+            type: 'string'
+        - in: 'query'
+          name: 'rank'
+          schema:
+            type: 'string'
+            enum: 
+              - 'kingdom'
+              - 'phylum'
+              - 'class'
+              - 'order'
+              - 'family'
+        - in: 'query'
+          name: 'offset'
+          schema:
+            type: 'number'
+            default: 0
+        - in: 'query'
+          name: 'limit'
+          schema:
+            type: 'number'
+            default: 20
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  data:
+                    type: "array"
+                    items:
+                      $ref: "#/components/schemas/TaxonNode"
+                  total:
+                    type: "number"
+        "405":
+          description: "Invalid input"
+
+  /taxons/{taxid}:
+    get:
+      tags:
+        - "taxons"
+      parameters:
+        - in: 'path'
+          name: 'taxid'
+          required: true
+          schema:  
+            type: 'string'
+
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxonNode"
+        "404":
+          description: "Taxon not found"
+          
+components:
+  schemas:
+    Assembly:
+      type: "object"
+      description: "object containing the urls to download the gzipped masked genome and its indexed versions"
+      properties:
+        accession:
+          type: "string"
+        assembly_name:
+          type: "string"
+        taxid:
+          type: "string"
+        sample_accession:
+          type: "string"
+        scientific_name:
+          type: "string"
+        created:
+          type: "string"
+        chromosomes:
+          type: "array"
+          items:
+            type: "string"
+          description: "list of chromosome accessions"
+        metadata:
+          type: "object"
+          description: "INSDC metadata"
+  
+    Annotation:
+      type: "object"
+      description: "object containing the urls to download the gzipped gff3 file"
+      properties:
+        name:
+          type: "string"
+          description: "annotation name"
+        taxid:
+          type: "string"
+        assembly_accession:
+          type: "string"
+        links:
+          type: "array"
+          items:
+            type: "string"
+          description: "list of urls to download the related annotation files"
+        metadata:
+          type: "object"
+          description: "user defined metadata object schema"
+    
+    TaxonNode:
+      type: "object"
+      properties:
+        children:
+          type: "array"
+          items:
+            type: "string"
+          description: "list of taxid of the taxon node childrens"
+        name:
+          type: "string"
+        rank: 
+          type: "string"
+        leaves:
+          type: "number"
+        taxid:
+          type: "string"
+          
+    Organism:
+      type: "object"
+      properties:
+        assemblies:
+          type: "array"
+          items:
+            type: "string"
+          description: "list of related assembly accessions"
+        annotations:
+          type: "array"
+          items:
+            type: "string"
+          description: "list of related annotations"
+        tolid_prefix:
+          type: "string"
+        links:
+          type: "array"
+          items: 
+            type: "string"
+          description: "list of user defined organism related links"
+        insdc_common_name:
+          type: "string"
+        scientific_name:
+          type: "string"
+          description: "organism name"
+        taxid:
+          type: "string"
+          description: "NCBI taxonomic identifier"
+        image:
+          type: "string"
+          description: "link to main image"
+        image_urls:
+          type: "array"
+          items:
+            type: "string"
+        taxon_lineage:
+          type: "array"
+          items:
+            type: "string"
+          description: "asc list of taxIDs"
+          
+          
