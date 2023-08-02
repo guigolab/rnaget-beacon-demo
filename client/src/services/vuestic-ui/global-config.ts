@@ -2,6 +2,16 @@ import VaIcon from './components/va-icon'
 import iconsConfig from './icons-config/icons-config'
 
 export default {
+  colors: {
+    variables: {
+      primary: '#3891A6',
+      secondary: '#4C5B5C',
+      success: '#5EEB5B',
+      info: '#A78682',
+      danger: '#FF6663',
+      warning: '#FF9B42',
+    }
+  },
   icons: iconsConfig,
   breakpoint: {
     enabled: true,

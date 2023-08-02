@@ -1,9 +1,9 @@
 <template>
   <div class="app-navbar-actions">
     <LanguageDropdown class="app-navbar-actions__item" />
-    <ProfileDropdown class="app-navbar-actions__item app-navbar-actions__item--profile">
+    <!-- <ProfileDropdown class="app-navbar-actions__item app-navbar-actions__item--profile">
       <span v-if="globalStore.isAuthenticated">{{ userName }}</span>
-    </ProfileDropdown>
+    </ProfileDropdown> -->
   </div>
 </template>
 
@@ -34,7 +34,7 @@
 <style lang="scss">
   .app-navbar-actions {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
 
     .va-dropdown__anchor {
       color: var(--va-primary);
@@ -56,7 +56,7 @@
 
       &--profile {
         display: flex;
-        justify-content: center;
+        justify-content: flex-end;
         margin: auto 0 auto 1.25rem;
       }
 
@@ -71,13 +71,13 @@
           margin-left: 0;
         }
 
-        &--profile {
-          position: absolute;
-          right: 0.75rem;
-          top: 1.25rem;
-          height: fit-content;
-          margin: auto;
-        }
+        // &--profile {
+        //   position: absolute;
+        //   right: 0.75rem;
+        //   top: 1.25rem;
+        //   height: fit-content;
+        //   margin: auto;
+        // }
       }
     }
   }

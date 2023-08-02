@@ -100,3 +100,14 @@ class BioGenomeUser(db.Document):
     name=db.StringField(unique=True,required=True)
     password=db.StringField(required=True)
     role=db.EnumField(Roles, required=True)
+
+# # Store user queries here, ref to file model
+# # Queries are deleted after pipeline submission
+# class GeneidQuery(db.Document):
+#     user_mail = db.StringField(required=True)
+#     geneid_params = db.DictField()
+
+# # store responses here
+# # delete them after 24h
+# class GeneidResponse(db.Document):
+

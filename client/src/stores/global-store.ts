@@ -4,7 +4,7 @@ import AuthService from '../services/clients/AuthService'
 export const useGlobalStore = defineStore('global', {
   state: () => {
     return {
-      isSidebarMinimized: false,
+      isSidebarMinimized: true,
       userName: '',
       userPassword: '',
       userRole: '',

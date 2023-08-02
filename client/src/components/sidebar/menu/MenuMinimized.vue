@@ -51,9 +51,6 @@
 
   const dropdownsValue = ref([])
 
-  // function isGroup(item: INavigationRoute) {
-  //   return !!item.children
-  // }
 
   function isRouteActive(item: INavigationRoute) {
     return item.name === useRoute().name || useRoute().fullPath.includes(item.name)

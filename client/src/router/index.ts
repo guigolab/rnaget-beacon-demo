@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
+import LandingPage from '../pages/landing/LandingPage.vue'
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -6,8 +7,13 @@ const routes: Array<RouteRecordRaw> = [
     redirect: { name: 'dashboard' },
   },
   {
-    name: 'dashboard',
+    name: 'landing-page',
     path: '/',
+    component: LandingPage
+  },
+  {
+    name: 'dashboard',
+    path: '/dashboard',
     component: () => import('../pages/dashboard/DashboardPage.vue'),
   },
   {

@@ -10,14 +10,9 @@
         </div>
       </div>
       <va-divider/>
-      <DashboardModelStats />
-        <InfoBlock :charts="dashboardInfoBlocks"/>
+      <!-- <DashboardModelStats /> -->
+        <!-- <InfoBlock :charts="dashboardInfoBlocks"/> -->
         <div class="row row-equal">
-            <div style="min-height: 400px;" class="flex lg6 md6 sm12 xs12">
-                <Suspense>
-                    <DashBoardMap/>
-                </Suspense>
-            </div>
             <div class="flex lg6 md6 sm12 xs12">
                 <Suspense>
                     <DashboardTree/>
