@@ -1,9 +1,20 @@
 import NavBarLogo from '../../../components/navbar/components/NavBarLogo.vue'
+import Nextflow from '../../../custom-icons/Nextflow.vue'
+import Diamond from '../../../custom-icons/Diamond.vue'
+
 export default [
   {
     name: 'app-logo',
     component: NavBarLogo,
     color:'primary',
+  },
+  {
+    name: 'diamond',
+    component: Diamond
+  },
+  {
+    name: 'nextflow',
+    component: Nextflow
   },
   {
     name: 'angle_down',

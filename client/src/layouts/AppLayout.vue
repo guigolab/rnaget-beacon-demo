@@ -2,38 +2,41 @@
   <div class="app-layout">
     <navbar />
     <div class="app-layout__content">
-      <div class="app-layout__sidebar-wrapper" :class="{ minimized: isSidebarMinimized }">
+      <!-- <div class="app-layout__sidebar-wrapper" :class="{ minimized: isSidebarMinimized }">
         <sidebar
           :width="sidebarWidth"
           :minimized="isSidebarMinimized"
           :minimized-width="sidebarMinimizedWidth"
           :animated="!isMobile"
         />
-      </div>
-      <div class="app-layout__page">
-        <div id="scroll-container" class="layout fluid va-gutter-5">
+      </div> -->
+      <main class="app-layout__page">
+        <div id="scroll-container" class="layout fluid">
           <router-view v-slot="{ Component }">
             <Transition name="fade">
               <component :is="Component" />
             </Transition>
           </router-view>
         </div>
-      </div>
+      </main>
     </div>
     <Login />
   </div>
 </template>
 
 <script setup>
-  import { onBeforeUnmount, onMounted, ref } from 'vue'
+  import { onBeforeUnmount, onMounted, ref, computed } from 'vue'
   import { storeToRefs } from 'pinia'
   import { onBeforeRouteUpdate } from 'vue-router'
   import { useGlobalStore } from '../stores/global-store'
   import Login from '../components/modals/Login.vue'
   import Navbar from '../components/navbar/Navbar.vue'
   import Sidebar from '../components/sidebar/Sidebar.vue'
-  
+
+
+
   const GlobalStore = useGlobalStore()
+
 
   const mobileBreakPointPX = 480
   const tabletBreakPointPX = 768

@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 import LandingPage from '../pages/landing/LandingPage.vue'
+import AppLayout from '../layouts/AppLayout.vue'
+import RouterBypass from '../layouts/RouterBypass.vue'
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -7,7 +9,7 @@ const routes: Array<RouteRecordRaw> = [
     redirect: { name: 'dashboard' },
   },
   {
-    name: 'landing-page',
+    name: 'home',
     path: '/',
     component: LandingPage
   },

@@ -5,7 +5,7 @@
         @click="isSidebarMinimized = !isSidebarMinimized" />
     </div>
     <div class="center">
-      <h2 class="va-h3 va-navbar__item">Geneid</h2>
+      <h2 class="va-h3 va-navbar__item">geneid</h2>
     </div>
     <div class="right">
       <app-navbar-actions class="app-navbar__actions md5 lg4" :user-name="userName" />

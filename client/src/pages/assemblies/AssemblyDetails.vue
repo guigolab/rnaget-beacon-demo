@@ -202,7 +202,7 @@
   .chart {
     height: 400px;
   }
-  .row-equal .flex {
+  . .flex {
     .va-card {
       height: 100%;
     }

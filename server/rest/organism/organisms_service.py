@@ -12,8 +12,7 @@ ROOT_NODE=os.getenv('ROOT_NODE')
 def get_organisms(offset=0, limit=20, 
                 sort_order=None, sort_column=None,
                 filter=None, parent_taxid=None,
-                filter_option='scientific_name', country=None, bioproject=None,
-                goat_status=None, insdc_status=None, target_list_status=None):
+                filter_option='scientific_name'):
     query=dict()
     filter_query = get_filter(filter, filter_option) if filter else None
     if parent_taxid:

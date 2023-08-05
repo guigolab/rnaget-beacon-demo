@@ -41,6 +41,10 @@
 <style lang="scss">
   .va-sidebar {
     width: 100%;
+    &__menu {
+      padding: 2rem 0;
+    }
+
     &-item {
       &__icon {
         width: 1.5rem;
