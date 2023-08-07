@@ -5,6 +5,9 @@
         <!-- <Logos/> -->
         <Annotations/>
         <Taxonomy/>
+        <section style="height: 100vh">
+
+        </section>
     </div>
         <!-- 
             geneid description and repo

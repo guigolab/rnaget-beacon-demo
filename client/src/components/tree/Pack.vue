@@ -1,16 +1,30 @@
 <template>
   <div ref="wrapper">
-    <Transition>
-      <va-button-dropdown :stick-to-edges="true" size="large" preset="secondary" color="secondary" v-if="currentNode && currentNode.name" :label="currentNode.name"
-        class="mr-2 mb-2">
-        <ul>
-          <li v-for="(child, index) in currentNode.children">
-            <va-button @click="triggerZoom(child.name)" size="large" preset="plain" color="secondary">{{ child.name
-            }}</va-button>
-          </li>
-        </ul>
-      </va-button-dropdown>
-    </Transition>
+      <Transition>
+        <div v-if="currentNode && currentNode.name" class="row justify-end">
+          <va-dropdown :stick-to-edges="true" class="flex">
+            <template #anchor>
+              <va-card>
+                <!-- <va-card-title>
+                  current view
+                </va-card-title> -->
+                <va-card-content>
+                  <h5 class="va-h5">{{ `${currentNode.name} (${currentNode.rank})` }}</h5>
+                </va-card-content>
+              </va-card>
+            </template>
+            <va-dropdown-content class="">
+              <ul>
+                <li v-for="(child, index) in currentNode.children">
+                  <va-button @click="triggerZoom(child.name)" size="large" preset="plain" color="secondary">{{
+                    child.name
+                  }}</va-button>
+                </li>
+              </ul>
+            </va-dropdown-content>
+          </va-dropdown>
+        </div>
+      </Transition>
     <svg ref="pack"></svg>
   </div>
 </template>
@@ -32,6 +46,7 @@ let focus
 let node
 let svg
 let packRoot
+let label
 
 onMounted(() => {
 
@@ -40,7 +55,7 @@ onMounted(() => {
 
 function triggerZoom(name: string) {
   const packNode = packRoot.find((node) => node.data.name === name)
-  if(!packNode) return
+  if (!packNode) return
   zoom(undefined, packNode)
 }
 
@@ -74,9 +89,7 @@ function createPack() {
     .attr("viewBox", `-${width / 2} -${height / 2} ${width} ${height}`)
     .style("display", "block")
     .style("margin", "0 -14px")
-    // .style("padding", "2rem")
     .style("background", "#f6f6f6")
-    // .style("overflow", "scroll")
     .style("cursor", "pointer")
     .on("click", (event) => zoom(event, root));
 
@@ -88,7 +101,9 @@ function createPack() {
     .attr("fill", d => d.children ? color(d.data.name) : "black")
     .attr("pointer-events", d => !d.children ? "none" : null)
     .on("mouseover", function (event, d) {
-      d3.select(this).attr("stroke", "#ffffff").attr("stroke-width", 3);
+      console.log(this)
+      console.log(d)
+      d3.select(this).attr("stroke", "black").attr("stroke-width", 3);
       div.transition().duration('50').style("opacity", 1);
       let name = d.data.name;
       div.html(name).style("left", (event.pageX + 10) + "px")
@@ -103,11 +118,11 @@ function createPack() {
   node.append("title")
     .text(d => !d.data.leaves ? `${d.data.name}` : `${d.data.name} (${d.data.rank})\nRelated Organisms: ${d.data.leaves}`);
 
-  // const label = svg.append("g")
+  // label = svg.append("g")
   //     .style("font", "10px sans-serif")
   //     .attr("fill", "black")
   //     .attr("pointer-events", "none")
-  //     .attr("text-anchor", "middle")
+  //     .attr("text-anchor", "start")
   //   .selectAll("text")
   //   .data(packRoot.descendants())
   //   .join("text")
