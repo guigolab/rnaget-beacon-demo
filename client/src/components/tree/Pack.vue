@@ -1,31 +1,32 @@
 <template>
   <div ref="wrapper">
-      <Transition>
-        <div v-if="currentNode && currentNode.name" class="row justify-end">
-          <va-dropdown :stick-to-edges="true" class="flex">
-            <template #anchor>
-              <va-card>
-                <!-- <va-card-title>
+    <Transition>
+      <div v-if="currentNode && currentNode.name" class="row justify-end">
+        <va-dropdown :stick-to-edges="true" class="flex">
+          <template #anchor>
+            <va-card>
+              <!-- <va-card-title>
                   current view
                 </va-card-title> -->
-                <va-card-content>
-                  <h5 class="va-h5">{{ `${currentNode.name} (${currentNode.rank})` }}</h5>
-                </va-card-content>
-              </va-card>
-            </template>
-            <va-dropdown-content class="">
-              <ul>
-                <li v-for="(child, index) in currentNode.children">
-                  <va-button @click="triggerZoom(child.name)" size="large" preset="plain" color="secondary">{{
-                    child.name
-                  }}</va-button>
-                </li>
-              </ul>
-            </va-dropdown-content>
-          </va-dropdown>
-        </div>
-      </Transition>
-    <svg ref="pack"></svg>
+              <va-card-content>
+                <h5 class="va-h5">{{ `${currentNode.name} (${currentNode.rank})` }}</h5>
+              </va-card-content>
+            </va-card>
+          </template>
+          <va-dropdown-content class="">
+            <ul>
+              <li v-for="(child, index) in currentNode.children">
+                <va-button @click="triggerZoom(child.name)" size="large" preset="plain" color="secondary">
+                  {{ child.name }}
+                </va-button>
+              </li>
+            </ul>
+          </va-dropdown-content>
+        </va-dropdown>
+      </div>
+    </Transition>
+    <svg ref="pack">
+    </svg>
   </div>
 </template>
 

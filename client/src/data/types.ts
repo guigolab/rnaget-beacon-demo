@@ -1,5 +1,7 @@
 import type { TChartData as ChartData } from 'vue-chartjs/dist/types'
 
+import type { mode,strands,output,signals,exons } from './geneidParams'
+
 export type ColorThemes = {
   [key: string]: string
 }
@@ -11,6 +13,16 @@ export type TDoughnutChartData = ChartData<'doughnut'>
 export type TPieChartData = ChartData<'pie'>
 
 export type TChartData = TLineChartData | TBarChartData | TBubbleChartData | TDoughnutChartData | TPieChartData
+
+export interface GeneidForm {
+  email: string,
+  mode: mode[number],
+  strand: strands[number],
+  output: output[number],
+  signal: signals[number],
+  exon: exons[number]
+}
+
 
 interface Node {
   children: Array<string>
@@ -103,13 +115,13 @@ export type AssemblyAdapter = {
 }
 
 export type InfoBlock = {
-    field:string,
-    model:string,
-    title:string,
-    label?:string,
-    type: 'pie' | 'dateline' | 'contribution' | 'list'
-    isDate?:boolean
-    isHabitat?:boolean
-    color?:string
-    class:string
+  field: string,
+  model: string,
+  title: string,
+  label?: string,
+  type: 'pie' | 'dateline' | 'contribution' | 'list'
+  isDate?: boolean
+  isHabitat?: boolean
+  color?: string
+  class: string
 }
