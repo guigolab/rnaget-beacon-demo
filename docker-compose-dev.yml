@@ -2,66 +2,27 @@ version: '3'
 
 services:
 
-  geneid_mongo:
-    image: mongo:5.0.3
-    container_name: "${DB_DEV_HOST}"
+  mongo:
+    image: mongo
+    container_name: "rnaget_mongo"
     env_file:
       - .env
+    restart: always
     volumes:
      - ./mongo-init.sh:/docker-entrypoint-initdb.d/mongo-init.sh
-    #  - ./mongo-restore.sh:/docker-entrypoint-initdb.d/mongo-restore.sh
-    #  - ./db-dump:/db-dump
      - mongodb-data:${MONGODB_DATA_DIR}
     ports:
       - "27015:${DB_PORT}"
 
-  # mongo-backup:
-  #   image: tarator/mongodump:5.0
-  #   restart: always
-  #   links:
-  #     - biogenome_mongo
-  #   depends_on:
-  #     - biogenome_mongo ## link to mongo service name
-  #   volumes:
-  #     - ./mongo_backup:/backup:rw
-  #   environment:
-  #     - MONGO_HOST=biogenome_mongo
-  #     - MONGO_PORT=27017
-  #     - BACKUP_CRON_TIME=* * * * *
-  #     - KEEP_DAYS=14
-
-  geneid_server:
+  rnaget_server:
     build: ./server
-    container_name: "geneid_server"
+    container_name: "rnaget_server"
     restart: always
     volumes:
       - ./server:/server
     env_file:
       - .env
 
-  # biogenome_cron:
-  #   build: ./cronjobs
-  #   container_name: biogenome_cron
-  #   env_file:
-  #     - .env
-
-  geneid_nginx:
-    build:
-      context: ./client
-      dockerfile: Dockerfile
-      args:
-        - ROOT_NODE=$ROOT_NODE
-    container_name: "geneid_nginx"
-    restart: always
-    volumes:
-      - ./client:/client
-      - node_modules:/client/node_modules
-      - ./genome-browser-data-example:/var/www/statics
-    environment:
-      - API_PORT=${API_PORT}
-      - API_HOST=${API_HOST}
-    ports:
-        - "99:${API_PORT}"
 
 volumes:
   app:
