@@ -2,84 +2,24 @@ openapi: 3.0.0
 
 info:
   version: "2.0.0"
-  title: "BioGenome Portal API"
+  title: "RNAget Extension for BeaconV2 API"
   contact:
     email: "emilio.righi@crg.eu"
 
-servers:
-  - url: https://ebp.biogenoma.cat/api
-    description: server containing all the data submitted to INSDC under the EBP umbrella
-  - url: https://data.biogenoma.cat/api
-    description: server containing all the data generated under the CBP umbrella 
-
 tags:
-- name: "organisms"
-- name: "assemblies"
-- name: "taxons"
-- name: "annotations"
+- name: "matrices"
+- name: "features"
+- name: "biosamples"
 
 paths:     
-  /organisms:
+  /biosamples:
     get:
       tags:
-        - "organisms"
-      summary: "Endpoint to retrieve a paginated list of organisms"
+        - "biosamples"
+      summary: "Endpoint to retrieve a paginated list of biosamples"
       parameters:
         - in: 'query'
-          name: 'parent_taxid'
-          schema:
-            type: 'string'
-        - in: 'query'
-          name: 'bioproject'
-          schema:
-            type: 'string'
-        - in: 'query'
-          name: 'filter'
-          schema:
-            type: 'string'
-        - in: 'query'
-          name: 'filter_option'
-          schema:
-            type: "string"
-            enum:
-            - "taxid"
-            - "common_name"
-            - "tolid"
-            - "scientific_name"
-        - in: "query"
-          name: "country"
-          schema:
-            type: "string"
-          description: "country code"
-        - in: 'query'
-          name: 'sort_order'
-          schema:
-            type: 'string'
-            enum:
-            - "asc"
-            - "desc"
-        - in: 'query'
-          name: 'sort_column'
-          schema:
-            type: 'string'
-            enum:
-            - "scientific_name"
-            - "taxid"
-            - "tolid"
-        - in: 'query'
-          name: 'goat_status'
-          schema:
-            $ref: '#/components/schemas/GoaTStatus'
-        - in: 'query'
-          name: 'insdc_status'
-          schema:
-            $ref: '#/components/schemas/INSDCStatus'
-        - in: 'query'
-          name: 'target_list_status'
-          schema:
-            $ref: '#/components/schemas/TargetListStatus'
-        - in: 'query'
-          name: 'offset'
+          name: 'skip'
           schema:
             type: 'number'
             default: 0
@@ -87,7 +27,7 @@ paths:
           name: 'limit'
           schema:
             type: 'number'
-            default: 20
+            default: 10
       responses:
         "200":
           description: "successful operation"
@@ -99,17 +39,17 @@ paths:
                   data:
                     type: "array"
                     items:
-                      $ref: "#/components/schemas/Organism"
+                      $ref: "#/components/schemas/BioSample"
                   total:
                     type: "number"
 
-  /organisms/{taxid}:
+  /biosamples/{id}:
     get:
       tags:
-        - "organisms"
+        - "biosamples"
       parameters:
         - in: 'path'
-          name: 'taxid'
+          name: 'id'
           required: true
           schema:
             type: "string"
@@ -119,95 +59,45 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Organism"
+                $ref: "#/components/schemas/BioSample"
         "404":
-          description: "Organism not found"
+          description: "BioSample not found"
 
-  /organisms/{taxid}/{model}:
+  /biosamples/{id}/matrices:
     get:
       tags:
-        - "organisms"
+        - "biosamples"
       parameters:
         - in: 'path'
-          name: 'taxid'
+          name: 'id'
           required: true
           schema:
             type: "string"
-        - in: 'path'
-          name: 'model'
-          required: true
-          schema:
-            type: 'string'
-            enum:
-              - 'taxons''
-              - 'assemblies'
-              - 'annotations'
       responses:
         "200":
           description: "successful operation"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Organism"
+                type: "object"
+                properties:
+                  data:
+                    type: "array"
+                    items:
+                      $ref: "#/components/schemas/Matrix"
+                  total:
+                    type: "number"
         "404":
-          description: "Organism not found"
+          description: "BioSample not found"
                   
-  /assemblies:
+  /features:
     get:
       tags:
-        - "assemblies"
-      summary: "Endpoint to retrieve a paginated list of assemblies"
+        - "features"
+      summary: "Endpoint to retrieve a paginated list of features"
       parameters:
         - in: 'query'
-          name: 'filter'
-          schema:
-            type: 'string'
-        - in: 'query'
-          name: 'filter_option'
-          schema:
-            type: "string"
-            enum:
-            - "taxid"
-            - "scientific_name"
-            - "assembly_name"
-        - in: 'query'
-          name: 'assembly_level'
-          schema:
-            type: "string"
-            enum:
-            - "Chromosome"
-            - "Complete Genome"
-            - "Contig"
-            - "Scaffold"
-        - in: 'query'
-          name: 'start_date'
-          schema:
-            type: "string"
-        - in: 'query'
-          name: 'end_date'
-          schema:  
-            type: "string"
-        - in: 'query'
-          name: 'submitter'
-          schema:  
-            type: "string"
-        - in: 'query'
-          name: 'sort_order'
-          schema:  
-            type: "string"
-            enum:
-            - "asc"
-            - "desc"
-        - in: 'query'
-          name: 'sort_column'
-          schema:
-            type: "string"
-            enum:
-            - "contig_n50"
-            - "size"
-            - "submission_date"
-        - in: 'query'
-          name: 'offset'
+          name: 'skip'
           schema:
             type: 'number'
             default: 0
@@ -227,72 +117,14 @@ paths:
                   data:
                     type: "array"
                     items:
-                      $ref: "#/components/schemas/Assembly"
+                      $ref: "#/components/schemas/Feature"
                   total:
                     type: "number"
 
-  /assemblies/{accession}:
+  /features/{id}:
     get:
       tags:
-        - "assemblies"
-      parameters:
-        - in: 'path'
-          name: 'accession'
-          required: true
-          schema:
-            type: 'string'
-      responses:
-        "200":
-          description: "successful operation"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Assembly"
-        "404":
-          description: "Assembly not found"
-
- 
-  /annotations:
-    get:
-      tags:
-        - "annotations"
-      summary: "Endpoint to retrieve a paginated list of genomic annotations"
-      parameters:
-        - in: 'query'
-          name: 'filter'
-          schema:
-            type: 'string'
-        - in: 'query'
-          name: 'offset'
-          schema:
-            type: 'number'
-            default: 0
-        - in: 'query'
-          name: 'limit'
-          schema:
-            type: 'number'
-            default: 20
-      responses:
-        "200":
-          description: "successful operation"
-          content:
-            application/json:
-              schema:
-                type: "object"
-                properties:
-                  data:
-                    type: "array"
-                    items:
-                      $ref: "#/components/schemas/Annotation"
-                  total:
-                    type: "number"
-        "405":
-          description: "Invalid input"
-
-  /annotations/{id}:
-    get:
-      tags:
-        - "annotations"
+        - "features"
       parameters:
         - in: 'path'
           name: 'id'
@@ -305,32 +137,44 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Annotation"
+                $ref: "#/components/schemas/Feature"
         "404":
-          description: "annotation not found"
-          
-  /taxons:
+          description: "Feature not found"
+
+  /features/{id}/matrices:
     get:
       tags:
-        - "taxons"
-      summary: "Endpoint to retrieve a paginated list of taxons"
+        - "features"
+      parameters:
+        - in: 'path'
+          name: 'id'
+          required: true
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  data:
+                    type: "array"
+                    items:
+                      $ref: "#/components/schemas/Matrix"
+                  total:
+                    type: "number"
+        "404":
+          description: "Feature not found"
+  /matrices:
+    get:
+      tags:
+        - "matrices"
+      summary: "Endpoint to retrieve a paginated list of matrices"
       parameters:
         - in: 'query'
-          name: 'filter'
-          schema:  
-            type: 'string'
-        - in: 'query'
-          name: 'rank'
-          schema:
-            type: 'string'
-            enum: 
-              - 'kingdom'
-              - 'phylum'
-              - 'class'
-              - 'order'
-              - 'family'
-        - in: 'query'
-          name: 'offset'
+          name: 'skip'
           schema:
             type: 'number'
             default: 0
@@ -350,19 +194,17 @@ paths:
                   data:
                     type: "array"
                     items:
-                      $ref: "#/components/schemas/TaxonNode"
+                      $ref: "#/components/schemas/Matrix"
                   total:
                     type: "number"
-        "405":
-          description: "Invalid input"
 
-  /taxons/{taxid}:
+  /matrices/{id}:
     get:
       tags:
-        - "taxons"
+        - "matrices"
       parameters:
         - in: 'path'
-          name: 'taxid'
+          name: 'id'
           required: true
           schema:  
             type: 'string'
@@ -373,113 +215,169 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TaxonNode"
+                $ref: "#/components/schemas/Matrix"
         "404":
-          description: "Taxon not found"
-          
+          description: "Matrix not found"
+
+  /matrices/{id}/features:
+    get:
+      tags:
+        - "matrices"
+      summary: "Endpoint to retrieve a paginated list of features from a matrix id"
+      parameters:
+        - in: 'path'
+          name: 'id'
+          required: true
+          schema:  
+            type: 'string'
+        - in: 'query'
+          name: 'skip'
+          schema:
+            type: 'number'
+            default: 0
+        - in: 'query'
+          name: 'limit'
+          schema:
+            type: 'number'
+            default: 20
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  data:
+                    type: "array"
+                    items:
+                      $ref: "#/components/schemas/Feature"
+                  total:
+                    type: "number"
+        "404":
+          description: "Matrix not found"
+
+  /matrices/{id}/biosamples:
+    get:
+      tags:
+        - "matrices"
+      summary: "Endpoint to retrieve a paginated list of biosamples from a matrix id"
+      parameters:
+        - in: 'path'
+          name: 'id'
+          required: true
+          schema:  
+            type: 'string'
+        - in: 'query'
+          name: 'skip'
+          schema:
+            type: 'number'
+            default: 0
+        - in: 'query'
+          name: 'limit'
+          schema:
+            type: 'number'
+            default: 10
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  data:
+                    type: "array"
+                    items:
+                      $ref: "#/components/schemas/BioSample"
+                  total:
+                    type: "number"
+        "404":
+          description: "Matrix not found"
+
+
 components:
+
   schemas:
-    Assembly:
+
+    BioSample:
       type: "object"
-      description: "object containing the urls to download the gzipped masked genome and its indexed versions"
+      description: "BioSample properties"
       properties:
-        accession:
+        id:
           type: "string"
-        assembly_name:
-          type: "string"
-        taxid:
-          type: "string"
-        sample_accession:
-          type: "string"
-        scientific_name:
-          type: "string"
-        created:
-          type: "string"
-        chromosomes:
+        matrices:
           type: "array"
           items:
             type: "string"
-          description: "list of chromosome accessions"
-        metadata:
-          type: "object"
-          description: "INSDC metadata"
+          description: "list of matrix ids"
   
-    Annotation:
+    Feature:
       type: "object"
-      description: "object containing the urls to download the gzipped gff3 file"
+      description: "Feature properties"
       properties:
-        name:
+        id:
           type: "string"
-          description: "annotation name"
-        taxid:
-          type: "string"
-        assembly_accession:
-          type: "string"
-        links:
+        molecularType:
+          $ref: "#/components/schemas/OntologyTerm"
+          description: "Sequence ontology identifier"
+        biologicalFunctions:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/OntologyTerm"
+          description: "list of ontologies"
+        matrices:
           type: "array"
           items:
             type: "string"
-          description: "list of urls to download the related annotation files"
-        metadata:
-          type: "object"
-          description: "user defined metadata object schema"
+          description: "list of matrix ids"
     
-    TaxonNode:
+    Matrix:
       type: "object"
+      description: "Matrix properties"
       properties:
-        children:
-          type: "array"
-          items:
-            type: "string"
-          description: "list of taxid of the taxon node childrens"
-        name:
+        id:
           type: "string"
-        rank: 
+        name: 
           type: "string"
-        leaves:
+        description: 
+          type: "string"
+        downloadLink:
+          type: "string"
+        unit:
+          type: "string"
+          enum:
+            - "TPM"
+            - "RPM"
+            - "RPKM"
+            - "FPKM"
+            - "raw"
+        taxID:
+          type: "number"       
+        refereceAnnotation:
+          type: "string"
+        featuresCount:
           type: "number"
-        taxid:
-          type: "string"
+        biosamplesCount:
+          type: "number"   
           
-    Organism:
+    ExpressionValue:
       type: "object"
       properties:
-        assemblies:
-          type: "array"
-          items:
-            type: "string"
-          description: "list of related assembly accessions"
-        annotations:
-          type: "array"
-          items:
-            type: "string"
-          description: "list of related annotations"
-        tolid_prefix:
+        matrixID:
           type: "string"
-        links:
-          type: "array"
-          items: 
-            type: "string"
-          description: "list of user defined organism related links"
-        insdc_common_name:
+        sequenceID:
           type: "string"
-        scientific_name:
+        biosampleID:
           type: "string"
-          description: "organism name"
-        taxid:
-          type: "string"
-          description: "NCBI taxonomic identifier"
-        image:
-          type: "string"
-          description: "link to main image"
-        image_urls:
-          type: "array"
-          items:
-            type: "string"
-        taxon_lineage:
-          type: "array"
-          items:
-            type: "string"
-          description: "asc list of taxIDs"
+        value:
+          type: "number"
           
-          
+    OntologyTerm:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+          description: "CURIE identifier"
+        label:
+          type: "string"
