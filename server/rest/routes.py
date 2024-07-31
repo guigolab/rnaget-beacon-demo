@@ -1,6 +1,6 @@
-from biosample import biosample_controller
-from matrix import matrix_controller
-from feature import feature_controller
+from .biosample import biosample_controller
+from .matrix import matrix_controller
+from .feature import feature_controller
 
 
 def initialize_routes(api):

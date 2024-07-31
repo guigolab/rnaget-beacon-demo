@@ -22,23 +22,6 @@ class NotFound(HTTPException):
     pass
 
 errors = {
-    "RecordAlreadyExistError": {
-         "message": "sample unique name already exists",
-         "status": 400
-     },
-	"InternalServerError": {
-        "message": "Oops something wrong",
-        "status": 500
-    },
-     "SchemaValidationError": {
-         "message": "Required fields missing",
-         "status": 400
-     },
-    "TaxxonNotFoundError": {
-        "message": "TaxID not found in ENA database",
-        "status": 400
-    },
-
     "Unauthorized": {
         "message": "Unauthorized",
         "status": 401

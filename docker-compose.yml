@@ -14,7 +14,7 @@ services:
     ports:
       - "27015:${DB_PORT}"
 
-  rnaget_server:
+  server:
     build: ./server
     container_name: "rnaget_server"
     restart: always
