@@ -1,7 +1,7 @@
 from .biosample import biosample_controller
 from .matrix import matrix_controller
 from .feature import feature_controller
-
+from .upload import uploads_controller
 
 def initialize_routes(api):
 
@@ -18,6 +18,13 @@ def initialize_routes(api):
     api.add_resource(matrix_controller.MatrixExpressionValuesApi, '/api/matrices/<matrix_id>/expression_values')
 
     #FEATURE
-    api.add_resource(feature_controller.FeatureApi, '/api/features')
-    api.add_resource(feature_controller.FeaturesApi, '/api/features/<sequence_id>')
+    api.add_resource(feature_controller.FeaturesApi, '/api/features')
+    api.add_resource(feature_controller.FeatureApi, '/api/features/<sequence_id>')
     api.add_resource(feature_controller.FeatureMatricesApi, '/api/features/<sequence_id>/matrices')
+
+    #MATRIX UPLOADS
+    api.add_resource(uploads_controller.UploadTSVAPI, '/api/uploads/tsv')
+    api.add_resource(uploads_controller.UploadMatrixMarketAPI, '/api/uploads/matrix_market')
+    api.add_resource(uploads_controller.CheckJobStatusAPI, '/api/uploads/matrix_market/<task_id>', '/api/uploads/tsv/<task_id>')
+
+    # api.add_resource(matrix_controller.MatricesApi, '/api/uploads/hdf5')

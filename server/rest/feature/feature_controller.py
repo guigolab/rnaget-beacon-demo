@@ -2,7 +2,6 @@ from flask_restful import Resource
 from flask import Response, request
 from . import feature_service
 
-
 class FeatureApi(Resource):
     def get(self, sequence_id):
         biosample_obj=feature_service.get_sequence(sequence_id)

@@ -1,7 +1,7 @@
 set -e
 
 printenv
-mongo <<EOF
+mongosh <<EOF
 
 use admin
 
@@ -17,4 +17,4 @@ db.createUser({
     db: '$DB_NAME'
   }]
 })
-EOF
+EOFexit

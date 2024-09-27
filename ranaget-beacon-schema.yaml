@@ -167,6 +167,7 @@ paths:
                     type: "number"
         "404":
           description: "Feature not found"
+          
   /matrices:
     get:
       tags:
@@ -295,11 +296,8 @@ paths:
         "404":
           description: "Matrix not found"
 
-
 components:
-
   schemas:
-
     BioSample:
       type: "object"
       description: "BioSample properties"

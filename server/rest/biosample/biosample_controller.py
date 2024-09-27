@@ -2,7 +2,6 @@ from flask_restful import Resource
 from flask import Response, request
 from . import biosample_service
 
-
 class BioSampleApi(Resource):
     def get(self, sample_id):
         biosample_obj=biosample_service.get_biosample(sample_id)

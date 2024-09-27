@@ -22,3 +22,4 @@ class MatrixFeaturesApi(Resource):
 class MatrixExpressionValuesApi(Resource):
     def get(self, matrix_id):
         return Response(matrix_service.get_expression_values(matrix_id, **request.args), mimetype="application/json", status=200)
+
