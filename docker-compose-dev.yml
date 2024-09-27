@@ -36,7 +36,6 @@ services:
     restart: always
     volumes:
       - ./server:/server
-      - ./matrices/:/server/matrices
     env_file:
       - .env
     depends_on:
@@ -48,8 +47,6 @@ services:
     build: ./server
     command: celery --app app.celery_app worker --loglevel=info --autoscale=1,1 --max-tasks-per-child=1
     restart: always
-    volumes:
-      - ./matrices/:/server/matrices
     env_file:
       - .env
     depends_on:
