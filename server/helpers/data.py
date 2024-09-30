@@ -21,7 +21,7 @@ def map_and_update_objects(model_class, identifier_field, identifier_list, matri
     
     Parameters:
     model_class (MongoEngine Document): The MongoEngine document class to query and update.
-    identifier_field (str): The field name to filter the objects (e.g., 'sequenceID', 'biosampleID').
+    identifier_field (str): The field name to filter the objects (e.g., 'featureID', 'biosampleID').
     identifier_list (list): The list of identifiers to filter existing objects.
     matrix_id (str): The matrix ID to append to the objects.
 

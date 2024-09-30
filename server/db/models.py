@@ -1,10 +1,9 @@
 from . import db, enums
-from mongoengine.queryset import queryset_manager
 
-EXPRESSION_VALUE_FIELDS=['biosampleID','sequenceID','value']
+EXPRESSION_VALUE_FIELDS=['biosampleID','featureID','value']
 
 class OntologyTerm(db.EmbeddedDocument):
-    id = db.StringField() #CURIE
+    id = db.StringField()
     label = db.StringField()
 
 class BioSample(db.DynamicDocument):
@@ -13,40 +12,31 @@ class BioSample(db.DynamicDocument):
     meta = {
         'indexes': ['biosampleID']
     }
-    @queryset_manager
-    def objects(doc_cls, queryset):
-        return queryset.exclude('id')
 
 class ExpressionValue(db.Document):
-    sequenceID = db.StringField(required=True)
+    featureID = db.StringField(required=True)
     biosampleID = db.StringField(required=True)
     matrixID = db.StringField(required=True)
     value = db.FloatField(required=True)
     meta = {
         'indexes': [
             {
-                'fields': ['sequenceID', 'biosampleID','matrixID'],
-                'unique': True  # This enforces uniqueness
+                'fields': ['featureID', 'biosampleID','matrixID'],
+                'unique': True  
             }
         ],
         'strict': False
     }
-    @queryset_manager
-    def objects(doc_cls, queryset):
-        return queryset.only(*EXPRESSION_VALUE_FIELDS).exclude('id')
 
 class SequenceFeature(db.DynamicDocument):
-    sequenceID = db.StringField(unique=True, required=True)
+    featureID = db.StringField(unique=True, required=True)
     name= db.StringField()
     biologicalFunctions=db.ListField(db.EmbeddedDocumentField(OntologyTerm))
     molecularType=db.EmbeddedDocumentField(OntologyTerm)
     matrices=db.ListField(db.StringField())
     meta = {
-        'indexes': ['sequenceID','molecularType']
+        'indexes': ['featureID','molecularType']
     }
-    @queryset_manager
-    def objects(doc_cls, queryset):
-        return queryset.exclude('id')
 
 class ExpressionMatrix(db.DynamicDocument):
     matrixID = db.StringField(unique=True, required=True)
@@ -61,8 +51,6 @@ class ExpressionMatrix(db.DynamicDocument):
     meta = {
         'indexes': ['matrixID','name','taxID']
     }
-    @queryset_manager
-    def objects(doc_cls, queryset):
-        return queryset.exclude('id')
+
 
 

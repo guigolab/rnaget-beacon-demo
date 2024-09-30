@@ -9,7 +9,7 @@ def get_biosample(sample_id):
     return biosample
 
 def get_biosamples(args):
-    items = BioSample.objects()
+    items = BioSample.objects().exclude('id')
     total = items.count()
     limit, skip = data.get_pagination(args)     
     response = dict(total=total, data=list(items.skip(skip).limit(limit).as_pymongo()))
@@ -17,5 +17,5 @@ def get_biosamples(args):
 
 def get_related_matrices(sample_id):
     biosample = get_biosample(sample_id)
-    matrices = ExpressionMatrix.objects(expression_matrix_id__in=biosample.matrices).as_pymongo()
+    matrices = ExpressionMatrix.objects(expression_matrix_id__in=biosample.matrices).exclude('id').as_pymongo()
     return data.dump_json(list(matrices))

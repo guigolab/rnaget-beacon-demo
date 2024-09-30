@@ -1,17 +1,18 @@
-import csv
 from scipy.io import mmread
-from db.models import SequenceFeature, BioSample, ExpressionValue
+from db.models import SequenceFeature, BioSample, ExpressionValue,ExpressionMatrix
 from helpers import data
 from celery import shared_task
 import os
+import csv
 
-@shared_task(name='matrix_market_upload', ignore_result=False, bind=True)
-def upload_matrix_market(self, mm_file, rows, columns, matrix):
+@shared_task(name='upload_matrix_market', ignore_result=False, bind=True)
+def upload_matrix_market(self, mm_file, rows, columns, parsed_matrix):
     """
     :param mm_file: Matrix Market file
     :param rows: Features TSV file
     :param columns: Samples TSV file
     """
+    matrix = ExpressionMatrix(**parsed_matrix)
     new_samples_count=0
     new_features_count=0
     total_expr_values=0
@@ -19,7 +20,6 @@ def upload_matrix_market(self, mm_file, rows, columns, matrix):
     message = None
     self.update_state(state='PROGRESS', meta={'messages': ['Starting job...']})
     try:
-    
         # Load the expression matrix
         expression_matrix = load_matrix_market(mm_file)
         # Load mappings
@@ -37,7 +37,7 @@ def upload_matrix_market(self, mm_file, rows, columns, matrix):
         expression_values = map_expression_values(expression_matrix, features, samples, matrix_id)
         total_expr_values = len(expression_values)
         new_features = data.map_and_update_objects(
-                SequenceFeature, 'sequenceID', features, matrix_id
+                SequenceFeature, 'featureID', features, matrix_id
             )
         new_samples = data.map_and_update_objects(
                 BioSample, 'biosampleID', samples, matrix_id
@@ -60,9 +60,10 @@ def upload_matrix_market(self, mm_file, rows, columns, matrix):
                           f'TOTAL FEATURES SAVED {new_features_count}', 
                           f'TOTAL EXPRESSION VALUES SAVED {total_expr_values}',
                           f'MATRIX SAVED {matrix_id}' ]}
-        
+        print(message)
     except Exception as e:
-        message = {'messages': [e]}
+        print('Error', e)
+        message = {'messages': [str(e)]}
 
     finally:
         os.remove(mm_file)
@@ -77,7 +78,7 @@ def map_expression_values(expression_matrix, features, samples, matrix_id):
     for gene_index, sample_index, expression_value in zip(expression_matrix.row, expression_matrix.col, expression_matrix.data):
         expression_value = {
             'biosampleID': samples[sample_index],
-            'sequenceID': features[gene_index],
+            'featureID': features[gene_index],
             'matrixID': matrix_id,
             'value': expression_value
         }

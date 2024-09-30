@@ -48,8 +48,8 @@ paths:
       tags:
         - "biosamples"
       parameters:
-        - in: 'path'
-          name: 'id'
+        - in: "path"
+          name: "id"
           required: true
           schema:
             type: "string"
@@ -68,8 +68,8 @@ paths:
       tags:
         - "biosamples"
       parameters:
-        - in: 'path'
-          name: 'id'
+        - in: "path"
+          name: "id"
           required: true
           schema:
             type: "string"
@@ -96,15 +96,15 @@ paths:
         - "features"
       summary: "Endpoint to retrieve a paginated list of features"
       parameters:
-        - in: 'query'
-          name: 'skip'
+        - in: "query"
+          name: "skip"
           schema:
-            type: 'number'
+            type: "number"
             default: 0
-        - in: 'query'
-          name: 'limit'
+        - in: "query"
+          name: "limit"
           schema:
-            type: 'number'
+            type: "number"
             default: 20
       responses:
         "200":
@@ -126,11 +126,11 @@ paths:
       tags:
         - "features"
       parameters:
-        - in: 'path'
-          name: 'id'
+        - in: "path"
+          name: "id"
           required: true
           schema:
-            type: 'string'
+            type: "string"
       responses:
         "200":
           description: "successful operation"
@@ -146,8 +146,8 @@ paths:
       tags:
         - "features"
       parameters:
-        - in: 'path'
-          name: 'id'
+        - in: "path"
+          name: "id"
           required: true
           schema:
             type: "string"
@@ -174,15 +174,15 @@ paths:
         - "matrices"
       summary: "Endpoint to retrieve a paginated list of matrices"
       parameters:
-        - in: 'query'
-          name: 'skip'
+        - in: "query"
+          name: "skip"
           schema:
-            type: 'number'
+            type: "number"
             default: 0
-        - in: 'query'
-          name: 'limit'
+        - in: "query"
+          name: "limit"
           schema:
-            type: 'number'
+            type: "number"
             default: 20
       responses:
         "200":
@@ -204,11 +204,11 @@ paths:
       tags:
         - "matrices"
       parameters:
-        - in: 'path'
-          name: 'id'
+        - in: "path"
+          name: "id"
           required: true
           schema:  
-            type: 'string'
+            type: "string"
 
       responses:
         "200":
@@ -226,20 +226,20 @@ paths:
         - "matrices"
       summary: "Endpoint to retrieve a paginated list of features from a matrix id"
       parameters:
-        - in: 'path'
-          name: 'id'
+        - in: "path"
+          name: "id"
           required: true
           schema:  
-            type: 'string'
-        - in: 'query'
-          name: 'skip'
+            type: "string"
+        - in: "query"
+          name: "skip"
           schema:
-            type: 'number'
+            type: "number"
             default: 0
-        - in: 'query'
-          name: 'limit'
+        - in: "query"
+          name: "limit"
           schema:
-            type: 'number'
+            type: "number"
             default: 20
       responses:
         "200":
@@ -264,20 +264,20 @@ paths:
         - "matrices"
       summary: "Endpoint to retrieve a paginated list of biosamples from a matrix id"
       parameters:
-        - in: 'path'
-          name: 'id'
+        - in: "path"
+          name: "id"
           required: true
           schema:  
-            type: 'string'
-        - in: 'query'
-          name: 'skip'
+            type: "string"
+        - in: "query"
+          name: "skip"
           schema:
-            type: 'number'
+            type: "number"
             default: 0
-        - in: 'query'
-          name: 'limit'
+        - in: "query"
+          name: '"limit"'
           schema:
-            type: 'number'
+            type: "number"
             default: 10
       responses:
         "200":
@@ -295,6 +295,65 @@ paths:
                     type: "number"
         "404":
           description: "Matrix not found"
+
+  /matrices/{id}/expression_values:
+    get:
+      tags:
+        - "matrices"
+      summary: "Endpoint to retrieve a paginated list of expression values from a matrix id"
+      parameters:
+        - in: "path"
+          name: "id"
+          required: true
+          schema:  
+            type: "string"
+        - in: "query"
+          name: "skip"
+          schema:
+            type: "number"
+            default: 0
+        - in: "query"
+          name: "limit"
+          schema:
+            type: "number"
+            default: 10
+        - in: "query"
+          name: "featureIDList"
+          description: "Comma separated list of features id"
+          schema:
+            type: "string"
+        - in: "query"
+          name: "biosampleIDList"
+          description: "Comma separated list of biosamples id"
+          schema:
+            type: "string"
+        - in: "query"
+          name: "maxValue"
+          description: "max expression count value"
+          schema:
+            type: "number"
+        - in: "query"
+          name: "minValue"
+          description: "min expression count value"
+          schema:
+            type: "number"
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  data:
+                    type: "array"
+                    items:
+                      $ref: "#/components/schemas/BioSample"
+                  total:
+                    type: "number"
+        "404":
+          description: "Matrix not found"
+
 
 components:
   schemas:
@@ -364,7 +423,7 @@ components:
       properties:
         matrixID:
           type: "string"
-        sequenceID:
+        featureID:
           type: "string"
         biosampleID:
           type: "string"
