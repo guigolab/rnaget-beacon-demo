@@ -1,10 +1,14 @@
 openapi: 3.0.0
 
 info:
-  version: "2.0.0"
+  version: "1.0.0"
   title: "RNAget Extension for BeaconV2 API"
   contact:
     email: "emilio.righi@crg.eu"
+
+servers:
+  - url: https://genome.crg.es/rnaget-beacon/api
+    description: Demo server containing some gene expression data to test rnaget-beaconV2 API implementation
 
 tags:
 - name: "matrices"
@@ -348,12 +352,65 @@ paths:
                   data:
                     type: "array"
                     items:
-                      $ref: "#/components/schemas/BioSample"
+                      $ref: "#/components/schemas/ExpressionValue"
                   total:
                     type: "number"
         "404":
           description: "Matrix not found"
 
+    post:
+      tags:
+        - "matrices"
+      summary: "Endpoint to retrieve a paginated list of expression values from a matrix id"
+      parameters:
+        - in: "path"
+          name: "id"
+          required: true
+          schema:
+            type: "string"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              properties:
+                skip:
+                  type: "number"
+                  default: 0
+                  description: "Number of records to skip for pagination"
+                limit:
+                  type: "number"
+                  default: 10
+                  description: "Maximum number of records to return"
+                featureIDList:
+                  type: "string"
+                  description: "Comma-separated list of feature IDs to filter the results"
+                biosampleIDList:
+                  type: "string"
+                  description: "Comma-separated list of biosample IDs to filter the results"
+                maxValue:
+                  type: "number"
+                  description: "Maximum expression count value to filter in the results"
+                minValue:
+                  type: "number"
+                  description: "Minimum expression count value to filter in the results"
+      responses:
+        "200":
+          description: "successful operation"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                properties:
+                  data:
+                    type: "array"
+                    items:
+                      $ref: "#/components/schemas/ExpressionValue"
+                  total:
+                    type: "number"
+        "404":
+          description: "Matrix not found"
 
 components:
   schemas:

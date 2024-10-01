@@ -23,3 +23,5 @@ class MatrixExpressionValuesApi(Resource):
     def get(self, matrix_id):
         return Response(matrix_service.get_expression_values(matrix_id, **request.args), mimetype="application/json", status=200)
 
+    def post(self, matrix_id):
+        return Response(matrix_service.map_post_request(matrix_id, request), mimetype="application/json", status=200)

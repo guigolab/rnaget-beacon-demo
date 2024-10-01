@@ -1,4 +1,6 @@
 from bson.json_util import dumps, JSONOptions, DatetimeRepresentation
+from werkzeug.exceptions import BadRequest
+
 
 CHUNK_SIZE=10000
 
@@ -52,4 +54,9 @@ def insert_data(model_map):
         for chunk in chunk_list(v, CHUNK_SIZE):
             k.objects.insert(chunk)
 
+def validate_fields(fields, data):
+    missing_fields = [field for field in fields if field not in data]
+    if missing_fields:
+        raise BadRequest(description=f"Missing required files: {', '.join(missing_fields)}")
+    
 # def map_beacon_response():

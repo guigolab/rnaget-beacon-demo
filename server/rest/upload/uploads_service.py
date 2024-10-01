@@ -1,22 +1,23 @@
 from db.models import ExpressionMatrix
 from jobs import matrix_market, tsv
-from werkzeug.exceptions import BadRequest, Conflict, NotFound
+from helpers import data as data_helper
+from werkzeug.exceptions import BadRequest, Conflict, NotFound, Unauthorized
 from celery.result import AsyncResult
 import os
 import tempfile
 
-def launch_matrix_market_job(request):
+USER = os.getenv('USER')
+PWD = os.getenv('PWD')
 
+def launch_matrix_market_job(request):
     parsed_matrix = parse_post_request(request)
     mm_file, rows_file, cols_file = get_matrix_market_files(request.files)
-    #launch job
     task = matrix_market.upload_matrix_market.delay(mm_file, rows_file, cols_file, parsed_matrix)
     return dict(id=task.id, state=task.state )
 
 def launch_tsv_job(request):
     parsed_matrix = parse_post_request(request)
     tsv_file = get_tsv_file(request.files)
-    print(tsv_file)
     task = tsv.upload_tsv.delay(tsv_file, parsed_matrix)
     return dict(id=task.id, state=task.state)
 
@@ -28,16 +29,13 @@ def get_tsv_file(files):
 
 def get_matrix_market_files(files):
     matrix_market_fields = ['mmFile', 'rowsFile', 'colsFile']
-
-    missing_fields = [field for field in matrix_market_fields if field not in files]
-    if missing_fields:
-        raise BadRequest(description=f"Missing required files: {', '.join(missing_fields)}")
-    
+    data_helper.validate_fields(matrix_market_fields, files)
     return tuple(save_to_tmp_file(files[field]) for field in matrix_market_fields)
 
 def parse_post_request(request):
     data = request.json if request.is_json else request.form
 
+    check_credentials(data)
     parsed_matrix = parse_matrix_payload(data)
     matrix_id = parsed_matrix.get('matrixID')
 
@@ -46,6 +44,15 @@ def parse_post_request(request):
     
     return parsed_matrix
 
+def check_credentials(data):
+    fields = ['username', 'password']
+    data_helper.validate_fields(fields, data)
+
+    user = data.get('username')
+    pwd = data.get('password')
+    if user != USER or pwd != PWD:
+        raise Unauthorized(description=f"Bad username or password")
+    
 # Save the file to the shared directory
 def save_to_tmp_file(file):
     shared_dir = '/server'
@@ -68,11 +75,7 @@ def parse_matrix_payload(payload):
     # Validate and extract required fields
     matrix_to_save = {field: payload[field] for field in required_fields if payload.get(field) is not None}
 
-    # Ensure all required fields are present
-    missing_fields = [field for field in required_fields if field not in matrix_to_save]
-    if missing_fields:
-        raise BadRequest(description=f"Missing required fields: {', '.join(missing_fields)}")
-
+    data_helper.validate_fields(required_fields, matrix_to_save)
     # Extract optional fields if present
     matrix_to_save.update({field: payload[field] for field in optional_fields if payload.get(field)})
     return matrix_to_save

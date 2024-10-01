@@ -51,7 +51,7 @@ def upload_matrix_market(self, mm_file, rows, columns, parsed_matrix):
             BioSample: new_samples,
         }
 
-        self.update_state(state='PROGRESS', meta={'messages': ['Inserting data..']})
+        self.update_state(datastate='PROGRESS', meta={'messages': ['Inserting data..']})
         #bulk insert data
         data.insert_data(model_map)
         matrix.save()
@@ -60,7 +60,6 @@ def upload_matrix_market(self, mm_file, rows, columns, parsed_matrix):
                           f'TOTAL FEATURES SAVED {new_features_count}', 
                           f'TOTAL EXPRESSION VALUES SAVED {total_expr_values}',
                           f'MATRIX SAVED {matrix_id}' ]}
-        print(message)
     except Exception as e:
         print('Error', e)
         message = {'messages': [str(e)]}

@@ -7,21 +7,24 @@ import os
 @shared_task(name='upload_tsv', ignore_result=False, bind=True)
 def upload_tsv(self, tsv_file, parsed_matrix):
 
+    self.update_state(state='PROGRESS', meta={'messages': ['Starting job...']})
+
+    ##INITIALIZE VARIABLES
     new_samples_count=0
     new_features_count=0
     total_expr_values=0
     matrix = ExpressionMatrix(**parsed_matrix)
-
     matrix_id = matrix.matrixID
     message = None
-    self.update_state(state='PROGRESS', meta={'messages': ['Starting job...']})
+
     try:
         with open(tsv_file, mode='r') as file:
             reader = csv.reader(file, delimiter='\t')
 
-            #retrieve header
+            ##MAP HEADER
             header = next(reader)
             gene_columns, sample_columns = map_columns(header)
+            
             ## we expect the first column to be the feature id
             feature_id_column = gene_columns[0] 
             expression_values, features = map_features_and_expression_values(reader, feature_id_column, sample_columns, matrix_id)
