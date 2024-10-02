@@ -20,6 +20,10 @@ class ExpressionValue(db.Document):
     value = db.FloatField(required=True)
     meta = {
         'indexes': [
+            'matrixID',
+            'biosampleID',
+            'featureID',
+            'value',
             {
                 'fields': ['featureID', 'biosampleID','matrixID'],
                 'unique': True  
