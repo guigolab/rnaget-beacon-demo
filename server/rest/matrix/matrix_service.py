@@ -64,7 +64,7 @@ def map_post_request(matrix_id, request):
 
     return get_expression_values(matrix_id, **payload)
 
-def get_expression_values(matrix_id,featureIDList=None,biosampleIDList=None,maxValue=None,minValue=None,skip=0,limit=10):
+def get_expression_values(matrix_id,featureIDList=None,biosampleIDList=None,maxValue=None,minValue=None, skip=0, limit=10):
     
     get_matrix(matrix_id)
 
@@ -82,6 +82,10 @@ def get_expression_values(matrix_id,featureIDList=None,biosampleIDList=None,maxV
     if maxValue:
         query["value__lte"] = maxValue
 
+    limit = int(limit)
+
+    skip = int(skip)
+    
     expression_values = ExpressionValue.objects(**query).only(*EXPRESSION_VALUE_FIELDS).exclude('id').skip(skip).limit(limit)
 
     total = expression_values.count()
