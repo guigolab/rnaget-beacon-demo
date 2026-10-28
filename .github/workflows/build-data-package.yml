@@ -43,12 +43,12 @@ jobs:
       - name: Check free disk
         run: |
           set -euo pipefail
-          # Full gtex can need many GB; fail early on tiny runners.
+          # Full package peaks ~2–3 GiB; leave headroom for Python/deps/tarball.
           AVAIL_KB=$(df -Pk . | awk 'NR==2 {print $4}')
           AVAIL_GB=$((AVAIL_KB / 1024 / 1024))
           echo "Free disk ≈ ${AVAIL_GB} GiB"
-          if [ "$AVAIL_GB" -lt 15 ]; then
-            echo "::error::Need at least ~15 GiB free for full export (have ${AVAIL_GB} GiB). Use smoke=true or a larger runner."
+          if [ "$AVAIL_GB" -lt 5 ]; then
+            echo "::error::Need at least ~5 GiB free for export (have ${AVAIL_GB} GiB). Use smoke=true or free disk."
             exit 1
           fi
 
@@ -59,25 +59,32 @@ jobs:
           cache: pip
           cache-dependency-path: scripts/requirements-export.txt
 
+      # Cache keys cannot contain commas. Profile URLs live in the YAMLs, so
+      # hashFiles alone is enough — subset runs (encode-only) still restore.
       - name: Cache download cache
         uses: actions/cache@v4
         with:
           path: scripts/.cache
-          key: export-cache-${{ hashFiles('scripts/profiles/*.yaml') }}-${{ inputs.profiles }}
+          key: export-cache-${{ hashFiles('scripts/profiles/*.yaml', 'scripts/requirements-export.txt') }}
           restore-keys: |
-            export-cache-${{ hashFiles('scripts/profiles/*.yaml') }}-
             export-cache-
 
       - name: Install export deps
         run: pip install -r scripts/requirements-export.txt
 
       - name: Build package
+        env:
+          INPUT_PROFILES: ${{ inputs.profiles }}
+          INPUT_MAX_GENES: ${{ inputs.max_genes }}
+          INPUT_MAX_SAMPLES: ${{ inputs.max_samples }}
+          INPUT_SMOKE: ${{ inputs.smoke }}
         run: |
           set -euo pipefail
-          PROFILES="${{ inputs.profiles }}"
-          MAX_GENES="${{ inputs.max_genes }}"
-          MAX_SAMPLES="${{ inputs.max_samples }}"
-          if [ "${{ inputs.smoke }}" = "true" ]; then
+          PROFILES="${INPUT_PROFILES}"
+          MAX_GENES="${INPUT_MAX_GENES}"
+          MAX_SAMPLES="${INPUT_MAX_SAMPLES}"
+          # workflow_dispatch booleans render as the strings "true" / "false"
+          if [ "${INPUT_SMOKE}" = "true" ]; then
             if [ -z "$MAX_GENES" ]; then MAX_GENES=500; fi
             if [ -z "$MAX_SAMPLES" ]; then MAX_SAMPLES=20; fi
             echo "Smoke mode: max_genes=${MAX_GENES} max_samples=${MAX_SAMPLES}"
@@ -90,6 +97,15 @@ jobs:
             ARGS+=(--max-samples "$MAX_SAMPLES")
           fi
           python scripts/export_parquet.py "${ARGS[@]}"
+
+      - name: Hydrate genes from GTF/GFF
+        run: python scripts/hydrate_genes.py --package dist/data-package
+
+      - name: Disk usage after hydrate
+        run: |
+          set -euo pipefail
+          du -sh scripts/.cache dist/data-package || true
+          df -h .
 
       - name: Verify package
         run: python scripts/verify_data_package.py --package dist/data-package
@@ -112,9 +128,10 @@ jobs:
         if: ${{ inputs.create_release }}
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          TAG="${{ inputs.release_tag }}"
+          TAG="${RELEASE_TAG}"
           FILE="dist/data-package.tar.xz"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$FILE" --clobber

@@ -78,6 +78,54 @@ def main(argv: List[str] | None = None) -> int:
         elif not (doc.get("annotation") or {}).get("file"):
             errors.append(f"{mid}: annotation.file missing")
 
+    genes_path = root / "genes.parquet"
+    lookup_path = root / "gene_lookup.parquet"
+    if not genes_path.is_file():
+        errors.append("missing genes.parquet")
+    if not lookup_path.is_file():
+        errors.append("missing gene_lookup.parquet")
+
+    if genes_path.is_file() and lookup_path.is_file():
+        import pyarrow.parquet as pq
+
+        genes_table = pq.read_table(genes_path)
+        lookup_table = pq.read_table(lookup_path)
+        if genes_table.num_rows <= 0:
+            errors.append("genes.parquet has zero rows")
+        if lookup_table.num_rows <= 0:
+            errors.append("gene_lookup.parquet has zero rows")
+        if "lookup_kind" in lookup_table.column_names:
+            kinds = set(lookup_table.column("lookup_kind").to_pylist())
+            if "symbol" not in kinds:
+                errors.append("gene_lookup.parquet has no lookup_kind=symbol rows")
+        gene_ids = set(genes_table.column("feature_id").to_pylist())
+        lookup_ids = set(lookup_table.column("feature_id").to_pylist())
+        orphan = lookup_ids - gene_ids
+        if orphan:
+            sample = sorted(orphan)[:5]
+            errors.append(
+                f"gene_lookup feature_id(s) missing from genes: {sample}"
+                + (f" (+{len(orphan) - 5} more)" if len(orphan) > 5 else "")
+            )
+        if manifest.get("genesPath") != "genes.parquet":
+            errors.append("manifest.genesPath missing or not genes.parquet")
+        if manifest.get("geneLookupPath") != "gene_lookup.parquet":
+            errors.append("manifest.geneLookupPath missing or not gene_lookup.parquet")
+        genes_meta = manifest.get("genes")
+        if isinstance(genes_meta, dict) and "rows" in genes_meta:
+            declared = genes_meta.get("rows")
+            if declared != genes_table.num_rows:
+                errors.append(
+                    f"manifest.genes.rows={declared} != genes.parquet rows={genes_table.num_rows}"
+                )
+        if isinstance(genes_meta, dict) and "lookupRows" in genes_meta:
+            declared_lookup = genes_meta.get("lookupRows")
+            if declared_lookup != lookup_table.num_rows:
+                errors.append(
+                    f"manifest.genes.lookupRows={declared_lookup} "
+                    f"!= gene_lookup.parquet rows={lookup_table.num_rows}"
+                )
+
     if errors:
         print("Package verify failed:", file=sys.stderr)
         for e in errors[:40]:

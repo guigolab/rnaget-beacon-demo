@@ -10,7 +10,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple, Union
 
 import requests
 import yaml
@@ -131,12 +131,15 @@ def resolve_source_file(
     )
 
 
+DOWNLOAD_USER_AGENT = "rnaget-beacon-demo/export"
+
+
 def download_file(
     url: str,
     *,
     cache_dir: Path = CACHE_DIR,
     skip_download: bool = False,
-    timeout: int = 600,
+    timeout: Union[float, Tuple[float, float]] = (30, 600),
     download_cfg: Optional[Dict[str, Any]] = None,
 ) -> Path:
     if not url or url.startswith("stub:"):
@@ -172,7 +175,12 @@ def download_file(
 
     tmp = dest.with_suffix(dest.suffix + ".partial")
     try:
-        with requests.get(url, stream=True, timeout=timeout) as resp:
+        with requests.get(
+            url,
+            stream=True,
+            timeout=timeout,
+            headers={"User-Agent": DOWNLOAD_USER_AGENT},
+        ) as resp:
             resp.raise_for_status()
             with tmp.open("wb") as out:
                 for chunk in resp.iter_content(chunk_size=1024 * 1024):

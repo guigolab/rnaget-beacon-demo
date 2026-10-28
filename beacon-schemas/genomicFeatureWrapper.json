@@ -1,8 +1,8 @@
 {
-    "$comment": "version: ga4gh-beacon-feature-v2.1.2",
+    "$comment": "Synced from beacon-v2/models/json/.../genomicFeatures/defaultSchema.json (source YAML: models/src/.../genomicFeatures/defaultSchema.yml); genomicFeature $ref points at local genomicFeature.json",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": true,
-    "description": "Schema for the genomic feature (e.g. gene or transcript...)",
+    "description": "Schema for the genomic feature (e.g. gene, transcript or genomic interval...)",
     "properties": {
         "id": {
             "description": "Internal feature ID.",
@@ -14,6 +14,11 @@
         "genomicFeature": {
             "type": "object",
             "$ref": "./genomicFeature.json"
+        },
+        "info": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Optional free-form metadata bag."
         },
         "matrixIds": {
             "items": {
@@ -29,5 +34,3 @@
     "title": "Genomic feature",
     "type": "object"
 }
-
-

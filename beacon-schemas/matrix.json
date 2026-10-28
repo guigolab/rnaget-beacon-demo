@@ -1,5 +1,5 @@
 {
-    "$comment": "beacon-v2 matrix defaultSchema (self-contained for offline jsonschema validation)",
+    "$comment": "Synced from beacon-v2/models/json/.../matrices/defaultSchema.json (source YAML: models/src/.../matrices/defaultSchema.yaml); local $refs inlined for offline use",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": true,
     "description": "Metadata for an RNA-seq quantification matrix available in the Beacon. Cell-level values are represented as expressionValue entries (or retrieved via matrix expression_values endpoints); this object describes how those values and feature identifiers should be interpreted.",
