@@ -1,20 +1,14 @@
-FROM python:3.7.11-stretch
+FROM python:3.11-slim
 
 COPY ./requirements.txt /server/requirements.txt
 
 WORKDIR /server
 
-RUN python -m pip install --upgrade pip
-
-RUN pip install -r requirements.txt
+RUN python -m pip install --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY . /server
 
-EXPOSE ${API_PORT}
+EXPOSE 5000
 
-CMD ["uwsgi", "app.ini"]
-
-
-
-
-
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]

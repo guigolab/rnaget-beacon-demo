@@ -1,4 +1,4 @@
-from db.models import SequenceFeature, BioSample, ExpressionValue,ExpressionMatrix
+from db.models import SequenceFeature, BioSample, ExpressionValue, Matrix
 from helpers import data
 import csv
 from celery import shared_task
@@ -13,8 +13,8 @@ def upload_tsv(self, tsv_file, parsed_matrix):
     new_samples_count=0
     new_features_count=0
     total_expr_values=0
-    matrix = ExpressionMatrix(**parsed_matrix)
-    matrix_id = matrix.matrixID
+    matrix = Matrix(**parsed_matrix)
+    matrix_id = matrix.matrixId
     message = None
 
     try:

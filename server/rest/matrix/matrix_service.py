@@ -1,18 +1,18 @@
-from db.models import BioSample,ExpressionMatrix,SequenceFeature,ExpressionValue
+from db.models import BioSample,Matrix,SequenceFeature,ExpressionValue
 from helpers import data as data_helper
-from werkzeug.exceptions import NotFound
+from fastapi import HTTPException
 
 EXPRESSION_VALUE_FIELDS=['biosampleID','featureID','value']
 
-def get_matrix(matrix_id):
-    matrix = ExpressionMatrix.objects(matrixID=matrix_id).exclude('id').first()
+async def get_matrix(matrix_id):
+    matrix = Matrix.objects(matrixId=matrix_id).first()
     if not matrix:
-        raise NotFound(description=f"Matrix with id {matrix_id} not found")
+        raise HTTPException(status_code=404, detail=f"Matrix with id {matrix_id} not found")
     
     return matrix
 
-def get_matrices(args):
-    items = ExpressionMatrix.objects().exclude('id')
+async def get_matrices(args):
+    items = Matrix.objects()
 
     total = items.count()
 
@@ -22,9 +22,9 @@ def get_matrices(args):
 
     return data_helper.dump_json(response)
 
-def get_related_biosamples(matrix_id, args):
+async def get_related_biosamples(matrix_id, args):
 
-    get_matrix(matrix_id)
+    await get_matrix(matrix_id)
 
     limit, skip = data_helper.get_pagination(args)     
 
@@ -37,9 +37,9 @@ def get_related_biosamples(matrix_id, args):
     return data_helper.dump_json(response)
 
 
-def get_related_features(matrix_id, args):
+async def get_related_features(matrix_id, args):
 
-    get_matrix(matrix_id)
+    await get_matrix(matrix_id)
 
     limit, skip = data_helper.get_pagination(args)     
 
@@ -52,9 +52,13 @@ def get_related_features(matrix_id, args):
     return data_helper.dump_json(response)
 
 
-def map_post_request(matrix_id, request):
+async def map_post_request(matrix_id, request):
 
-    data = request.json if request.is_json else request.form
+    try:
+        data = await request.json()
+    except:
+        form = await request.form()
+        data = dict(form)
     
     payload_fields = ['featureIDList','biosampleIDList','maxValue','minValue']
     
@@ -62,11 +66,11 @@ def map_post_request(matrix_id, request):
 
     payload = {f:data[f] for f in data}
 
-    return get_expression_values(matrix_id, **payload)
+    return await get_expression_values(matrix_id, **payload)
 
-def get_expression_values(matrix_id,featureIDList=None,biosampleIDList=None,maxValue=None,minValue=None, skip=0, limit=10):
+async def get_expression_values(matrix_id,featureIDList=None,biosampleIDList=None,maxValue=None,minValue=None, skip=0, limit=10):
     
-    get_matrix(matrix_id)
+    await get_matrix(matrix_id)
 
     query=dict(matrixID=matrix_id)
 

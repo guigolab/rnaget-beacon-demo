@@ -1,16 +1,13 @@
-from flask_restful import Resource
-from flask import Response, request
+from fastapi import Query, Response
 from . import biosample_service
 
-class BioSampleApi(Resource):
-    def get(self, sample_id):
-        biosample_obj=biosample_service.get_biosample(sample_id)
-        return Response(biosample_obj.to_json(),mimetype="application/json", status=200)
+async def get_biosample(sample_id: str):
+    biosample_obj = await biosample_service.get_biosample(sample_id)
+    return Response(content=biosample_obj.to_json(), media_type="application/json", status_code=200)
 
-class BioSamplesApi(Resource):
-    def get(self):
-        return Response(biosample_service.get_biosamples(request.args), mimetype="application/json", status=200)
-    
-class BioSampleMatricesApi(Resource):
-    def get(self,sample_id):
-        return Response(biosample_service.get_related_matrices(sample_id), mimetype="application/json", status=200)
+async def get_biosamples(limit: int = Query(10), skip: int = Query(0)):
+    args = {"limit": limit, "skip": skip}
+    return Response(content=await biosample_service.get_biosamples(args), media_type="application/json", status_code=200)
+
+async def get_biosample_matrices(sample_id: str):
+    return Response(content=await biosample_service.get_related_matrices(sample_id), media_type="application/json", status_code=200)

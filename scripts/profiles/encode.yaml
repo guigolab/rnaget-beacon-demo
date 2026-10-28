@@ -1,0 +1,46 @@
+profile: encode
+matrix_id: ENCSR622FSM
+name: "ENCODE Guigo lab BLaER1 cytosolic polyA+ RNA-seq (ENCSR622FSM)"
+description: >
+  Poly A+ RNA-Seq from the cytosolic compartment of untreated BLaER1 cells
+  (Roderic Guigo, CRG). Gene quantifications from ENCFF144BAP (biological
+  replicate 1), GRCh38 / GENCODE V24. Full ENSG set is imported by default.
+download:
+  url: "https://www.encodeproject.org/files/ENCFF144BAP/@@download/ENCFF144BAP.tsv"
+  md5: "6bcdf429f1361e520cfc06bb1431a0dc"
+unit: TPM
+scale: linear
+reproducible: true
+annotation:
+  source: gencode
+  version: "v24"
+  file: "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_24/gencode.v24.annotation.gtf.gz"
+assembly:
+  accession: GCA_000001405.15
+  name: GRCh38
+assay_type:
+  id: OBI:0003090
+  label: polyA plus RNA-seq
+feature_type:
+  id: SO:0000704
+  label: gene
+gene_id_column: gene_id
+value_column: TPM
+feature_id_prefix: ENSG
+delimiter: "\t"
+biosample:
+  id: ENCBS924XCI
+  biosampleId: ENCBS924XCI
+  sampleType:
+    id: EFO:0030018
+    label: BLaER1
+  cellularComponent: cytosolic fraction
+  sex: female
+  donor: ENCDO305PTK
+  file: ENCFF144BAP
+  lab: "Roderic Guigo, CRG"
+  summary: "Homo sapiens BLaER1 cell line cytosolic fraction"
+slice:
+  # 0 = import all matching genes (no cap)
+  max_genes: 0
+  max_samples: 1

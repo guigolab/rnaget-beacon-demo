@@ -1,0 +1,38 @@
+profile: geo
+matrix_id: GSE164073
+name: "GEO GSE164073 NCBI TPM (cornea / limbus / sclera ± SARS-CoV-2)"
+description: >
+  NCBI-generated RNA-seq TPM counts for GSE164073 (transcriptional response to
+  SARS-CoV-2 in cornea, limbus and sclera from human donors). Counts come from
+  NCBI's standardized HISAT2 + featureCounts pipeline on GRCh38.p13
+  (Annotation Release 109.20190905) — reproducible across GEO human RNA-seq
+  series. Full GeneID × GSM matrix is imported by default (~39k genes × 18 samples).
+download:
+  url: "https://www.ncbi.nlm.nih.gov/geo/download/?type=rnaseq_counts&acc=GSE164073&format=file&file=GSE164073_norm_counts_TPM_GRCh38.p13_NCBI.tsv.gz"
+unit: TPM
+scale: linear
+reproducible: true
+annotation:
+  source: ncbigene
+  version: "109.20190905"
+  file: "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109.20190905/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz"
+assembly:
+  accession: GCA_000001405.15
+  name: GRCh38.p13
+assay_type:
+  id: OBI:0003090
+  label: bulk RNA-seq assay
+feature_type:
+  id: SO:0000704
+  label: gene
+delimiter: "\t"
+feature_column: 0
+sample_start_column: 1
+# Series design (for matrix info); no per-GSM phenotype table in this phase.
+series_design: >
+  Cornea, limbus and sclera isolated from human donor tissue; infected with
+  SARS-CoV-2 for 24 hours in triplicate vs mock-infected controls.
+slice:
+  # 0 = import all genes and all GSM columns
+  max_genes: 0
+  max_samples: 0

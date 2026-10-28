@@ -1,0 +1,125 @@
+name: Build Parquet data package
+
+on:
+  workflow_dispatch:
+    inputs:
+      profiles:
+        description: "Comma-separated profiles (encode,geo,gtex)"
+        required: true
+        default: "encode,geo,gtex"
+      max_genes:
+        description: "Optional gene slice (empty = profile default / full)"
+        required: false
+        default: ""
+      max_samples:
+        description: "Optional sample slice (empty = profile default / full)"
+        required: false
+        default: ""
+      smoke:
+        description: "Fast smoke build (max-genes 500, max-samples 20 unless overridden)"
+        type: boolean
+        required: false
+        default: false
+      create_release:
+        description: "Attach tarball to a GitHub Release"
+        type: boolean
+        required: false
+        default: false
+      release_tag:
+        description: "Release tag when create_release is true (e.g. data-v1)"
+        required: false
+        default: "data-latest"
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check free disk
+        run: |
+          set -euo pipefail
+          # Full gtex can need many GB; fail early on tiny runners.
+          AVAIL_KB=$(df -Pk . | awk 'NR==2 {print $4}')
+          AVAIL_GB=$((AVAIL_KB / 1024 / 1024))
+          echo "Free disk ≈ ${AVAIL_GB} GiB"
+          if [ "$AVAIL_GB" -lt 15 ]; then
+            echo "::error::Need at least ~15 GiB free for full export (have ${AVAIL_GB} GiB). Use smoke=true or a larger runner."
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements-export.txt
+
+      - name: Cache download cache
+        uses: actions/cache@v4
+        with:
+          path: scripts/.cache
+          key: export-cache-${{ hashFiles('scripts/profiles/*.yaml') }}-${{ inputs.profiles }}
+          restore-keys: |
+            export-cache-${{ hashFiles('scripts/profiles/*.yaml') }}-
+            export-cache-
+
+      - name: Install export deps
+        run: pip install -r scripts/requirements-export.txt
+
+      - name: Build package
+        run: |
+          set -euo pipefail
+          PROFILES="${{ inputs.profiles }}"
+          MAX_GENES="${{ inputs.max_genes }}"
+          MAX_SAMPLES="${{ inputs.max_samples }}"
+          if [ "${{ inputs.smoke }}" = "true" ]; then
+            if [ -z "$MAX_GENES" ]; then MAX_GENES=500; fi
+            if [ -z "$MAX_SAMPLES" ]; then MAX_SAMPLES=20; fi
+            echo "Smoke mode: max_genes=${MAX_GENES} max_samples=${MAX_SAMPLES}"
+          fi
+          ARGS=(--profiles "$PROFILES" --out dist/data-package)
+          if [ -n "$MAX_GENES" ]; then
+            ARGS+=(--max-genes "$MAX_GENES")
+          fi
+          if [ -n "$MAX_SAMPLES" ]; then
+            ARGS+=(--max-samples "$MAX_SAMPLES")
+          fi
+          python scripts/export_parquet.py "${ARGS[@]}"
+
+      - name: Verify package
+        run: python scripts/verify_data_package.py --package dist/data-package
+
+      - name: Pack tarball
+        run: |
+          set -euo pipefail
+          tar -C dist -cJf dist/data-package.tar.xz data-package
+          ls -lh dist/data-package.tar.xz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rnaget-data-package
+          path: dist/data-package.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        if: ${{ inputs.create_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.release_tag }}"
+          FILE="dist/data-package.tar.xz"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$FILE" --clobber
+          else
+            gh release create "$TAG" "$FILE" \
+              --title "$TAG" \
+              --notes "Parquet data package (encode/geo/gtex). Sync to NFS and point the API at the extracted package. Full gtex may need a large runner or smoke=true slices."
+          fi

@@ -1,5 +1,5 @@
 from scipy.io import mmread
-from db.models import SequenceFeature, BioSample, ExpressionValue,ExpressionMatrix
+from db.models import SequenceFeature, BioSample, ExpressionValue, Matrix
 from helpers import data
 from celery import shared_task
 import os
@@ -12,11 +12,11 @@ def upload_matrix_market(self, mm_file, rows, columns, parsed_matrix):
     :param rows: Features TSV file
     :param columns: Samples TSV file
     """
-    matrix = ExpressionMatrix(**parsed_matrix)
+    matrix = Matrix(**parsed_matrix)
     new_samples_count=0
     new_features_count=0
     total_expr_values=0
-    matrix_id = matrix.matrixID
+    matrix_id = matrix.matrixId
     message = None
     self.update_state(state='PROGRESS', meta={'messages': ['Starting job...']})
     try:
@@ -30,7 +30,7 @@ def upload_matrix_market(self, mm_file, rows, columns, parsed_matrix):
         # Iterate over the matrix and populate the expression_counts
         matrix.featuresCount=new_features_count
         matrix.biosamplesCount=new_samples_count
-        matrix_id = matrix.matrixID
+        matrix_id = matrix.matrixId
         
         self.update_state(state='PROGRESS', meta={'messages': [f'Found {matrix.featuresCount} sequences, {matrix.biosamplesCount} biosamples for matrix {matrix_id}']})
 

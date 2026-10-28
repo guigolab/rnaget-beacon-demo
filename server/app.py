@@ -1,31 +1,59 @@
-from flask import Flask
-from config import BaseConfig
-from db import initialize_db
-from rest import initialize_api
-from jobs import celery_init_app
-from flask_cors import CORS
-from db.models import ExpressionMatrix, ExpressionValue, BioSample, SequenceFeature
-app = Flask(__name__)
+import logging
+import os
 
-app.config.from_object(BaseConfig)
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-app.config.from_mapping(
-    CELERY=dict(
-        broker_url=BaseConfig.CELERY_BROKER_URL,
-        result_backend=BaseConfig.CELERY_RESULT_BACKEND,
-        task_ignore_result=True,
-    ),
+from beacon import config as beacon_config
+from routers import register_beacon_routers
+
+logger = logging.getLogger(__name__)
+
+app = FastAPI(
+    title=beacon_config.BEACON_NAME,
+    description=beacon_config.BEACON_DESCRIPTION,
+    version=beacon_config.API_VERSION,
 )
 
-initialize_db(app)
+register_beacon_routers(app)
 
-# ExpressionMatrix.drop_collection()
-# ExpressionValue.drop_collection()
-# BioSample.drop_collection()
-# SequenceFeature.drop_collection()
+# Optional legacy upload API (Mongo + Celery). Off by default for fixture-backed demo.
+if beacon_config.ENABLE_LEGACY_UPLOADS:
+    try:
+        from config import BaseConfig
+        from db import initialize_db
+        from jobs import celery_init_app
+        from rest import initialize_api
 
-celery_app = celery_init_app(app)
+        app.state.config = BaseConfig
+        initialize_db(BaseConfig)
+        celery_config = dict(
+            broker_url=BaseConfig.CELERY_BROKER_URL,
+            result_backend=BaseConfig.CELERY_RESULT_BACKEND,
+            task_ignore_result=True,
+        )
+        celery_init_app(celery_config)
+        initialize_api(app)
+        logger.info("Legacy upload API enabled under /api/uploads/*")
+    except Exception:
+        logger.exception("Failed to enable legacy uploads; continuing without them")
 
-initialize_api(app)
+_cors_origins = [
+    o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "*").split(",") if o.strip()
+]
+# Browsers reject Access-Control-Allow-Origin: * together with credentials.
+_cors_credentials = os.environ.get("CORS_ALLOW_CREDENTIALS", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+if _cors_origins == ["*"]:
+    _cors_credentials = False
 
-CORS(app)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

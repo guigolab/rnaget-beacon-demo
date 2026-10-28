@@ -1,0 +1,34 @@
+[
+  {
+    "id": "feature-tp53-gene",
+    "genomicFeature": {
+      "featureIdentifier": {
+        "id": "ENSG00000141510.18",
+        "resource": "ensembl"
+      },
+      "featureType": {
+        "id": "SO:0000704",
+        "label": "gene"
+      },
+      "aliases": ["TP53"]
+    },
+    "matrixIds": ["matrix-gene-expression-001", "GSE88557"]
+  },
+  {
+    "id": "feature-tp53-transcript",
+    "genomicFeature": {
+      "featureIdentifier": {
+        "id": "ENST00000269305.9",
+        "resource": "ensembl"
+      },
+      "featureType": {
+        "id": "SO:0000234",
+        "label": "mRNA"
+      },
+      "relationship": {
+        "parent": "ENSG00000141510.18"
+      }
+    },
+    "matrixIds": ["matrix-gene-expression-001"]
+  }
+]

@@ -1,9 +1,14 @@
-from flask_restful import Api
+# Legacy REST package: only /api/uploads/* is registered when ENABLE_LEGACY_UPLOADS=1.
+# biosample/feature/matrix controllers under rest/ are unused (pre-Beacon, broken SequenceFeature imports).
+from fastapi import APIRouter
 from .routes import initialize_routes
+import logging
 
-api = None
+logger = logging.getLogger(__name__)
+
+api_router = APIRouter()
 
 def initialize_api(app):
-	app.logger.info("Initializing REST Apis")
-	api = Api(app)
-	initialize_routes(api)
+	logger.info("Initializing REST Apis")
+	initialize_routes(api_router)
+	app.include_router(api_router)

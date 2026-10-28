@@ -1,0 +1,81 @@
+{
+  "maturityAttributes": {
+    "productionStatus": "DEV"
+  },
+  "securityAttributes": {
+    "defaultGranularity": "record",
+    "securityLevels": [
+      "PUBLIC"
+    ]
+  },
+  "entryTypes": {
+    "biosample": {
+      "additionallySupportedSchemas": [],
+      "defaultSchema": {
+        "id": "ga4gh-beacon-biosample-v2.0.0",
+        "name": "Default schema for a biological sample",
+        "referenceToSchemaDefinition": "https://exampleBeacons.org/biosamples/defaultSchema.json",
+        "schemaVersion": "v2.0.0"
+      },
+      "description": "Any material sample taken from a biological entity for testing, diagnostic, propagation, treatment or research purposes, including a sample obtained from a living organism or taken from the biological object after halting of all its life functions. Biospecimen can contain one or more components including but not limited to cellular molecules, cells, tissues, organs, body fluids, embryos, and body excretory products. [ NCI ]",
+      "id": "biosample",
+      "name": "Biological Sample",
+      "ontologyTermForThisType": {
+        "id": "NCIT:C70699",
+        "label": "Biospecimen"
+      },
+      "partOfSpecification": "Beacon v2.0.0"
+    },
+    "feature": {
+      "additionallySupportedSchemas": [],
+      "defaultSchema": {
+        "id": "ga4gh-beacon-feature-v2.1.2",
+        "name": "Default schema for the genomic features",
+        "referenceToSchemaDefinition": "https://exampleBeacons.org/genomicFeatures/defaultSchema.json",
+        "schemaVersion": "v2.0.0"
+      },
+      "description": "Genomic feature",
+      "id": "feature",
+      "name": "Genomic feature",
+      "ontologyTermForThisType": {
+        "id": "geno:0000481",
+        "label": "Genomic feature"
+      },
+      "partOfSpecification": "Beacon v2.1.2"
+    },
+    "matrix": {
+      "additionallySupportedSchemas": [],
+      "defaultSchema": {
+        "id": "ga4gh-beacon-matrix-v2.1.2",
+        "name": "Default schema for the matrix properties",
+        "referenceToSchemaDefinition": "https://exampleBeacons.org/matrices/defaultSchema.json",
+        "schemaVersion": "v2.0.0"
+      },
+      "description": "Matrix of expression data",
+      "id": "matrix",
+      "name": "Matrices",
+      "ontologyTermForThisType": {
+        "id": "edam:2603",
+        "label": "Expression data"
+      },
+      "partOfSpecification": "Beacon v2.1.2"
+    },
+    "expressionValue": {
+      "additionallySupportedSchemas": [],
+      "defaultSchema": {
+        "id": "ga4gh-beacon-expressionValues-v2.0.0",
+        "name": "Default schema for an expression value",
+        "referenceToSchemaDefinition": "https://exampleBeacons.org/expressionValues/defaultSchema.json",
+        "schemaVersion": "v2.0.0"
+      },
+      "description": "One quantified expression cell: the measured value of a specific genomic feature in a specific biosample within a specific matrix. Accessed via nested matrix expression_values endpoints; not a root entry-type collection.",
+      "id": "expressionValue",
+      "name": "Expression value",
+      "ontologyTermForThisType": {
+        "id": "edam:data_0006",
+        "label": "Data"
+      },
+      "partOfSpecification": "Beacon v2.1.2"
+    }
+  }
+}

@@ -30,6 +30,21 @@ services:
     ports:
       - "${DB_PORT}:27017"
 
+  # Postgres for expression_values (seeded by scripts/seed_matrix.py)
+  postgres:
+    image: postgres:16-alpine
+    container_name: rnaget-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-beacon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-beacon}
+      POSTGRES_DB: ${POSTGRES_DB:-rnaget_beacon}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/sql/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+
   server:
     build: ./server
     container_name: ${API_HOST}
@@ -62,4 +77,5 @@ services:
 volumes:
   app:
   mongodb-data:
+  postgres-data:
   node_modules:

@@ -1,14 +1,17 @@
 openapi: 3.0.0
 
+# LEGACY: This static OpenAPI file is outdated (pre-Beacon envelopes, /api prefix).
+# Use the live FastAPI contract instead: GET /openapi.json or /docs on the demo server.
+
 info:
   version: "1.0.0"
-  title: "RNAget Extension for BeaconV2 API"
+  title: "RNAget Extension for BeaconV2 API (legacy static spec)"
   contact:
     email: "emilio.righi@crg.eu"
 
 servers:
-  - url: https://genome.crg.es/rnaget-beacon/api
-    description: Demo server containing some gene expression data to test rnaget-beaconV2 API implementation
+  - url: https://genome.crg.es/rnaget-beacon
+    description: Demo Beacon server (paths without /api; see /openapi.json for current contract)
 
 tags:
 - name: "matrices"
