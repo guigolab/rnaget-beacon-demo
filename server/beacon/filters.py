@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -9,8 +10,22 @@ FEATURE_ONTOLOGY_PREFIXES = frozenset({"SO"})
 BIOSAMPLE_ONTOLOGY_PREFIXES = frozenset({"UBERON", "EFO"})
 GENE_PUBLIC_ID_PREFIXES = frozenset({"HGNC", "NCBIGENE", "ENSEMBL"})
 ALPHANUMERIC_FEATURE_FIELDS = frozenset({"genomicFeature.symbol"})
-ALPHANUMERIC_BIOSAMPLE_FIELDS = frozenset({"sex"})
+ALPHANUMERIC_BIOSAMPLE_FIELDS = frozenset(
+    {"sex", "age_bracket", "condition", "timepoint"}
+)
+NUMERIC_BIOSAMPLE_FIELDS = frozenset({"rin", "ischemic_time_min"})
+MATRIX_ALPHANUMERIC_FIELDS = frozenset(
+    {
+        "matrix.unit",
+        "matrix.scale",
+        "matrix.annotation.source",
+        "matrix.annotation.version",
+        "matrix.assembly.name",
+        "matrix.reproducible",
+    }
+)
 CUSTOM_BIOSAMPLE_IDS = frozenset({"GEO:sample"})
+ALPHANUMERIC_OPS = frozenset({"=", "!", "<", ">", "<=", ">="})
 
 
 @dataclass(frozen=True)
@@ -76,7 +91,7 @@ def normalize_filters(raw: Optional[Sequence[Any]]) -> List[NormalizedFilter]:
         fid = str(fid)
         if "operator" in d and d.get("operator") is not None:
             op = str(d.get("operator") or "=")
-            if op not in ("=", "!"):
+            if op not in ALPHANUMERIC_OPS:
                 raise ValueError(f"unsupported alphanumeric operator: {op}")
             if d.get("value") is None:
                 raise ValueError(f"alphanumeric filter {fid!r} requires value")
@@ -90,7 +105,12 @@ def normalize_filters(raw: Optional[Sequence[Any]]) -> List[NormalizedFilter]:
                 )
             )
             continue
-        if fid in ALPHANUMERIC_FEATURE_FIELDS or fid in ALPHANUMERIC_BIOSAMPLE_FIELDS:
+        if (
+            fid in ALPHANUMERIC_FEATURE_FIELDS
+            or fid in ALPHANUMERIC_BIOSAMPLE_FIELDS
+            or fid in NUMERIC_BIOSAMPLE_FIELDS
+            or fid in MATRIX_ALPHANUMERIC_FIELDS
+        ):
             raise ValueError(
                 f"alphanumeric filter {fid!r} requires operator and value"
             )
@@ -147,7 +167,7 @@ def validate_filters_for_entity(
                 return f"unsupported ontology filter prefix for features: {f.id}"
         elif entity == "biosample":
             if f.kind == "alphanumeric":
-                if f.id not in ALPHANUMERIC_BIOSAMPLE_FIELDS:
+                if f.id not in ALPHANUMERIC_BIOSAMPLE_FIELDS | NUMERIC_BIOSAMPLE_FIELDS:
                     return f"unsupported alphanumeric filter for biosamples: {f.id}"
                 continue
             if f.kind == "custom":
@@ -157,6 +177,19 @@ def validate_filters_for_entity(
             pref = (f.prefix or _curie_prefix(f.id) or "").upper()
             if pref not in BIOSAMPLE_ONTOLOGY_PREFIXES:
                 return f"unsupported ontology filter prefix for biosamples: {f.id}"
+        elif entity == "matrix":
+            if f.kind == "alphanumeric":
+                if f.id not in MATRIX_ALPHANUMERIC_FIELDS:
+                    return f"unsupported alphanumeric filter for matrices: {f.id}"
+                continue
+            if f.kind == "ontology":
+                pref = (f.prefix or _curie_prefix(f.id) or "").upper()
+                if pref not in ("OBI", "SO"):
+                    return f"unsupported ontology filter prefix for matrices: {f.id}"
+                continue
+            if f.kind == "custom":
+                return f"unsupported custom filter for matrices: {f.id}"
+            continue
         else:
             return f"unsupported filter entity: {entity}"
     return None
@@ -197,6 +230,51 @@ def is_so_filter(f: NormalizedFilter) -> bool:
     return f.kind == "ontology" and f.id.startswith("SO:")
 
 
+def _biosample_field(doc: Dict[str, Any], field: str) -> Any:
+    if field in doc and doc[field] is not None:
+        return doc[field]
+    info = doc.get("info") or {}
+    if isinstance(info, dict) and field in info:
+        return info[field]
+    return None
+
+
+def _compare_alphanumeric(
+    actual: Any, op: Optional[str], expected: Optional[str]
+) -> bool:
+    if expected is None:
+        return False
+    actual_s = "" if actual is None else str(actual)
+    if op == "=":
+        return actual_s == expected
+    if op == "!":
+        return actual_s != expected
+    return False
+
+
+def _compare_numeric(actual: Any, op: Optional[str], expected: Optional[str]) -> bool:
+    if expected is None or op not in (">", "<", ">=", "<=", "=", "!"):
+        return False
+    try:
+        left = float(actual)
+        right = float(expected)
+    except (TypeError, ValueError):
+        return False
+    if op == "=":
+        return left == right
+    if op == "!":
+        return left != right
+    if op == ">":
+        return left > right
+    if op == "<":
+        return left < right
+    if op == ">=":
+        return left >= right
+    if op == "<=":
+        return left <= right
+    return False
+
+
 def biosample_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> bool:
     for f in filters:
         if f.kind == "custom" and f.id == "GEO:sample":
@@ -204,17 +282,15 @@ def biosample_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) 
             if str(src).upper() == "GEO":
                 continue
             return False
-        if f.kind == "alphanumeric" and f.id == "sex":
-            actual = doc.get("sex")
-            if actual is None:
-                actual = ((doc.get("info") or {}) or {}).get("sex")
-            actual_s = None if actual is None else str(actual)
-            if f.operator == "=":
-                if actual_s != f.value:
-                    return False
-            elif f.operator == "!":
-                if actual_s == f.value:
-                    return False
+        if f.kind == "alphanumeric" and f.id in ALPHANUMERIC_BIOSAMPLE_FIELDS:
+            actual = _biosample_field(doc, f.id if f.id != "sex" else "sex")
+            if not _compare_alphanumeric(actual, f.operator, f.value):
+                return False
+            continue
+        if f.kind == "alphanumeric" and f.id in NUMERIC_BIOSAMPLE_FIELDS:
+            actual = _biosample_field(doc, f.id)
+            if not _compare_numeric(actual, f.operator, f.value):
+                return False
             continue
         if f.kind == "ontology":
             ids = set()
@@ -242,10 +318,13 @@ def feature_doc_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]
                 return False
             continue
         if f.kind == "alphanumeric" and f.id == "genomicFeature.symbol":
-            # Caller should pre-filter by id set; if still present, check aliases
             aliases = [str(a).upper() for a in (gf.get("aliases") or [])]
-            sym = f.value.upper() if f.value else ""
-            hit = sym in aliases
+            sym = (f.value or "").upper()
+            if "%" in sym or "*" in sym:
+                pattern = sym.replace("*", "?")
+                hit = any(fnmatch.fnmatch(a, pattern) for a in aliases)
+            else:
+                hit = sym in aliases
             if f.operator == "=" and not hit:
                 return False
             if f.operator == "!" and hit:
@@ -269,6 +348,50 @@ def feature_doc_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]
             native_u = native.upper()
             native_bare = native_u.rsplit(".", 1)[0] if "." in native_u else native_u
             if not (keys & xrefs or native_u in keys or native_bare in keys):
+                return False
+            continue
+        return False
+    return True
+
+
+def matrix_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> bool:
+    for f in filters:
+        if f.kind == "ontology":
+            assay = doc.get("assayType") or {}
+            ft = doc.get("featureType") or []
+            ids = set()
+            if isinstance(assay, dict) and assay.get("id"):
+                ids.add(str(assay["id"]))
+            if isinstance(ft, list):
+                for item in ft:
+                    if isinstance(item, dict) and item.get("id"):
+                        ids.add(str(item["id"]))
+            if f.id not in ids:
+                return False
+            continue
+        if f.kind == "alphanumeric":
+            val = f.value
+            if f.id == "matrix.unit":
+                actual = (doc.get("expressionUnitAndScale") or {}).get("unit")
+            elif f.id == "matrix.scale":
+                actual = (doc.get("expressionUnitAndScale") or {}).get("scale")
+            elif f.id == "matrix.annotation.source":
+                actual = (doc.get("annotation") or {}).get("source")
+            elif f.id == "matrix.annotation.version":
+                actual = (doc.get("annotation") or {}).get("version")
+            elif f.id == "matrix.assembly.name":
+                actual = (doc.get("assembly") or {}).get("name")
+            elif f.id == "matrix.reproducible":
+                actual = doc.get("reproducible")
+                val = str(val).lower() in ("1", "true", "yes")
+            else:
+                return False
+            if f.id == "matrix.reproducible":
+                if f.operator == "=" and bool(actual) != bool(val):
+                    return False
+                if f.operator == "!" and bool(actual) == bool(val):
+                    return False
+            elif not _compare_alphanumeric(actual, f.operator, val):
                 return False
             continue
         return False

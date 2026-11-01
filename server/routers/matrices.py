@@ -21,12 +21,16 @@ from routers.deps import (
     MatrixAxisRequestBody,
     axis_order_value,
     axis_sort_value,
+    coerce_id_list_csv,
     model_to_dict,
     parse_id_list_or_error,
     resolve_or_error,
 )
+from routers.filter_helpers import filters_summary, resolve_entity_filters
 
 router = APIRouter(tags=["Matrices"])
+
+_ALLOWED_EXPRESSION_GROUP_BY = frozenset({"sex", "condition", "age_bracket", "tissue"})
 
 
 def _list_response(
@@ -59,18 +63,24 @@ def get_matrices(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1),
     requestedGranularity: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
+    filt, ferr = resolve_entity_filters(entity="matrix", filters_csv=filters)
+    if ferr:
+        return ferr
+    extra = filters_summary(filt)
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
         requested_granularity=requestedGranularity,
         cap_limit=True,
+        extra_summary=extra,
     )
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
     return _list_response(
-        get_store().list_matrices(),
+        get_store().list_matrices(filt),
         "matrix",
         "matrices",
         skip_v,
@@ -84,12 +94,20 @@ def get_matrices(
 def post_matrices(
     body: BeaconRequestBody = Body(...),
 ) -> Union[Dict[str, Any], JSONResponse]:
-    resolved, err = resolve_or_error(body=model_to_dict(body), cap_limit=True)
+    body_dict = model_to_dict(body)
+    filt, ferr = resolve_entity_filters(entity="matrix", body=body_dict)
+    if ferr:
+        return ferr
+    resolved, err = resolve_or_error(
+        body=body_dict,
+        cap_limit=True,
+        extra_summary=filters_summary(filt),
+    )
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
     return _list_response(
-        get_store().list_matrices(),
+        get_store().list_matrices(filt),
         "matrix",
         "matrices",
         skip_v,
@@ -110,6 +128,11 @@ def post_matrices(
     responses=OPENAPI_FILTERING_TERMS_RESPONSES,
 )
 def matrices_filtering_terms():
+    store = get_store()
+    getter = getattr(store, "matrix_filtering_terms", None)
+    if callable(getter):
+        terms, resources = getter()
+        return build_filtering_terms_response(terms, resources)
     return build_filtering_terms_response([])
 
 
@@ -169,6 +192,7 @@ def get_matrix_features(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1),
     requestedGranularity: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None),
     sort: AxisSort = Query(
         AxisSort.id,
         description="Sort key: id | expression.min | expression.max",
@@ -181,7 +205,12 @@ def get_matrix_features(
     store = get_store()
     if not store.get_matrix(id):
         return error_json(404, f"Matrix '{id}' not found")
+    filt, ferr = resolve_entity_filters(entity="biosample", filters_csv=filters)
+    if ferr:
+        return ferr
     extra = _effective_axis_summary(store, id, axis="features", sort=sort, order=order)
+    if filt:
+        extra = {**extra, **(filters_summary(filt) or {})}
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
@@ -199,6 +228,7 @@ def get_matrix_features(
         limit=page_limit,
         sort=extra["sort"],
         order=extra["order"],
+        biosample_filters=filt,
     )
     return _list_response(
         results,
@@ -221,6 +251,9 @@ def post_matrix_features(
     if not store.get_matrix(id):
         return error_json(404, f"Matrix '{id}' not found")
     payload = model_to_dict(body)
+    filt, ferr = resolve_entity_filters(entity="biosample", body=payload)
+    if ferr:
+        return ferr
     extra = _effective_axis_summary(
         store,
         id,
@@ -228,6 +261,8 @@ def post_matrix_features(
         sort=payload.get("sort"),
         order=payload.get("order"),
     )
+    if filt:
+        extra = {**extra, **(filters_summary(filt) or {})}
     resolved, err = resolve_or_error(
         body=payload,
         extra_summary=extra,
@@ -243,6 +278,7 @@ def post_matrix_features(
         limit=page_limit,
         sort=extra["sort"],
         order=extra["order"],
+        biosample_filters=filt,
     )
     return _list_response(
         results,
@@ -263,6 +299,7 @@ def get_matrix_biosamples(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1),
     requestedGranularity: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None),
     sort: AxisSort = Query(
         AxisSort.id,
         description="Sort key: id | expression.min | expression.max",
@@ -275,9 +312,14 @@ def get_matrix_biosamples(
     store = get_store()
     if not store.get_matrix(id):
         return error_json(404, f"Matrix '{id}' not found")
+    filt, ferr = resolve_entity_filters(entity="biosample", filters_csv=filters)
+    if ferr:
+        return ferr
     extra = _effective_axis_summary(
         store, id, axis="biosamples", sort=sort, order=order
     )
+    if filt:
+        extra = {**extra, **(filters_summary(filt) or {})}
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
@@ -295,6 +337,7 @@ def get_matrix_biosamples(
         limit=page_limit,
         sort=extra["sort"],
         order=extra["order"],
+        filters=filt,
     )
     return _list_response(
         results,
@@ -317,6 +360,9 @@ def post_matrix_biosamples(
     if not store.get_matrix(id):
         return error_json(404, f"Matrix '{id}' not found")
     payload = model_to_dict(body)
+    filt, ferr = resolve_entity_filters(entity="biosample", body=payload)
+    if ferr:
+        return ferr
     extra = _effective_axis_summary(
         store,
         id,
@@ -324,6 +370,8 @@ def post_matrix_biosamples(
         sort=payload.get("sort"),
         order=payload.get("order"),
     )
+    if filt:
+        extra = {**extra, **(filters_summary(filt) or {})}
     resolved, err = resolve_or_error(
         body=payload,
         extra_summary=extra,
@@ -339,6 +387,7 @@ def post_matrix_biosamples(
         limit=page_limit,
         sort=extra["sort"],
         order=extra["order"],
+        filters=filt,
     )
     return _list_response(
         results,
@@ -361,6 +410,7 @@ def get_expression_values(
     requestedGranularity: Optional[str] = Query(None),
     featureIDList: Optional[str] = Query(None),
     biosampleIDList: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None),
     minValue: Optional[float] = Query(None),
     maxValue: Optional[float] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
@@ -372,12 +422,17 @@ def get_expression_values(
     biosampleIDList, berr = parse_id_list_or_error(biosampleIDList)
     if berr:
         return berr
+    bio_filt, bferr = resolve_entity_filters(entity="biosample", filters_csv=filters)
+    if bferr:
+        return bferr
     extra = {
         "featureIDList": featureIDList,
         "biosampleIDList": biosampleIDList,
         "minValue": minValue,
         "maxValue": maxValue,
     }
+    if bio_filt:
+        extra.update(filters_summary(bio_filt) or {})
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
@@ -393,6 +448,7 @@ def get_expression_values(
         id,
         feature_id_list=featureIDList,
         biosample_id_list=biosampleIDList,
+        biosample_filters=bio_filt,
         min_value=minValue,
         max_value=maxValue,
         skip=skip_v,
@@ -418,12 +474,19 @@ def post_expression_values(
     if not get_store().get_matrix(id):
         return error_json(404, f"Matrix '{id}' not found")
     payload = model_to_dict(body)
+    bio_filt, bferr = resolve_entity_filters(entity="biosample", body=payload)
+    if bferr:
+        return bferr
+    feature_csv = coerce_id_list_csv(body.featureIDList)
+    biosample_csv = coerce_id_list_csv(body.biosampleIDList)
     extra = {
-        "featureIDList": body.featureIDList,
-        "biosampleIDList": body.biosampleIDList,
+        "featureIDList": feature_csv,
+        "biosampleIDList": biosample_csv,
         "minValue": body.minValue,
         "maxValue": body.maxValue,
     }
+    if bio_filt:
+        extra.update(filters_summary(bio_filt) or {})
     resolved, err = resolve_or_error(
         skip=body.skip,
         limit=body.limit,
@@ -437,8 +500,9 @@ def post_expression_values(
     page_limit = limit_v if gran.value == "record" else 0
     results, total = get_store().expression_values_for_matrix(
         id,
-        feature_id_list=body.featureIDList,
-        biosample_id_list=body.biosampleIDList,
+        feature_id_list=feature_csv,
+        biosample_id_list=biosample_csv,
+        biosample_filters=bio_filt,
         min_value=body.minValue,
         max_value=body.maxValue,
         skip=skip_v,
@@ -454,4 +518,125 @@ def post_expression_values(
         received,
         total_count=total,
         results_are_page=True,
+    )
+
+
+def _matrix_expression_summary_response(
+    id: str,
+    *,
+    feat_csv: Optional[str],
+    group: Optional[str],
+    thr: Optional[float],
+    bio_filt,
+    gran,
+    received,
+):
+    store = get_store()
+    getter = getattr(store, "expression_summary_for_matrix", None)
+    if not callable(getter):
+        return error_json(501, "expression_summary not available")
+    results = getter(
+        id,
+        feature_id_list=feat_csv,
+        group_by=group,
+        biosample_filters=bio_filt,
+        threshold=thr,
+    )
+    return _list_response(
+        results,
+        "expressionSummary",
+        id,
+        0,
+        max(len(results), 1),
+        gran,
+        received,
+        total_count=len(results),
+        results_are_page=True,
+    )
+
+
+@router.get(
+    "/matrices/{id}/expression_summary",
+    response_model=None,
+    responses=OPENAPI_BEACON_RESPONSES,
+)
+def get_matrix_expression_summary(
+    id: str,
+    featureIDList: Optional[str] = Query(None),
+    groupBy: Optional[str] = Query(None),
+    threshold: Optional[float] = Query(None),
+    filters: Optional[str] = Query(None),
+    requestedGranularity: Optional[str] = Query(None),
+) -> Union[Dict[str, Any], JSONResponse]:
+    if not get_store().get_matrix(id):
+        return error_json(404, f"Matrix '{id}' not found")
+    if groupBy and groupBy not in _ALLOWED_EXPRESSION_GROUP_BY:
+        return error_json(
+            400,
+            f"unsupported groupBy {groupBy!r}; allowed: {sorted(_ALLOWED_EXPRESSION_GROUP_BY)}",
+        )
+    bio_filt, bferr = resolve_entity_filters(entity="biosample", filters_csv=filters)
+    if bferr:
+        return bferr
+    extra = {"featureIDList": featureIDList, "groupBy": groupBy, "threshold": threshold}
+    if bio_filt:
+        extra.update(filters_summary(bio_filt) or {})
+    resolved, err = resolve_or_error(
+        requested_granularity=requestedGranularity,
+        extra_summary=extra,
+    )
+    if err:
+        return err
+    _, _, gran, received = resolved
+    return _matrix_expression_summary_response(
+        id,
+        feat_csv=featureIDList,
+        group=groupBy,
+        thr=threshold,
+        bio_filt=bio_filt,
+        gran=gran,
+        received=received,
+    )
+
+
+@router.post(
+    "/matrices/{id}/expression_summary",
+    response_model=None,
+    responses=OPENAPI_BEACON_RESPONSES,
+)
+def post_matrix_expression_summary(
+    id: str,
+    body: ExpressionValuesRequestBody = Body(...),
+) -> Union[Dict[str, Any], JSONResponse]:
+    if not get_store().get_matrix(id):
+        return error_json(404, f"Matrix '{id}' not found")
+    payload = model_to_dict(body)
+    if body.groupBy and body.groupBy not in _ALLOWED_EXPRESSION_GROUP_BY:
+        return error_json(
+            400,
+            f"unsupported groupBy {body.groupBy!r}; allowed: {sorted(_ALLOWED_EXPRESSION_GROUP_BY)}",
+        )
+    bio_filt, bferr = resolve_entity_filters(entity="biosample", body=payload)
+    if bferr:
+        return bferr
+    feat_csv = coerce_id_list_csv(body.featureIDList)
+    extra = {
+        "featureIDList": feat_csv,
+        "groupBy": body.groupBy,
+        "threshold": body.threshold,
+    }
+    if bio_filt:
+        extra.update(filters_summary(bio_filt) or {})
+    resolved, err = resolve_or_error(body=payload, extra_summary=extra)
+    if err:
+        return err
+    _, _, gran, received = resolved
+    return _matrix_expression_summary_response(
+        id,
+        feat_csv=feat_csv,
+        group=body.groupBy,
+        thr=body.threshold,
+        bio_filt=bio_filt,
+        gran=gran,
+        received=received,
     )

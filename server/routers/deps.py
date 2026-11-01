@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
@@ -20,7 +20,7 @@ from beacon.schemas.envelopes import (
 # Hard cap for expression / feature list pages (keeps RAM bounded).
 MAX_PAGE_LIMIT = 1000
 MAX_SKIP = 100_000
-MAX_ID_LIST_TOKENS = 100
+MAX_ID_LIST_TOKENS = 200
 MAX_ID_LIST_CHARS = 8_000
 
 
@@ -53,6 +53,17 @@ def validate_id_list_csv(value: Optional[str]) -> Optional[str]:
     return text
 
 
+def coerce_id_list_csv(value: Any) -> Optional[str]:
+    """Accept CSV string or JSON array of ids for POST bodies."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        tokens = [str(v).strip() for v in value if str(v).strip()]
+        return ",".join(tokens) if tokens else None
+    text = str(value).strip()
+    return text or None
+
+
 def parse_id_list_or_error(
     value: Optional[str],
 ) -> Tuple[Optional[str], Optional[JSONResponse]]:
@@ -64,17 +75,19 @@ def parse_id_list_or_error(
 
 
 class ExpressionValuesRequestBody(BeaconRequestBody):
-    featureIDList: Optional[str] = None
-    biosampleIDList: Optional[str] = None
+    featureIDList: Optional[Union[str, List[str]]] = None
+    biosampleIDList: Optional[Union[str, List[str]]] = None
     minValue: Optional[float] = None
     maxValue: Optional[float] = None
+    groupBy: Optional[str] = None
+    threshold: Optional[float] = None
     skip: Optional[int] = None
     limit: Optional[int] = None
 
     @field_validator("featureIDList", "biosampleIDList")
     @classmethod
-    def _validate_id_list(cls, value: Optional[str]) -> Optional[str]:
-        return validate_id_list_csv(value)
+    def _validate_id_list(cls, value: Any) -> Optional[str]:
+        return validate_id_list_csv(coerce_id_list_csv(value))
 
 
 class MatrixAxisRequestBody(BeaconRequestBody):

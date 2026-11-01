@@ -125,6 +125,8 @@ def build_catalog(package: Path) -> Dict[str, Any]:
     needed_resources: Set[str] = set()
     has_geo = False
     sex_values: Set[str] = set()
+    age_values: Set[str] = set()
+    condition_values: Set[str] = set()
     xref_prefixes: Set[str] = set()
 
     # --- Biosamples ---
@@ -142,6 +144,8 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                 "ontology_label",
                 "ontology_source",
                 "sex",
+                "age_bracket",
+                "condition",
             )
             if c in pq.read_schema(bio_path).names
         ]
@@ -155,6 +159,12 @@ def build_catalog(package: Path) -> Dict[str, Any]:
             sex = row.get("sex")
             if sex is not None and str(sex).strip():
                 sex_values.add(str(sex).strip())
+            age = row.get("age_bracket")
+            if age is not None and str(age).strip():
+                age_values.add(str(age).strip())
+            cond = row.get("condition")
+            if cond is not None and str(cond).strip():
+                condition_values.add(str(cond).strip())
             oid_missing = oid is None or (isinstance(oid, float) and oid != oid)
             # Keep GEO:sample facet only while some samples still lack detail.
             if (
@@ -195,6 +205,24 @@ def build_catalog(package: Path) -> Dict[str, Any]:
         scopes=["biosample"],
         values=sorted(sex_values) if sex_values else None,
     )
+    if age_values:
+        _add_term(
+            terms,
+            type_="alphanumeric",
+            id_="age_bracket",
+            label="Age bracket",
+            scopes=["biosample"],
+            values=sorted(age_values),
+        )
+    if condition_values:
+        _add_term(
+            terms,
+            type_="alphanumeric",
+            id_="condition",
+            label="Condition / treatment",
+            scopes=["biosample"],
+            values=sorted(condition_values),
+        )
 
     # --- Genes / features ---
     genes_path = package / "genes.parquet"

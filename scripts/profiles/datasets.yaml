@@ -45,7 +45,6 @@ profiles:
       lab: "Roderic Guigo, CRG"
       summary: "Homo sapiens BLaER1 cell line cytosolic fraction"
     slice:
-      # 0 = import all matching genes (no cap)
       max_genes: 0
       max_samples: 1
 
@@ -105,7 +104,6 @@ profiles:
           url: "https://www.encodeproject.org/files/ENCFF550OHK/@@download/ENCFF550OHK.tsv"
           md5: "10d26b82e0e533ba49efe51f3798eb1c"
     slice:
-      # 0 = import all matching genes / both biosamples
       max_genes: 0
       max_samples: 0
 
@@ -139,12 +137,10 @@ profiles:
     delimiter: "\t"
     feature_column: 0
     sample_start_column: 1
-    # Series design (for matrix info); no per-GSM phenotype table in this phase.
     series_design: >
       Cornea, limbus and sclera isolated from human donor tissue; infected with
       SARS-CoV-2 for 24 hours in triplicate vs mock-infected controls.
     slice:
-      # 0 = import all genes and all GSM columns
       max_genes: 0
       max_samples: 0
 
@@ -215,12 +211,10 @@ profiles:
       label: "Adipose - Subcutaneous"
     gct: true
     delimiter: "\t"
-    # Header: id | Name | Description | sample…
     feature_column: 1
     sample_start_column: 3
     feature_id_prefix: ENSG
     slice:
-      # 0 = import all genes / all samples in this tissue file
       max_genes: 0
       max_samples: 0
 
@@ -252,6 +246,146 @@ profiles:
     tissue:
       id: UBERON:0002107
       label: "Liver"
+    gct: true
+    delimiter: "\t"
+    feature_column: 1
+    sample_start_column: 3
+    feature_id_prefix: ENSG
+    slice:
+      max_genes: 0
+      max_samples: 0
+
+  - source: gtex
+    matrix_id: GTEx-v8-Whole-Blood
+    name: "GTEx v8 Whole Blood gene TPM"
+    description: >
+      GTEx Analysis v8 gene-level TPM matrix for Whole Blood samples. GENCODE v26.
+    download:
+      url: "https://storage.googleapis.com/adult-gtex/bulk-gex/v8/rna-seq/tpms-by-tissue/gene_tpm_2017-06-05_v8_whole_blood.gct.gz"
+    unit: TPM
+    scale: linear
+    reproducible: true
+    annotation:
+      source: gencode
+      version: "v26"
+      file: "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_26/gencode.v26.annotation.gtf.gz"
+    assembly:
+      accession: GCA_000001405.15
+      name: GRCh38
+    assay_type:
+      id: OBI:0003090
+      label: bulk RNA-seq assay
+    feature_type:
+      id: SO:0000704
+      label: gene
+    tissue:
+      id: UBERON:0000178
+      label: "Whole Blood"
+    gct: true
+    delimiter: "\t"
+    feature_column: 1
+    sample_start_column: 3
+    feature_id_prefix: ENSG
+    slice:
+      max_genes: 0
+      max_samples: 0
+
+  - source: gtex
+    matrix_id: GTEx-v8-Lung
+    name: "GTEx v8 Lung gene TPM"
+    description: >
+      GTEx Analysis v8 gene-level TPM matrix for Lung samples. GENCODE v26.
+    download:
+      url: "https://storage.googleapis.com/adult-gtex/bulk-gex/v8/rna-seq/tpms-by-tissue/gene_tpm_2017-06-05_v8_lung.gct.gz"
+    unit: TPM
+    scale: linear
+    reproducible: true
+    annotation:
+      source: gencode
+      version: "v26"
+      file: "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_26/gencode.v26.annotation.gtf.gz"
+    assembly:
+      accession: GCA_000001405.15
+      name: GRCh38
+    assay_type:
+      id: OBI:0003090
+      label: bulk RNA-seq assay
+    feature_type:
+      id: SO:0000704
+      label: gene
+    tissue:
+      id: UBERON:0002048
+      label: "Lung"
+    gct: true
+    delimiter: "\t"
+    feature_column: 1
+    sample_start_column: 3
+    feature_id_prefix: ENSG
+    slice:
+      max_genes: 0
+      max_samples: 0
+
+  - source: gtex
+    matrix_id: GTEx-v8-Brain-Cortex
+    name: "GTEx v8 Brain Cortex gene TPM"
+    description: >
+      GTEx Analysis v8 gene-level TPM matrix for Brain - Cortex samples. GENCODE v26.
+    download:
+      url: "https://storage.googleapis.com/adult-gtex/bulk-gex/v8/rna-seq/tpms-by-tissue/gene_tpm_2017-06-05_v8_brain_cortex.gct.gz"
+    unit: TPM
+    scale: linear
+    reproducible: true
+    annotation:
+      source: gencode
+      version: "v26"
+      file: "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_26/gencode.v26.annotation.gtf.gz"
+    assembly:
+      accession: GCA_000001405.15
+      name: GRCh38
+    assay_type:
+      id: OBI:0003090
+      label: bulk RNA-seq assay
+    feature_type:
+      id: SO:0000704
+      label: gene
+    tissue:
+      id: UBERON:0001870
+      label: "Brain Cortex"
+    gct: true
+    delimiter: "\t"
+    feature_column: 1
+    sample_start_column: 3
+    feature_id_prefix: ENSG
+    slice:
+      max_genes: 0
+      max_samples: 0
+
+  - source: gtex
+    matrix_id: GTEx-v8-Muscle-Skeletal
+    name: "GTEx v8 Skeletal Muscle gene TPM"
+    description: >
+      GTEx Analysis v8 gene-level TPM matrix for Muscle - Skeletal samples. GENCODE v26.
+    download:
+      url: "https://storage.googleapis.com/adult-gtex/bulk-gex/v8/rna-seq/tpms-by-tissue/gene_tpm_2017-06-05_v8_muscle_skeletal.gct.gz"
+    unit: TPM
+    scale: linear
+    reproducible: true
+    annotation:
+      source: gencode
+      version: "v26"
+      file: "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_26/gencode.v26.annotation.gtf.gz"
+    assembly:
+      accession: GCA_000001405.15
+      name: GRCh38
+    assay_type:
+      id: OBI:0003090
+      label: bulk RNA-seq assay
+    feature_type:
+      id: SO:0000704
+      label: gene
+    tissue:
+      id: UBERON:0001134
+      label: "Muscle - Skeletal"
     gct: true
     delimiter: "\t"
     feature_column: 1

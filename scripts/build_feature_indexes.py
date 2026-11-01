@@ -178,6 +178,11 @@ def build_indexes(package: Path) -> Dict[str, int]:
                     "lab",
                     "sample_origin_type_id",
                     "sample_origin_type_label",
+                    "age_bracket",
+                    "condition",
+                    "timepoint",
+                    "rin",
+                    "ischemic_time_min",
                 )
                 if c in bio_names
             ]
@@ -207,6 +212,11 @@ def build_indexes(package: Path) -> Dict[str, int]:
                         "sample_origin_type_label": row.get(
                             "sample_origin_type_label"
                         ),
+                        "age_bracket": row.get("age_bracket"),
+                        "condition": row.get("condition"),
+                        "timepoint": row.get("timepoint"),
+                        "rin": row.get("rin"),
+                        "ischemic_time_min": row.get("ischemic_time_min"),
                     }
             del bio_table
 

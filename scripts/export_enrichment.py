@@ -265,6 +265,10 @@ GEO_SOFT_URL = (
     "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi"
     "?acc={accession}&targ=gsm&form=text&view=full"
 )
+GTEX_SAMPLE_ATTRIBUTES_URL = (
+    "https://storage.googleapis.com/adult-gtex/annotations/v8/metadata-files/"
+    "GTEx_Analysis_v8_Annotations_SampleAttributesDS.txt"
+)
 
 
 def _pair_or_none(
@@ -453,6 +457,110 @@ def parse_geo_soft_characteristics(path: Path) -> Dict[str, List[str]]:
     return out
 
 
+def _normalize_soft_kv_key(raw: str) -> str:
+    return re.sub(r"\s+", " ", raw.strip().lower())
+
+
+def parse_geo_soft_characteristics_kv(path: Path) -> Dict[str, Dict[str, str]]:
+    """Map GSM → normalized key → value from ``key: value`` characteristics."""
+    out: Dict[str, Dict[str, str]] = {}
+    gsm: Optional[str] = None
+    with _open_text(path) as fh:
+        for line in fh:
+            if line.startswith("^SAMPLE"):
+                gsm = line.split("=", 1)[-1].strip()
+                out.setdefault(gsm, {})
+            elif line.startswith("!Sample_characteristics_ch1") and gsm:
+                val = line.split("=", 1)[-1].strip()
+                if not val or ":" not in val:
+                    continue
+                key, rest = val.split(":", 1)
+                nk = _normalize_soft_kv_key(key)
+                out[gsm][nk] = rest.strip()
+    return out
+
+
+def ensure_gtex_sample_attributes_path(
+    cache_dir: Path = CACHE_DIR,
+    *,
+    skip_download: bool = False,
+    timeout: int = 300,
+) -> Optional[Path]:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dest = cache_dir / "GTEx_Analysis_v8_Annotations_SampleAttributesDS.txt"
+    if dest.exists() and dest.stat().st_size > 0:
+        return dest
+    if skip_download:
+        print(f"WARNING: GTEx sample attributes cache miss: {dest}", flush=True)
+        return None
+    try:
+        with requests.get(GTEX_SAMPLE_ATTRIBUTES_URL, stream=True, timeout=timeout) as resp:
+            resp.raise_for_status()
+            tmp = dest.with_suffix(dest.suffix + ".partial")
+            try:
+                with tmp.open("wb") as out:
+                    for chunk in resp.iter_content(chunk_size=256 * 1024):
+                        if chunk:
+                            out.write(chunk)
+                tmp.replace(dest)
+            except Exception:
+                if tmp.exists():
+                    tmp.unlink(missing_ok=True)
+                raise
+        return dest
+    except Exception as exc:
+        print(f"WARNING: GTEx sample attributes fetch failed: {exc}", flush=True)
+        return None
+
+
+def load_gtex_sample_attributes(
+    cache_dir: Path = CACHE_DIR,
+    *,
+    skip_download: bool = False,
+) -> Dict[str, Dict[str, Any]]:
+    """Map GTEx SAMPID → {sex, age_bracket, rin, ischemic_time_min, tissue_detail}."""
+    path = ensure_gtex_sample_attributes_path(cache_dir, skip_download=skip_download)
+    if path is None:
+        return {}
+    out: Dict[str, Dict[str, Any]] = {}
+    with path.open("r", encoding="utf-8", errors="replace") as fh:
+        reader = csv.DictReader(fh, delimiter="\t")
+        for row in reader:
+            samp = (row.get("SAMPID") or "").strip()
+            if not samp:
+                continue
+            rec: Dict[str, Any] = {}
+            sex_raw = (row.get("SEX") or "").strip()
+            if sex_raw == "1":
+                rec["sex"] = "male"
+            elif sex_raw == "2":
+                rec["sex"] = "female"
+            age = (row.get("AGE") or "").strip()
+            if age:
+                rec["age_bracket"] = age
+            rin = (row.get("SMRIN") or "").strip()
+            if rin:
+                try:
+                    rec["rin"] = float(rin)
+                except ValueError:
+                    pass
+            isch = (row.get("SMTSISCH") or row.get("SMATSSCR") or "").strip()
+            if isch:
+                try:
+                    rec["ischemic_time_min"] = float(isch)
+                except ValueError:
+                    rec["ischemic_time_min"] = isch
+            tsd = (row.get("SMTSD") or "").strip()
+            if tsd:
+                rec["tissue_detail"] = tsd
+            subj = (row.get("SUBJID") or "").strip()
+            if subj:
+                rec["donor"] = subj
+            if rec:
+                out[samp] = rec
+    return out
+
+
 def lookup_geo_ontology(
     characteristics: List[str],
     ontology_map: Dict[str, Dict[str, str]],
@@ -495,7 +603,9 @@ def enrich_biosamples(
     rows: List[Dict[str, Any]] = []
 
     geo_chars: Dict[str, List[str]] = {}
+    geo_kv: Dict[str, Dict[str, str]] = {}
     geo_map: Dict[str, Dict[str, str]] = {}
+    gtex_attrs: Dict[str, Dict[str, Any]] = {}
     if profile_name == "geo":
         geo_map = _load_geo_ontology_map()
         soft = ensure_geo_soft_path(
@@ -505,6 +615,11 @@ def enrich_biosamples(
         )
         if soft is not None:
             geo_chars = parse_geo_soft_characteristics(soft)
+            geo_kv = parse_geo_soft_characteristics_kv(soft)
+    elif profile_name == "gtex":
+        gtex_attrs = load_gtex_sample_attributes(
+            cache_dir, skip_download=skip_download
+        )
 
     for sample in biosamples:
         sid = sample.get("id") or sample.get("biosampleId")
@@ -515,6 +630,11 @@ def enrich_biosamples(
         donor = sample.get("donor")
         summary = sample.get("summary")
         lab = sample.get("lab")
+        age_bracket = None
+        condition = None
+        timepoint = None
+        rin = None
+        ischemic_time_min = None
         origin_type = _OBI_SPECIMEN
 
         if profile_name == "encode":
@@ -554,6 +674,16 @@ def enrich_biosamples(
                     f"WARNING: gtex profile missing tissue id+label for {sid}",
                     flush=True,
                 )
+            ga = gtex_attrs.get(str(sid), {})
+            if ga.get("sex") and not sex:
+                sex = ga["sex"]
+            if ga.get("donor") and not donor:
+                donor = ga["donor"]
+            age_bracket = ga.get("age_bracket")
+            rin = ga.get("rin")
+            ischemic_time_min = ga.get("ischemic_time_min")
+            if ga.get("tissue_detail") and not summary:
+                summary = str(ga["tissue_detail"])
         elif profile_name == "geo":
             origin_type = _OBI_SPECIMEN
             ontology_source = "GEO"
@@ -568,6 +698,14 @@ def enrich_biosamples(
                 if oid:
                     ontology_id, ontology_label = oid, olabel
                     ontology_source = hit.get("source") or _ontology_source_for_id(oid)
+            kv = geo_kv.get(str(sid), {})
+            infection = kv.get("infection") or kv.get("treatment") or kv.get("condition")
+            if infection:
+                condition = infection.strip()
+            timepoint = kv.get("time point") or kv.get("timepoint")
+            severity = kv.get("disease severity") or kv.get("severity")
+            if severity and not condition:
+                condition = severity.strip()
             summary = (profile.get("series_design") or "").strip() or summary
 
         rows.append(
@@ -583,6 +721,11 @@ def enrich_biosamples(
                 "donor": donor,
                 "summary": summary,
                 "lab": lab,
+                "age_bracket": age_bracket,
+                "condition": condition,
+                "timepoint": timepoint,
+                "rin": rin,
+                "ischemic_time_min": ischemic_time_min,
             }
         )
     return rows

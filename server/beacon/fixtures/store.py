@@ -133,8 +133,17 @@ class FixtureStore:
         self._biosamples_by_id = {b["id"]: b for b in self.biosamples}
         self._filtering_terms_doc = dict(_FIXTURE_FILTERING_TERMS)
 
-    def list_matrices(self) -> List[Dict[str, Any]]:
-        return list(self.matrices)
+    def list_matrices(
+        self, filters: Optional[Sequence[Any]] = None
+    ) -> List[Dict[str, Any]]:
+        from beacon.matrix_catalog import list_matrices_filtered
+
+        return list_matrices_filtered(self.matrices, filters)
+
+    def matrix_filtering_terms(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        from beacon.matrix_catalog import build_matrix_filtering_terms
+
+        return build_matrix_filtering_terms(self.matrices)
 
     def get_matrix(self, matrix_id: str) -> Optional[Dict[str, Any]]:
         return self._matrices_by_id.get(matrix_id)
@@ -306,8 +315,37 @@ class FixtureStore:
         limit: int = 10,
         sort: Optional[str] = None,
         order: Optional[str] = None,
+        biosample_filters: Optional[Sequence[Any]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
+        from beacon.filters import biosample_matches
+
         all_feats = self.features_for_matrix(matrix_id)
+        if biosample_filters:
+            allowed_bios = {
+                b["id"]
+                for b in self.biosamples_for_matrix(matrix_id)
+                if biosample_matches(b, biosample_filters)
+            }
+            if not allowed_bios:
+                return [], 0
+            feat_ids = {
+                ev["featureId"]
+                for ev in self.expression_values
+                if ev.get("matrixId") == matrix_id
+                and ev.get("biosampleId") in allowed_bios
+            }
+            native_ids = set()
+            for f in all_feats:
+                if f.get("id") in feat_ids:
+                    native_ids.add(f.get("id"))
+                gid = (
+                    (f.get("genomicFeature") or {})
+                    .get("featureIdentifier", {})
+                    .get("id")
+                )
+                if gid in feat_ids:
+                    native_ids.add(f.get("id"))
+            all_feats = [f for f in all_feats if f.get("id") in native_ids]
         _, order_key = self.effective_axis_sort(
             matrix_id, axis="features", sort=sort, order=order
         )
@@ -341,8 +379,13 @@ class FixtureStore:
         limit: int = 10,
         sort: Optional[str] = None,
         order: Optional[str] = None,
+        filters: Optional[Sequence[Any]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
+        from beacon.filters import biosample_matches
+
         items = self.biosamples_for_matrix(matrix_id)
+        if filters:
+            items = [b for b in items if biosample_matches(b, filters)]
         _, order_key = self.effective_axis_sort(
             matrix_id, axis="biosamples", sort=sort, order=order
         )
@@ -356,13 +399,25 @@ class FixtureStore:
         *,
         feature_id_list: Optional[str] = None,
         biosample_id_list: Optional[str] = None,
+        biosample_filters: Optional[Sequence[Any]] = None,
         min_value: Optional[float] = None,
         max_value: Optional[float] = None,
         skip: int = 0,
         limit: Optional[int] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
+        from beacon.filters import biosample_matches
+
         feature_ids = self._resolve_feature_filter_ids(feature_id_list)
         biosample_ids = _csv_set(biosample_id_list)
+        if biosample_filters:
+            allowed = {
+                b["id"]
+                for b in self.biosamples_for_matrix(matrix_id)
+                if biosample_matches(b, biosample_filters)
+            }
+            biosample_ids = biosample_ids & allowed if biosample_ids else allowed
+            if not biosample_ids:
+                return [], 0
         out = []
         for ev in self.expression_values:
             if ev.get("matrixId") != matrix_id:
@@ -385,13 +440,14 @@ class FixtureStore:
         return page, total
 
     def _resolve_feature_filter_ids(self, feature_id_list: Optional[str]) -> Set[str]:
-        """Accept genomic accessions and/or feature wrapper ids."""
+        """Accept genomic accessions, symbols, and/or feature wrapper ids."""
         tokens = _csv_set(feature_id_list)
         if not tokens:
             return set()
         resolved: Set[str] = set()
         for token in tokens:
             resolved.add(token)
+            resolved.update(self._feature_ids_for_symbol_or_xref(token))
             feature = self._features_by_id.get(token)
             if feature:
                 genomic = (
@@ -402,6 +458,91 @@ class FixtureStore:
                 if genomic:
                     resolved.add(genomic)
         return resolved
+
+    def expression_summary_for_matrix(
+        self,
+        matrix_id: str,
+        *,
+        feature_id_list: Optional[str] = None,
+        group_by: Optional[str] = None,
+        biosample_filters: Optional[Sequence[Any]] = None,
+        threshold: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        import statistics
+
+        from beacon.filters import biosample_matches
+
+        feature_ids = self._resolve_feature_filter_ids(feature_id_list)
+        values_by_key: Dict[tuple, List[float]] = {}
+        for ev in self.expression_values:
+            if ev.get("matrixId") != matrix_id:
+                continue
+            if feature_ids and ev.get("featureId") not in feature_ids:
+                continue
+            bid = ev.get("biosampleId")
+            bio = self._biosamples_by_id.get(str(bid))
+            if biosample_filters and bio and not biosample_matches(bio, biosample_filters):
+                continue
+            if biosample_filters and not bio:
+                continue
+            group_key = "all"
+            if group_by and bio:
+                info = bio.get("info") or {}
+                if group_by == "tissue":
+                    detail = bio.get("sampleOriginDetail") or {}
+                    group_key = str(detail.get("label") or detail.get("id") or "unknown")
+                else:
+                    group_key = str(info.get(group_by) or bio.get(group_by) or "unknown")
+            key = (str(ev.get("featureId")), group_key)
+            val = ev.get("value")
+            if val is None:
+                continue
+            values_by_key.setdefault(key, []).append(float(val))
+        out: List[Dict[str, Any]] = []
+        for (fid, gkey), vals in sorted(values_by_key.items()):
+            if not vals:
+                continue
+            rec = {
+                "id": f"{matrix_id}:{fid}:{gkey}",
+                "matrixId": matrix_id,
+                "featureId": fid,
+                "n": len(vals),
+                "mean": statistics.fmean(vals),
+                "median": statistics.median(vals),
+                "min": min(vals),
+                "max": max(vals),
+                "q1": statistics.quantiles(vals, n=4)[0] if len(vals) > 1 else vals[0],
+                "q3": statistics.quantiles(vals, n=4)[2] if len(vals) > 1 else vals[0],
+            }
+            if threshold is not None:
+                rec["fractionAboveThreshold"] = sum(1 for v in vals if v >= threshold) / len(
+                    vals
+                )
+            if group_by:
+                rec["group"] = {"id": gkey, "label": gkey}
+            out.append(rec)
+        return out
+
+    def expression_summary_for_feature(
+        self, feature_id: str, *, threshold: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
+        feature = self.get_feature(feature_id)
+        if not feature:
+            return []
+        native = (
+            (feature.get("genomicFeature") or {})
+            .get("featureIdentifier", {})
+            .get("id")
+        )
+        token = str(native or feature_id)
+        summaries: List[Dict[str, Any]] = []
+        for mid in feature.get("matrixIds") or []:
+            summaries.extend(
+                self.expression_summary_for_matrix(
+                    str(mid), feature_id_list=token, threshold=threshold
+                )
+            )
+        return summaries
 
 
 def _csv_set(value: Optional[str]) -> Set[str]:

@@ -231,3 +231,77 @@ def post_feature_matrices(
         gran,
         received,
     )
+
+
+@router.get(
+    "/features/{id}/expression_summary",
+    response_model=None,
+    responses=OPENAPI_BEACON_RESPONSES,
+)
+def get_feature_expression_summary(
+    id: str,
+    threshold: Optional[float] = Query(None),
+    requestedGranularity: Optional[str] = Query(None),
+) -> Union[Dict[str, Any], JSONResponse]:
+    store = get_store()
+    if not store.get_feature(id):
+        return error_json(404, f"Feature '{id}' not found")
+    resolved, err = resolve_or_error(
+        requested_granularity=requestedGranularity,
+        extra_summary={"threshold": threshold},
+    )
+    if err:
+        return err
+    _, _, gran, received = resolved
+    getter = getattr(store, "expression_summary_for_feature", None)
+    if not callable(getter):
+        return error_json(501, "expression_summary not available")
+    results = getter(id, threshold=threshold)
+    return _list_response(
+        results,
+        "expressionSummary",
+        id,
+        0,
+        max(len(results), 1),
+        gran,
+        received,
+        total_count=len(results),
+        results_are_page=True,
+    )
+
+
+@router.post(
+    "/features/{id}/expression_summary",
+    response_model=None,
+    responses=OPENAPI_BEACON_RESPONSES,
+)
+def post_feature_expression_summary(
+    id: str, body: BeaconRequestBody = Body(...)
+) -> Union[Dict[str, Any], JSONResponse]:
+    store = get_store()
+    if not store.get_feature(id):
+        return error_json(404, f"Feature '{id}' not found")
+    payload = model_to_dict(body)
+    thr = payload.get("threshold")
+    resolved, err = resolve_or_error(
+        body=payload,
+        extra_summary={"threshold": thr},
+    )
+    if err:
+        return err
+    _, _, gran, received = resolved
+    getter = getattr(store, "expression_summary_for_feature", None)
+    if not callable(getter):
+        return error_json(501, "expression_summary not available")
+    results = getter(id, threshold=float(thr) if thr is not None else None)
+    return _list_response(
+        results,
+        "expressionSummary",
+        id,
+        0,
+        max(len(results), 1),
+        gran,
+        received,
+        total_count=len(results),
+        results_are_page=True,
+    )

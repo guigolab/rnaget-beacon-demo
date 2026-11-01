@@ -29,4 +29,5 @@ SCHEMA_IDS = {
     "map": "beacon-map-v2.0.0",
     "entryTypes": "beacon-entry-types-v2.0.0",
     "filteringTerms": "beacon-filtering-terms-v2.0.0",
+    "expressionSummary": "ga4gh-beacon-expressionValues-v2.0.0",
 }
