@@ -30,7 +30,7 @@ console.assert(entryTypeScope('biosample') === 'biosample')
 
 console.assert(namespaceLabel('SO', 'SO:1') === 'Sequence Ontology')
 console.assert(namespaceLabel('alphanumeric', 'genomicFeature.symbol') === 'symbol')
-console.assert(namespaceLabel('custom', 'resource:gencode') === 'gencode')
+console.assert(namespaceLabel('custom', 'resource:ensembl') === 'ensembl')
 
 const groups = groupTermsByNamespaceScope([soGene, sex])
 console.assert(groups.length === 2)

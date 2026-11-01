@@ -1,7 +1,9 @@
 'use client'
 
-import type { ReactNode } from 'react'
-import Link from 'next/link'
+import { DetailHeaderIconLink } from '@/components/shared/detail/detail-header-icon-link'
+import { DetailScrollBody } from '@/components/shared/detail/detail-scroll-body'
+import { DetailSurfaceHeader } from '@/components/shared/detail/detail-surface-header'
+import { MetaBadge } from '@/components/shared/detail/meta-badge'
 import type { Matrix, OntologyTerm } from '@/lib/beacon/types'
 import { matrixViewHref } from '@/lib/gene-lens'
 import type { Feature } from '@/lib/beacon/types'
@@ -22,31 +24,6 @@ function matrixFeatureTypes(matrix: Matrix): OntologyTerm[] {
 
 function termChipLabel(term: OntologyTerm): string {
   return term.label?.trim() || term.id || '—'
-}
-
-function MetaBadge({
-  children,
-  variant = 'default',
-  title,
-}: {
-  children: ReactNode
-  variant?: 'default' | 'accent' | 'muted'
-  title?: string
-}) {
-  const styles =
-    variant === 'accent'
-      ? 'border-primary/35 bg-primary/10 text-foreground'
-      : variant === 'muted'
-        ? 'border-border bg-muted/50 text-muted-foreground'
-        : 'border-border bg-background text-foreground'
-  return (
-    <span
-      title={title}
-      className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-medium leading-none ${styles}`}
-    >
-      {children}
-    </span>
-  )
 }
 
 export function MatrixPopoverDetails({
@@ -72,16 +49,20 @@ export function MatrixPopoverDetails({
       ? `${formatHeatmapValue(min)}–${formatHeatmapValue(max)}${unit ? ` ${unit}` : ''}`
       : null
 
+  const openLabel = feature ? 'Open matrix with this feature' : 'Open matrix workspace'
+
   return (
     <div className="text-popover-foreground text-xs">
-      <div className="border-b border-border px-3 py-2.5">
-        <p className="text-sm font-semibold leading-snug">
-          {matrix.name ?? matrixId}
-        </p>
-        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-          {matrixId}
-        </p>
-        <div className="mt-2 flex flex-wrap gap-1.5">
+      <DetailSurfaceHeader
+        density="popover"
+        title={matrix.name ?? matrixId}
+        subtitle={matrixId}
+        actions={
+          <DetailHeaderIconLink href={href} label={openLabel} onClick={onNavigate} />
+        }
+      />
+      <div className="border-b border-border px-3 pb-2.5">
+        <div className="flex flex-wrap gap-1.5">
           {matrix.reproducible != null && (
             <MetaBadge variant={matrix.reproducible ? 'accent' : 'muted'}>
               {matrix.reproducible ? 'Reproducible' : 'Not reproducible'}
@@ -93,7 +74,7 @@ export function MatrixPopoverDetails({
         </div>
       </div>
 
-      <div className="max-h-[min(60vh,22rem)] space-y-2.5 overflow-y-auto px-3 py-2.5">
+      <DetailScrollBody density="popover">
         {(biosamples != null || features != null) && (
           <p className="tabular-nums text-muted-foreground">
             <span className="font-medium text-foreground">Dimensions</span>{' '}
@@ -153,15 +134,7 @@ export function MatrixPopoverDetails({
             </MetaBadge>
           )}
         </div>
-
-        <Link
-          href={href}
-          className="inline-block font-medium text-primary underline-offset-2 hover:underline"
-          onClick={() => onNavigate?.()}
-        >
-          {feature ? 'Open matrix with this feature' : 'Open matrix workspace'}
-        </Link>
-      </div>
+      </DetailScrollBody>
     </div>
   )
 }

@@ -72,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
         "GenomicFeatureWrapper",
         "Biosample",
         "ExpressionValue",
+        "ExpressionSummary",
         "BeaconResultsetsResponse",
     ):
         print(f"  schema {name}: {'yes' if name in comps else 'MISSING'}")

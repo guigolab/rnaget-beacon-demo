@@ -125,13 +125,15 @@ class PaginationLimitError(ValueError):
     pass
 
 
-def _validate_pagination_bounds(skip: int, limit: int, *, cap_limit: bool) -> None:
-    if skip < 0 or skip > MAX_SKIP:
+def _validate_pagination_bounds(
+    skip: int, limit: int, *, cap_limit: bool, cap_skip: bool
+) -> None:
+    if skip < 0 or (cap_skip and skip > MAX_SKIP):
         raise PaginationLimitError(
             f"skip must be between 0 and {MAX_SKIP}, got {skip}"
         )
-    if limit < 1:
-        raise PaginationLimitError("limit must be at least 1")
+    if limit < 0:
+        raise PaginationLimitError("limit must be at least 0")
     if cap_limit and limit > MAX_PAGE_LIMIT:
         raise PaginationLimitError(
             f"limit must not exceed {MAX_PAGE_LIMIT}, got {limit}"
@@ -213,6 +215,7 @@ def resolve_list_args(
     body: Optional[Dict[str, Any]] = None,
     extra_summary: Optional[Dict[str, Any]] = None,
     cap_limit: bool = False,
+    cap_skip: bool = False,
     entity_type: Optional[str] = None,
 ) -> Tuple[int, int, Granularity, Dict[str, Any]]:
     body_dict = body or {}
@@ -224,13 +227,25 @@ def resolve_list_args(
             pass
         if body.get("limit") is not None and limit is None:
             limit_v = int(body["limit"])
-    _validate_pagination_bounds(int(skip_v or 0), int(limit_v), cap_limit=cap_limit)
-    skip_v = max(0, min(int(skip_v), MAX_SKIP))
-    if cap_limit:
+    _validate_pagination_bounds(
+        int(skip_v or 0), int(limit_v), cap_limit=cap_limit, cap_skip=cap_skip
+    )
+    skip_v = max(0, int(skip_v))
+    if cap_skip:
+        skip_v = min(skip_v, MAX_SKIP)
+    # Beacon limit 0 means "as many as the server allows".
+    if int(limit_v) == 0:
+        limit_v = MAX_PAGE_LIMIT
+    elif cap_limit:
         limit_v = max(1, min(int(limit_v), MAX_PAGE_LIMIT))
     else:
         limit_v = max(1, int(limit_v))
     gran = granularity_from_request(requested_granularity, body_dict)
+    query = body_dict.get("query") or {}
+    include_rs = query.get("includeResultsetResponses") if isinstance(query, dict) else None
+    if include_rs:
+        extra_summary = dict(extra_summary or {})
+        extra_summary["includeResultsetResponses"] = include_rs
     received = build_received_summary(
         skip=skip_v,
         limit=limit_v,
@@ -273,6 +288,7 @@ def resolve_or_error(
     body: Optional[Dict[str, Any]] = None,
     extra_summary: Optional[Dict[str, Any]] = None,
     cap_limit: bool = False,
+    cap_skip: bool = False,
     entity_type: Optional[str] = None,
 ):
     partial = partial_received_for_error(
@@ -292,6 +308,7 @@ def resolve_or_error(
                 body=body,
                 extra_summary=extra_summary,
                 cap_limit=cap_limit,
+                cap_skip=cap_skip,
                 entity_type=entity_type,
             ),
             None,

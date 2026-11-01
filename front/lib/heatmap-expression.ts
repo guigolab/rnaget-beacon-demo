@@ -118,3 +118,30 @@ export function formatHeatmapValue(value: number) {
   if (Math.abs(value) >= 10) return value.toFixed(1)
   return value.toFixed(2)
 }
+
+/** Bounds for heatFill / legend bar — matrix catalog when present. */
+export function matrixHeatmapColorScaleBounds(
+  catalog: { min?: number; max?: number } | null | undefined,
+  visibleMin: number,
+  visibleMax: number
+): { min: number; max: number } {
+  if (
+    catalog?.min != null &&
+    catalog?.max != null &&
+    Number.isFinite(catalog.min) &&
+    Number.isFinite(catalog.max)
+  ) {
+    const min = catalog.min
+    const max = catalog.max >= min ? catalog.max : min + 1
+    return { min, max }
+  }
+  if (!Number.isFinite(visibleMin) || !Number.isFinite(visibleMax)) {
+    return { min: 0, max: 1 }
+  }
+  if (visibleMin === 0 && visibleMax === 0) {
+    return { min: 0, max: 1 }
+  }
+  const min = visibleMin
+  const max = visibleMax > min ? visibleMax : min + 1
+  return { min, max }
+}

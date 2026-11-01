@@ -43,7 +43,7 @@ export function curieHref(resources: FilteringResource[], id: string): string | 
   return `${resource.iriPrefix}${local}`
 }
 
-function linkedTerms(
+export function linkedTerms(
   resources: FilteringResource[],
   items: Array<{ id?: string; label?: string } | string>
 ): FactLink[] {
@@ -70,6 +70,60 @@ function formatInterval(feature: Feature): string | undefined {
   const end = location.interval?.end?.value
   const range = start != null && end != null ? `${start.toLocaleString()}–${end.toLocaleString()}` : undefined
   return [location.sequence_id, range, interval?.strand].filter(Boolean).join(' · ')
+}
+
+/** Scalar fields for detail drawer (chips cover aliases/xrefs/ontology). */
+export function featureScalarFacts(
+  feature: Feature,
+  resources: FilteringResource[] = []
+): Fact[] {
+  const genomic = feature.genomicFeature
+  const type = genomic?.featureType
+  const typeLinks = type?.id ? linkedTerms(resources, [type]) : []
+  return [
+    {
+      label: 'Feature type',
+      value: typeLinks.some((link) => link.href) ? undefined : termText(type),
+      links: typeLinks.some((link) => link.href) ? typeLinks : undefined,
+    },
+    { label: 'Native ID', value: genomic?.featureIdentifier?.id },
+    { label: 'Resource', value: genomic?.featureIdentifier?.resource },
+    { label: 'Location', value: formatInterval(feature) },
+  ]
+}
+
+/** Clinical / info fields after ontology sections in biosample drawer. */
+export function biosampleInfoScalarFacts(sample: Biosample): Fact[] {
+  const sex = sample.sex ?? sample.info?.sex
+  const info = sample.info ?? {}
+  return [
+    { label: 'Sex', value: sex != null ? String(sex) : undefined },
+    { label: 'Individual', value: sample.individualId },
+    { label: 'Collection date', value: sample.collectionDate },
+    { label: 'Collection', value: sample.collectionMoment },
+    {
+      label: 'Condition',
+      value: info.condition != null ? String(info.condition) : undefined,
+    },
+    {
+      label: 'Timepoint',
+      value: info.timepoint != null ? String(info.timepoint) : undefined,
+    },
+    {
+      label: 'Age bracket',
+      value: info.age_bracket != null ? String(info.age_bracket) : undefined,
+    },
+    { label: 'RIN', value: info.rin != null ? String(info.rin) : undefined },
+    {
+      label: 'Ischemic time (min)',
+      value:
+        info.ischemic_time_min != null ? String(info.ischemic_time_min) : undefined,
+    },
+    { label: 'Organism', value: sample.organism?.scientificName },
+    { label: 'Lab', value: info.lab != null ? String(info.lab) : undefined },
+    { label: 'Description', value: sample.description ?? sample.summary },
+    { label: 'Notes', value: sample.notes },
+  ]
 }
 
 export function featureFacts(feature: Feature, resources: FilteringResource[] = []): Fact[] {

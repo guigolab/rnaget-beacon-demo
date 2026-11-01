@@ -273,9 +273,11 @@ def enrich_package(
         feats = pq.read_table(feat_path).to_pylist()
         changed = False
         for i, row in enumerate(feats):
-            feats[i] = enrich_row(dict(row))
-            changed = True
-            stats["features_updated"] += 1
+            updated = enrich_row(dict(row))
+            if updated != row:
+                feats[i] = updated
+                changed = True
+                stats["features_updated"] += 1
         if changed:
             pq.write_table(
                 pa.Table.from_pylist(feats), feat_path, compression="zstd"

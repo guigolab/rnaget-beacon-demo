@@ -148,7 +148,7 @@ export function BiosampleQueryBar({ filters, onChange, probe }: BiosampleQueryBa
             placeholder={
               filters.length
                 ? 'Add filter…'
-                : 'Tissue, UBERON:…, EFO:…, female, GEO:sample'
+                : 'Tissue, UBERON:…, EFO:…, female'
             }
             className="min-w-[10rem] flex-1 border-0 bg-transparent py-1.5 text-sm outline-none placeholder:text-muted-foreground"
           />
@@ -159,7 +159,7 @@ export function BiosampleQueryBar({ filters, onChange, probe }: BiosampleQueryBa
         <span className="text-[11px] text-muted-foreground">Examples</span>
         {examples.map((example) => (
           <button
-            key={example.label}
+            key={filterKey(example.filter)}
             type="button"
             onClick={() => applyExample(example.filter)}
             className="rounded-full border border-border bg-background px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground"

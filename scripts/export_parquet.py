@@ -84,6 +84,31 @@ def _write_table(path: Path, rows: List[Dict[str, Any]], *, empty_schema=None) -
     pq.write_table(table, path, compression="zstd")
 
 
+def _sort_expression_part(path: Path) -> None:
+    """Rewrite one expression part sorted by feature_id, biosample_id."""
+    import duckdb
+
+    tmp = path.with_suffix(path.suffix + ".sorted")
+    src = path.resolve().as_posix().replace("'", "''")
+    dest = tmp.resolve().as_posix().replace("'", "''")
+    con = duckdb.connect(database=":memory:")
+    try:
+        con.execute(
+            "COPY ("
+            "SELECT matrix_id, feature_id, biosample_id, value "
+            f"FROM read_parquet('{src}') "
+            "ORDER BY feature_id, biosample_id"
+            f") TO '{dest}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880)"
+        )
+    except Exception:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+        raise
+    finally:
+        con.close()
+    tmp.replace(path)
+
+
 def _stream_expression_shards(
     expression_dir: Path,
     rows: Iterable[Tuple[str, str, str, float]],
@@ -143,6 +168,11 @@ def _stream_expression_shards(
         for w in writers:
             if w is not None:
                 w.close()
+
+    for i in range(n_shards):
+        part = expression_dir / f"part-{i:05d}.parquet"
+        if part.is_file() and counts[i]:
+            _sort_expression_part(part)
 
     # Ensure empty shards exist for stable part numbering when N>1 but unused
     for i in range(n_shards):

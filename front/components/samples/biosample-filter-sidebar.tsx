@@ -58,17 +58,6 @@ export function BiosampleFilterSidebar({
     [terms]
   )
 
-  const customTerms = useMemo(
-    () =>
-      terms.filter(
-        (t) =>
-          t.type === 'custom' &&
-          (t.scopes?.includes('biosample') ?? false) &&
-          t.id === 'GEO:sample'
-      ),
-    [terms]
-  )
-
   const resourceByPrefix = useMemo(() => {
     const map = new Map<string, (typeof resources)[0]>()
     for (const r of resources) {
@@ -118,29 +107,6 @@ export function BiosampleFilterSidebar({
                 />
               </li>
             ))}
-            {customTerms.map((term) => {
-              const filter: UiFilter = {
-                kind: 'custom',
-                id: term.id,
-                label: term.label,
-              }
-              const inQuery = activeFilters.some(
-                (f) => f.kind === 'custom' && f.id === term.id
-              )
-              return (
-                <li key={term.id}>
-                  <button
-                    type="button"
-                    disabled={inQuery}
-                    className="w-full rounded-md border border-border bg-muted/30 px-2.5 py-2 text-left text-xs hover:bg-muted/50 disabled:cursor-default disabled:opacity-50"
-                    onClick={() => onAddFilter(filter)}
-                  >
-                    <p className="font-medium text-foreground">{term.label ?? term.id}</p>
-                    <p className="font-mono text-[10px] text-muted-foreground">{term.id}</p>
-                  </button>
-                </li>
-              )
-            })}
             {resources
               .filter(
                 (r) =>
@@ -157,8 +123,7 @@ export function BiosampleFilterSidebar({
                 </li>
               ))}
             {biosampleGroups.length === 0 &&
-              alphanumericTerms.length === 0 &&
-              customTerms.length === 0 && (
+              alphanumericTerms.length === 0 && (
                 <li className="text-xs text-muted-foreground">No namespaces in catalog.</li>
               )}
           </ul>

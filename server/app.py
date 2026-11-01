@@ -2,7 +2,8 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -55,13 +56,13 @@ async def validation_exception_handler(
     )
 
 
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
     from beacon.responses import build_error_response
 
-    code = exc.status_code if exc.status_code in (400, 404, 405, 501) else 400
-    if exc.status_code == 405:
-        code = 405
+    code = exc.status_code
     message = exc.detail if isinstance(exc.detail, str) else "Request failed"
     return JSONResponse(
         status_code=code,

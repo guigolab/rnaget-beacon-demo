@@ -139,7 +139,7 @@ export function MatrixQueryBar({ filters, onChange, probe }: MatrixQueryBarProps
             placeholder={
               filters.length
                 ? 'Add filter…'
-                : 'TPM, OBI:…, SO:…, gencode, true'
+                : 'TPM, OBI:…, SO:…, true'
             }
             className="min-w-[10rem] flex-1 border-0 bg-transparent py-1.5 text-sm outline-none placeholder:text-muted-foreground"
           />

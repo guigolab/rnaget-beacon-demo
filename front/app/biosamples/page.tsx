@@ -4,10 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { BiosampleFilterSidebar } from '@/components/samples/biosample-filter-sidebar'
 import { BiosampleQueryBar } from '@/components/samples/biosample-query-bar'
-import { BiosampleResultsTable } from '@/components/samples/biosample-results-table'
+import { BiosampleResultsCards } from '@/components/samples/biosample-results-cards'
 import { LensChrome } from '@/components/shared/lens-chrome'
 import { LensMatrixScopeBanner } from '@/components/shared/lens-matrix-scope-banner'
-import { useEntityRecordSheet } from '@/components/shared/entity-record-sheet-provider'
 import { LensPageShell } from '@/components/shared/lens-page-shell'
 import { LensResultsPanel } from '@/components/shared/lens-results-panel'
 import { PageFrame, PageHeader } from '@/components/ui-kit'
@@ -16,7 +15,6 @@ import {
   dedupeFilters,
   filterKey,
   filtersQuerySummary,
-  getBiosample,
   listBiosamples,
   parseSampleLensSearch,
   sampleLensSearchParams,
@@ -24,15 +22,9 @@ import {
   type UiFilter,
 } from '@/lib/beacon'
 import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
-import {
-  biosampleDisplayLabel,
-  mergeSampleLensFilters,
-  resolveSelectedBiosample,
-  SAMPLE_LENS_PAGE_SIZE,
-} from '@/lib/sample-lens'
+import { mergeSampleLensFilters, SAMPLE_LENS_PAGE_SIZE } from '@/lib/sample-lens'
 
 function BiosamplesLensContent() {
-  const { openRecordSheet } = useEntityRecordSheet()
   const search = useSearchParams()
   const router = useRouter()
   const scopeIndex = useMergedFilterScopeIndex()
@@ -40,11 +32,7 @@ function BiosamplesLensContent() {
     () => parseSampleLensSearch(search, scopeIndex),
     [search, scopeIndex]
   )
-  const {
-    biosampleFilters,
-    sample: sampleParam,
-    matrix: focusMatrix,
-  } = lens
+  const { biosampleFilters, matrix: focusMatrix } = lens
 
   const filterKeyLine = useMemo(
     () => biosampleFilters.map((f) => filterKey(f)).join('|'),
@@ -61,11 +49,6 @@ function BiosamplesLensContent() {
   const [searchLoading, setSearchLoading] = useState(false)
   const probe = useBiosampleFilterProbe(biosampleFilters)
 
-  const selectedSample = useMemo(
-    () => resolveSelectedBiosample(matches, sampleParam),
-    [matches, sampleParam]
-  )
-
   useEffect(() => {
     setDisplayLimit(SAMPLE_LENS_PAGE_SIZE)
   }, [filterKeyLine])
@@ -80,18 +63,6 @@ function BiosamplesLensContent() {
       router.replace(`/biosamples/?${params.toString()}`)
     },
     [router, focusMatrix]
-  )
-
-  const buildSampleHref = useCallback(
-    (sampleId: string) => {
-      const params = sampleLensSearchParams({
-        filters: biosampleFilters,
-        sample: sampleId,
-        matrix: focusMatrix,
-      })
-      return `/biosamples/?${params.toString()}`
-    },
-    [biosampleFilters, focusMatrix]
   )
 
   useEffect(() => {
@@ -135,25 +106,6 @@ function BiosamplesLensContent() {
     }
   }, [filterKeyLine, biosampleFilters, probe.loading, probe.exists, displayLimit])
 
-  useEffect(() => {
-    if (!sampleParam || searchLoading || probe.exists !== true) return
-    if (matches.some((s) => s.id === sampleParam)) return
-
-    let cancelled = false
-    getBiosample(sampleParam)
-      .then((sample) => {
-        if (cancelled || !sample) return
-        setMatches((prev) => {
-          if (prev.some((s) => s.id === sample.id)) return prev
-          return [sample, ...prev].slice(0, displayLimit)
-        })
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [sampleParam, matches, searchLoading, probe.exists, displayLimit])
-
   const canLoadMore =
     probe.exists === true &&
     probe.total != null &&
@@ -163,24 +115,15 @@ function BiosamplesLensContent() {
   const clearMatrixHref = useMemo(() => {
     const params = sampleLensSearchParams({
       filters: biosampleFilters,
-      sample: sampleParam,
     })
     return `/biosamples/?${params.toString()}`
-  }, [biosampleFilters, sampleParam])
-
-  const pageTitle = selectedSample
-    ? biosampleDisplayLabel(selectedSample)
-    : 'Biosamples'
+  }, [biosampleFilters])
 
   return (
     <PageFrame>
       <PageHeader
-        title={pageTitle}
-        description={
-          selectedSample
-            ? querySummary
-            : 'Query biosamples by tissue, ontology, or sample metadata, then open matrices.'
-        }
+        title="Biosamples"
+        description="Query biosamples by tissue, ontology, or sample metadata, then open matrices."
       />
 
       {focusMatrix && (
@@ -227,41 +170,8 @@ function BiosamplesLensContent() {
             pageSize={SAMPLE_LENS_PAGE_SIZE}
             onLoadMore={() => setDisplayLimit((n) => n + SAMPLE_LENS_PAGE_SIZE)}
           >
-            <BiosampleResultsTable
-              samples={matches}
-              selectedSampleId={selectedSample?.id ?? null}
-              buildSampleHref={buildSampleHref}
-            />
+            <BiosampleResultsCards samples={matches} focusMatrix={focusMatrix} />
           </LensResultsPanel>
-        }
-        detail={
-          selectedSample ? (
-            <>
-              <h3 className="text-sm font-semibold">Selected biosample</h3>
-              <p className="mt-1 font-mono text-xs text-muted-foreground">
-                {selectedSample.id}
-              </p>
-              {selectedSample.description && (
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {selectedSample.description}
-                </p>
-              )}
-              {(selectedSample.sex || selectedSample.info?.sex) && (
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Sex: {selectedSample.sex ?? selectedSample.info?.sex}
-                </p>
-              )}
-              <div className="mt-3 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  className="text-sm font-medium text-primary underline-offset-2 hover:underline"
-                  onClick={() => openRecordSheet('biosample', selectedSample.id)}
-                >
-                  Full biosample record
-                </button>
-              </div>
-            </>
-          ) : undefined
         }
       />
     </PageFrame>

@@ -23,6 +23,8 @@ type FeatureAnnotationChipsProps = {
   className?: string
   /** When set, only show chips of these kinds (e.g. aliases only under Aliases). */
   kinds?: FeatureQueryChipKind[]
+  /** Drawer / inspect-only: same pills without filter actions. */
+  readOnly?: boolean
 }
 
 export function FeatureAnnotationChips({
@@ -31,6 +33,7 @@ export function FeatureAnnotationChips({
   onAddFilter,
   className = '',
   kinds,
+  readOnly = false,
 }: FeatureAnnotationChipsProps) {
   const chips = useMemo(() => {
     const all = featureQueryChips(feature)
@@ -53,6 +56,17 @@ export function FeatureAnnotationChips({
     >
       {chips.map((chip) => {
         const inQuery = activeKeys.has(filterKey(chip.filter))
+        if (readOnly) {
+          return (
+            <span
+              key={chip.key}
+              title={chip.tooltip}
+              className={`max-w-[12rem] truncate rounded-full border px-2 py-0.5 text-[11px] font-medium ${KIND_STYLES[chip.kind]}`}
+            >
+              {chip.label}
+            </span>
+          )
+        }
         return (
           <button
             key={chip.key}

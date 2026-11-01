@@ -28,7 +28,7 @@ def build_received_summary(
     extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     summary: Dict[str, Any] = {
-        "apiVersion": config.API_VERSION.lstrip("v"),
+        "apiVersion": config.API_VERSION,
         "requestedSchemas": requested_schemas_for_entity(entity_type),
         "requestedGranularity": granularity.value,
         "pagination": {"skip": skip, "limit": limit},
@@ -98,6 +98,34 @@ def build_resultsets_response(
     else:
         page = []
 
+    include_mode = (received or {}).get("includeResultsetResponses")
+    if include_mode == "NONE" or (
+        include_mode == "HIT" and not exists
+    ) or (include_mode == "MISS" and exists):
+        result_sets: List[Dict[str, Any]] = []
+        page = []
+    elif include_mode == "MISS":
+        page = []
+        result_sets = [
+            {
+                "id": set_id,
+                "setType": entity_type,
+                "exists": exists,
+                "resultsCount": 0,
+                "results": [],
+            }
+        ]
+    else:
+        result_sets = [
+            {
+                "id": set_id,
+                "setType": entity_type,
+                "exists": exists,
+                "resultsCount": len(page),
+                "results": page,
+            }
+        ]
+
     if received is None:
         received = build_received_summary(
             skip=skip,
@@ -121,17 +149,7 @@ def build_resultsets_response(
     return {
         "meta": meta,
         "responseSummary": {"exists": exists, "numTotalResults": total},
-        "response": {
-            "resultSets": [
-                {
-                    "id": set_id,
-                    "setType": entity_type,
-                    "exists": exists,
-                    "resultsCount": len(page),
-                    "results": page,
-                }
-            ]
-        },
+        "response": {"resultSets": result_sets},
     }
 
 

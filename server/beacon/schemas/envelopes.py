@@ -10,9 +10,17 @@ class Granularity(str, Enum):
     record = "record"
 
 
+class IncludeResultsetResponses(str, Enum):
+    ALL = "ALL"
+    HIT = "HIT"
+    MISS = "MISS"
+    NONE = "NONE"
+
+
 class Pagination(BaseModel):
     skip: Optional[int] = Field(0, ge=0)
-    limit: Optional[int] = Field(10, ge=1)
+    # 0 means "as many as the server allows" (Beacon v2 Limit).
+    limit: Optional[int] = Field(10, ge=0)
 
 
 class OntologyFilter(BaseModel):
@@ -25,7 +33,7 @@ class OntologyFilter(BaseModel):
 class AlphanumericFilter(BaseModel):
     id: str
     operator: str = "="
-    value: str
+    value: Union[str, int, float]
     scope: Optional[str] = None
 
 
@@ -44,7 +52,7 @@ class BeaconQuery(BaseModel):
     # Beacon anyOf OntologyFilter | AlphanumericFilter | CustomFilter
     filters: Optional[List[BeaconFilter]] = None
     requestParameters: Optional[Dict[str, Any]] = None
-    includeResultsetResponses: Optional[bool] = None
+    includeResultsetResponses: Optional[IncludeResultsetResponses] = None
     testMode: Optional[bool] = None
 
 

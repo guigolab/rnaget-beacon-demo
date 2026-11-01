@@ -14,8 +14,6 @@ SERVER_DIR = Path(__file__).resolve().parents[1]
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
-os.environ.pop("DATA_PACKAGE_PATH", None)
-
 _FIXTURES = SERVER_DIR / "beacon" / "fixtures" / "data"
 
 _COLLECTIONS = ("/matrices", "/features", "/biosamples")
@@ -73,12 +71,23 @@ class BeaconComplianceTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         import beacon.fixtures.store as st
 
+        cls._saved_package = os.environ.pop("DATA_PACKAGE_PATH", None)
         st._STORE = None
         from fastapi.testclient import TestClient
         from app import app
 
         cls.client = TestClient(app)
         cls.routes = {getattr(r, "path", None) for r in app.routes}
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        import beacon.fixtures.store as st
+
+        st._STORE = None
+        if cls._saved_package:
+            os.environ["DATA_PACKAGE_PATH"] = cls._saved_package
+        else:
+            os.environ.pop("DATA_PACKAGE_PATH", None)
 
     def test_map_urls_resolve_to_routes(self) -> None:
         doc = json.loads((_FIXTURES / "beaconMap.json").read_text(encoding="utf-8"))
@@ -144,7 +153,7 @@ class BeaconComplianceTest(unittest.TestCase):
                             )
 
     def test_validation_error_beacon_shape(self) -> None:
-        r = self.client.get("/matrices", params={"limit": 0})
+        r = self.client.get("/matrices", params={"limit": -1})
         self.assertEqual(r.status_code, 400)
         body = r.json()
         self.assertIn("error", body)
@@ -159,7 +168,7 @@ class BeaconComplianceTest(unittest.TestCase):
         from routers.deps import MAX_SKIP
 
         r = self.client.post(
-            "/matrices",
+            "/matrices/matrix-gene-expression-001/expression_values",
             json={
                 "query": {
                     "pagination": {"skip": MAX_SKIP + 1, "limit": 5},
@@ -171,7 +180,9 @@ class BeaconComplianceTest(unittest.TestCase):
         self.assertEqual(
             summary["pagination"], {"skip": MAX_SKIP + 1, "limit": 5}
         )
-        self.assertEqual(summary["requestedSchemas"][0]["entityType"], "matrix")
+        self.assertEqual(
+            summary["requestedSchemas"][0]["entityType"], "expressionValue"
+        )
 
     def test_post_filter_error_meta(self) -> None:
         r = self.client.post(
@@ -192,7 +203,7 @@ class BeaconComplianceTest(unittest.TestCase):
         self.assertEqual(summary["requestedSchemas"][0]["entityType"], "matrix")
 
     def test_informational_endpoints_envelope(self) -> None:
-        for path in ("/", "/filtering_terms", "/map", "/service-info"):
+        for path in ("/", "/filtering_terms", "/map"):
             with self.subTest(path=path):
                 r = self.client.get(path)
                 self.assertEqual(r.status_code, 200, r.text)

@@ -132,7 +132,7 @@ An automatic check confirms, among other things:
 
 ### 10. Pack and publish
 
-Everything under `dist/data-package` is compressed into `data-package.tar.xz`.
+Everything under `dist/data-package` is packed as `data-package.tar.zst` (zstd; the Parquet files are already compressed). `.tar.xz` releases can still be extracted by `scripts/fetch_data_package.py`.
 
 That archive is always uploaded as a workflow **artifact** (kept for two weeks). If you enabled **create_release**, the same file is attached to the chosen GitHub Release tag (creating the release if needed, or replacing the asset on an existing tag).
 

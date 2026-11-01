@@ -10,6 +10,7 @@ from beacon.filters import (
     filters_to_summary,
     normalize_filters,
     parse_get_filters_csv,
+    split_matrix_axis_filters,
     validate_filters_for_entity,
 )
 from beacon.responses import error_json
@@ -35,6 +36,28 @@ def resolve_entity_filters(
         return filters, None
     except ValueError as exc:
         return None, error_json(400, str(exc), received=received)
+
+
+def resolve_matrix_feature_axis_filters(
+    *,
+    filters_csv: Optional[str] = None,
+    body: Optional[Dict[str, Any]] = None,
+    received: Optional[Dict[str, Any]] = None,
+):
+    """Feature-scoped and biosample-scoped filters for ``/matrices/{id}/features``."""
+    try:
+        if body is not None:
+            query = body.get("query") or {}
+            raw = query.get("filters") if isinstance(query, dict) else None
+            filters = normalize_filters(raw)
+        else:
+            filters = parse_get_filters_csv(filters_csv)
+    except ValueError as exc:
+        return None, error_json(400, str(exc), received=received)
+    split, err = split_matrix_axis_filters(filters)
+    if err:
+        return None, error_json(400, err, received=received)
+    return split, None
 
 
 def filters_summary(filters) -> Optional[Dict[str, Any]]:

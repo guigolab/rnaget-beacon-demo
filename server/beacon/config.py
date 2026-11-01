@@ -6,7 +6,7 @@ BEACON_NAME = os.environ.get("BEACON_NAME", "RNAget Beacon Demo")
 BEACON_DESCRIPTION = os.environ.get(
     "BEACON_DESCRIPTION",
     "Demo Beacon v2 instance exposing RNA-seq matrices, genomic features, "
-    "biosamples, and expression values (fixture-backed).",
+    "biosamples, and expression values.",
 )
 BEACON_ENVIRONMENT = os.environ.get("BEACON_ENVIRONMENT", "dev")
 BASE_URL = os.environ.get(
@@ -18,6 +18,7 @@ ORGANIZATION = {
     "id": os.environ.get("BEACON_ORG_ID", "org.crg"),
     "name": os.environ.get("BEACON_ORG_NAME", "Centre for Genomic Regulation (CRG)"),
 }
+ORGANIZATION_URL = os.environ.get("BEACON_ORG_URL", "https://www.crg.eu")
 
 SCHEMA_IDS = {
     "biosample": "ga4gh-beacon-biosample-v2.0.0",

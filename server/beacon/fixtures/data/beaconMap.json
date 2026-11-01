@@ -16,10 +16,6 @@
         "matrixLookup": {
           "returnedEntryType": "matrix",
           "url": "https://exampleBeacons.org/features/{id}/matrices"
-        },
-        "expressionSummaryLookup": {
-          "returnedEntryType": "expressionSummary",
-          "url": "https://exampleBeacons.org/features/{id}/expression_summary"
         }
       },
       "entryType": "feature",

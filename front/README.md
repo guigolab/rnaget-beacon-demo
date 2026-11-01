@@ -7,7 +7,7 @@ Next.js App Router frontend for the Beacon v2–style RNA-Get API. Built as a **
 | Route | Purpose |
 |-------|---------|
 | `/` | Light-themed home: scope legend, entry-type cards, ontology resources, namespace×scope filtering chips (popover detail) |
-| `/features/` | Features lens: `GET /features/filtering_terms` namespaces, multi-filter search (symbol/HGNC/SO/…), matrix median heatmap + popovers |
+| `/features/` | Features lens: `GET /features/filtering_terms` namespaces, multi-filter search (symbol/HGNC/SO/…), matrix median heatmap (batched `POST /matrices/{id}/expression_summary` via `featureIDList`) + popovers |
 | `/biosamples/` | Biosamples lens: filtering_terms sidebar, compound query bar + probe, preview table (load 5 more), `?sample=` selection |
 | `/matrices/` | Matrix lens: `/matrices/filtering_terms` sidebar, query bar + probe, matrix preview table |
 | `/matrices/[id]` | Matrix workspace (heatmap, provenance) |

@@ -609,6 +609,7 @@ def hydrate_package(
         lookup_rows.append(
             {
                 "lookup_key": key,
+                "lookup_key_norm": key.upper(),
                 "lookup_kind": kind,
                 "feature_id": feature_id,
                 "resource": resource,
@@ -668,12 +669,22 @@ def hydrate_package(
     lookup_schema = pa.schema(
         [
             ("lookup_key", pa.string()),
+            ("lookup_key_norm", pa.string()),
             ("lookup_kind", pa.string()),
             ("feature_id", pa.string()),
             ("resource", pa.string()),
             ("annotation_source", pa.string()),
             ("annotation_version", pa.string()),
         ]
+    )
+    lookup_rows.sort(
+        key=lambda row: (
+            row["lookup_key_norm"],
+            row["lookup_kind"],
+            row["feature_id"],
+            row["annotation_source"],
+            row["annotation_version"],
+        )
     )
 
     # Normalize ontology_terms for Arrow struct (label may be absent)
@@ -694,6 +705,7 @@ def hydrate_package(
         pa.Table.from_pylist(lookup_rows, schema=lookup_schema),
         lookup_path,
         compression="zstd",
+        row_group_size=65536,
     )
     print(f"Wrote {genes_path.name} rows={len(gene_rows)}")
     print(f"Wrote {lookup_path.name} rows={len(lookup_rows)}")
@@ -755,8 +767,11 @@ def hydrate_package(
             try:
                 cast_col = out_table.column(idx).cast(field.type, safe=False)
                 out_table = out_table.set_column(idx, field, cast_col)
-            except (pa.ArrowInvalid, pa.ArrowNotImplementedError, TypeError):
-                pass
+            except (pa.ArrowInvalid, pa.ArrowNotImplementedError, TypeError) as exc:
+                raise RuntimeError(
+                    f"{mid}: features.parquet column {field.name!r} "
+                    f"cannot be cast to {field.type}: {exc}"
+                ) from exc
         pq.write_table(out_table, feat_path, compression="zstd")
         del out_table
         # Drop per-matrix catalog slice to limit peak RSS across matrices.

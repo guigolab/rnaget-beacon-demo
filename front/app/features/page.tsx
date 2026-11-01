@@ -64,7 +64,23 @@ function FeaturesLensContent() {
     [matches, featureParam]
   )
 
-  const activeUnitKey = unitParam ?? null
+  const lensScopeKey = `${filterKeyLine}|${focusMatrix ?? ''}`
+  const [activeUnitKey, setActiveUnitKey] = useState<string | null>(
+    () => unitParam ?? null
+  )
+
+  useEffect(() => {
+    setActiveUnitKey(unitParam ?? null)
+  }, [lensScopeKey, unitParam])
+
+  useEffect(() => {
+    function syncUnitFromUrl() {
+      const params = new URLSearchParams(window.location.search)
+      setActiveUnitKey(params.get('unit'))
+    }
+    window.addEventListener('popstate', syncUnitFromUrl)
+    return () => window.removeEventListener('popstate', syncUnitFromUrl)
+  }, [])
 
   useEffect(() => {
     setDisplayLimit(GENE_LENS_PAGE_SIZE)
@@ -84,15 +100,17 @@ function FeaturesLensContent() {
 
   const setUnitKey = useCallback(
     (key: string) => {
+      setActiveUnitKey(key)
       const params = geneLensSearchParams({
         filters: featureFilters,
         feature: featureParam,
         matrix: focusMatrix,
         unit: key,
       })
-      router.replace(`/features/?${params.toString()}`)
+      const path = `/features/?${params.toString()}`
+      window.history.replaceState(window.history.state, '', path)
     },
-    [router, featureFilters, featureParam, focusMatrix]
+    [featureFilters, featureParam, focusMatrix]
   )
 
   useEffect(() => {
@@ -165,10 +183,10 @@ function FeaturesLensContent() {
     const params = geneLensSearchParams({
       filters: featureFilters,
       feature: featureParam,
-      unit: unitParam,
+      unit: activeUnitKey,
     })
     return `/features/?${params.toString()}`
-  }, [featureFilters, featureParam, unitParam])
+  }, [featureFilters, featureParam, activeUnitKey])
 
   const pageTitle = selectedFeature
     ? featureDisplayLabel(selectedFeature)
@@ -219,7 +237,7 @@ function FeaturesLensContent() {
             previewLimit={displayLimit}
             previewCount={matches.length}
             previewTruncatedSuffix="matrix medians from expression_summary"
-            previewWhenShowing="Matrix medians from GET /features/{id}/expression_summary"
+            previewWhenShowing="Matrix medians from batched POST /matrices/{id}/expression_summary (featureIDList)"
             noMatchesMessage="No features match these filters at boolean granularity."
             loadErrorTitle="Could not load features"
             searchError={searchError}

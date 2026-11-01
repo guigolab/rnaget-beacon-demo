@@ -43,6 +43,6 @@ export default async function MatrixDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  const { id } = await params
-  return <MatrixDetailClient id={id} />
+  const { id: routeId } = await params
+  return <MatrixDetailClient routeId={routeId} />
 }

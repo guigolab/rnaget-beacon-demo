@@ -33,6 +33,7 @@ _ENTITY_FILES = {
     "GenomicFeature": "genomicFeature.json",
     "GenomicFeatureWrapper": "genomicFeatureWrapper.json",
     "ExpressionValue": "expressionValue.json",
+    "ExpressionSummary": "expressionSummary.json",
 }
 
 _ENVELOPE_MODELS: List[Type[BaseModel]] = [
@@ -151,7 +152,8 @@ def patch_openapi_schema(openapi_schema: Dict[str, Any]) -> Dict[str, Any]:
             "description": (
                 "Page of entity records. Item schema depends on setType: "
                 "matrix → Matrix, feature → GenomicFeatureWrapper, "
-                "biosample → Biosample, expressionValue → ExpressionValue."
+                "biosample → Biosample, expressionValue → ExpressionValue, "
+                "expressionSummary → ExpressionSummary."
             ),
             "items": {
                 "oneOf": [
@@ -159,6 +161,7 @@ def patch_openapi_schema(openapi_schema: Dict[str, Any]) -> Dict[str, Any]:
                     {"$ref": "#/components/schemas/GenomicFeatureWrapper"},
                     {"$ref": "#/components/schemas/Biosample"},
                     {"$ref": "#/components/schemas/ExpressionValue"},
+                    {"$ref": "#/components/schemas/ExpressionSummary"},
                 ]
             },
         }

@@ -6,6 +6,7 @@ import { MatrixPopoverDetails } from '@/components/genes/matrix-popover-details'
 import type { ExpressionSummary } from '@/lib/beacon/client'
 import type { Matrix, UiFilter } from '@/lib/beacon'
 import type { Feature } from '@/lib/beacon/types'
+import type { ReactNode } from 'react'
 
 export type HeatmapPopoverInspect =
   | { kind: 'feature-row'; featureId: string }
@@ -22,6 +23,7 @@ type FeatureHeatmapPopoverContentProps = {
   onAddFilter: (filter: UiFilter) => void
   matrixContextFeature?: Feature | null
   onNavigate?: () => void
+  footer?: ReactNode
 }
 
 export function FeatureHeatmapPopoverContent({
@@ -34,6 +36,7 @@ export function FeatureHeatmapPopoverContent({
   onAddFilter,
   matrixContextFeature,
   onNavigate,
+  footer,
 }: FeatureHeatmapPopoverContentProps) {
   if (inspect.kind === 'matrix-header' && matrix) {
     return (
@@ -65,6 +68,7 @@ export function FeatureHeatmapPopoverContent({
         activeFilters={activeFilters}
         onAddFilter={onAddFilter}
         onNavigate={onNavigate}
+        footer={footer}
       />
     )
   }

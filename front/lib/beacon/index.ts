@@ -20,10 +20,13 @@ export {
   listMatrixBiosamples,
   listMatrixExpressionSummary,
   listMatrixFeatures,
+  normalizeMatrixAxisOpts,
   listRelatedMatrices,
   queryCollection,
   resolveBiosampleCohort,
   resolveFeatureCohort,
+  resolveMatrixBiosampleCohort,
+  featuresInMatrix,
 } from './client'
 export {
   catalogSearchParams,
@@ -56,7 +59,7 @@ export {
   withoutFilter,
   matrixHref,
 } from './filters'
-export type { ExpressionSummary, ResolvedCohort } from './client'
+export type { ExpressionSummary, MatrixAxisPageOpts, MatrixAxisSort, ResolvedCohort } from './client'
 export type {
   FilterScopeIndex,
   GeneLensSearch,

@@ -155,7 +155,7 @@ Manifest stamps `feature*Path` / `biosamplesPath` / `biosampleMatrixPath` and `f
 
 Runs **after** `build_feature_indexes`. Writes a small Beacon-shaped `filtering_terms.json`:
 
-- **Facets:** DISTINCT SO (`feature_type` + biotype `ontology_terms`), UBERON/EFO biosample ontology ids, custom `GEO:sample` / `resource:*`
+- **Facets:** DISTINCT SO (`feature_type` + biotype `ontology_terms`), UBERON/EFO biosample ontology ids, custom `resource:*` (except `resource:gencode`)
 - **Fields:** alphanumeric `genomicFeature.symbol`, `sex` (not every symbol value)
 - **Resources:** `so`, `uberon`, `efo`, plus `hgnc` / `ncbigene` / `ensembl` namespaces — **never** one filteringTerm per HGNC/NCBIGene
 
@@ -170,7 +170,7 @@ Runs after export. Streams each matrix’s annotation GTF/GFF and keeps **only g
 - **`featureType`**: Sequence Ontology term for GFF/GTF **column 3** (`gene` → `SO:0000704`, `pseudogene` → `SO:0000336`, …) via [`scripts/data/gff_type_to_so.json`](data/gff_type_to_so.json) + cached `so.obo`.
 - **`ontologyTerms`**: SO terms for `gene_type` / `gene_biotype` ([`scripts/data/biotype_to_so.json`](data/biotype_to_so.json)) plus any GFF `Ontology_term` attributes — never written into `featureType`.
 - **`xrefs`**: normalized `Dbxref` CURIEs (`NCBIGene`, `HGNC`, `MIM`, …). GENCODE rows are further enriched from `Homo_sapiens.gene_info.gz` when the gene **symbol uniquely** matches a primary NCBI Symbol (ambiguous symbols are skipped).
-- **`genomicInterval` coords**: copies `chrom` / `start` / `end` / `strand` onto `features.parquet`. The API maps primary GRCh38 contigs to `refseq:NC_…` ([`scripts/data/grch38_contig_to_refseq.json`](data/grch38_contig_to_refseq.json)) and emits VRS `SequenceLocation` (GFF 1-based inclusive → 0-based interbase). Unmapped contigs omit the interval. Gene `relationship` is not populated.
+- **`genomicInterval` coords**: copies `chrom` / `start` / `end` / `strand` onto `features.parquet`. The API maps primary GRCh38 contigs to `refseq:NC_…` ([`server/beacon/data/grch38_contig_to_refseq.json`](../server/beacon/data/grch38_contig_to_refseq.json)) and emits VRS `SequenceLocation` (GFF 1-based inclusive → 0-based interbase). Unmapped contigs omit the interval. Gene `relationship` is not populated.
 - **`annotation.md5Checksum`**: MD5 of the cached annotation file stamped onto each matching `matrices.json` entry.
 - Maps are validated against downloaded SO OBO at hydrate time (`scripts/so_map.py`).
 
@@ -182,7 +182,7 @@ Ontology-only (id + label pairs). Whenever an ontology id is written, a non-empt
 - **`sampleOriginDetail`** (`ontology_id` + `ontology_label`):
   - **encode** — ENCBS `biosample_ontology.term_id` + `term_name` (cached JSON); fallback catalog `sampleType`.
   - **gtex** — catalog `tissue.id` + `tissue.label` (UBERON).
-  - **geo** — series SOFT characteristics mapped via [`scripts/data/geo_biosample_ontology.json`](data/geo_biosample_ontology.json) (prefer UBERON over EFO). Unmapped GSMs keep `ontology_source=GEO` with null detail; `GEO:sample` filtering term is retained only while some samples still lack detail.
+  - **geo** — series SOFT characteristics mapped via [`scripts/data/geo_biosample_ontology.json`](data/geo_biosample_ontology.json) (prefer UBERON over EFO). Unmapped GSMs keep `ontology_source=GEO` with null detail (no dedicated filtering facet).
 - Sex / donor / summary / lab may still be copied from catalog parsers when present, but are **not** enrichment goals of this pass. Clinical/pathology Beacon fields stay absent.
 
 ### CI
@@ -190,7 +190,7 @@ Ontology-only (id + label pairs). Whenever an ontology id is written, a non-empt
 Workflow: [`.github/workflows/build-data-package.yml`](../.github/workflows/build-data-package.yml)
 
 - `workflow_dispatch` with profile list, optional slice limits, optional GitHub Release upload
-- Uploads `data-package.tar.xz` as an Actions artifact
+- Uploads `data-package.tar.zst` as an Actions artifact
 - With `create_release=true`, attaches the tarball to tag `data-latest` (or your tag)
 
 **CI ships expression shards** (`expression/part-*.parquet`). Before mounting for the API, run fetch (download → extract → merge → expression stats). See [docs/data-package-gha.md](../docs/data-package-gha.md) for disk budget (~3× package during extract/merge) and fail-fast notes.

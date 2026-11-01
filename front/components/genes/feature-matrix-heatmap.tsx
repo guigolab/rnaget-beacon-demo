@@ -14,6 +14,11 @@ import type { Feature } from '@/lib/beacon/types'
 import { featureDisplayLabel } from '@/lib/gene-lens'
 import { COLOR_MISSING, COLOR_TEXT_DARK } from '@/components/heatmap-colors'
 import { formatHeatmapValue, heatFill, heatTextColor } from '@/lib/heatmap-expression'
+import {
+  HEATMAP_CELL_CLASS,
+  HEATMAP_FEATURE_COL_CLASS,
+  HEATMAP_FEW_BIOSAMPLE_MAX,
+} from '@/lib/heatmap-table'
 
 type FeatureMatrixHeatmapProps = {
   features: Feature[]
@@ -135,6 +140,9 @@ export function FeatureMatrixHeatmap({
 
   if (!features.length) return null
 
+  const fewColumnLayout =
+    columns.length > 0 && columns.length <= HEATMAP_FEW_BIOSAMPLE_MAX
+
   return (
     <div className="relative space-y-3">
       <Popover.Root
@@ -181,27 +189,51 @@ export function FeatureMatrixHeatmap({
         </Popover.Portal>
       </Popover.Root>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <MatrixUnitToggle
-          buckets={buckets}
-          activeKey={activeBucket?.key ?? null}
-          onChange={onUnitKeyChange}
-        />
-        {dataPending && (
-          <span className="text-[11px] text-muted-foreground" aria-live="polite">
-            Updating values…
-          </span>
-        )}
-      </div>
       {(error || matricesError) && (
         <p className="text-xs text-destructive">{error || matricesError}</p>
       )}
 
       <div className="overflow-x-auto rounded-lg border border-border bg-muted/20">
-        <table className="w-full min-w-max border-collapse text-xs">
+        <div className="border-b border-border bg-muted/40 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <MatrixUnitToggle
+              className="min-w-0 flex-1"
+              buckets={buckets}
+              activeKey={activeBucket?.key ?? null}
+              onChange={onUnitKeyChange}
+            />
+            {dataPending && (
+              <span
+                className="shrink-0 text-[11px] text-muted-foreground"
+                aria-live="polite"
+              >
+                Updating values…
+              </span>
+            )}
+          </div>
+        </div>
+        <table
+          className={
+            fewColumnLayout
+              ? 'w-full table-fixed border-collapse text-xs'
+              : 'w-full min-w-max border-collapse text-xs'
+          }
+        >
+          {fewColumnLayout && (
+            <colgroup>
+              <col style={{ width: '9rem' }} />
+              {columns.map((matrixId) => (
+                <col key={matrixId} />
+              ))}
+            </colgroup>
+          )}
           <thead>
             <tr>
-              <th className="sticky left-0 top-0 z-[30] min-w-[9rem] border-b border-r border-border bg-muted px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <th
+                className={`sticky left-0 top-0 z-[30] border-b border-r border-border bg-muted px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${
+                  fewColumnLayout ? HEATMAP_FEATURE_COL_CLASS : 'min-w-[9rem]'
+                }`}
+              >
                 Feature
               </th>
               {columns.map((matrixId) => (
@@ -214,7 +246,9 @@ export function FeatureMatrixHeatmap({
                     id={triggerId({ kind: 'matrix-header', matrixId })}
                     type="button"
                     title={matrixId}
-                    className="w-full max-w-[4.25rem] rounded-md px-1 py-1.5 font-mono text-[10px] font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                    className={`w-full rounded-md px-1 py-1.5 font-mono text-[10px] font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground ${
+                      fewColumnLayout ? '' : 'max-w-[4.25rem]'
+                    }`}
                     onClick={() => openInspect({ kind: 'matrix-header', matrixId })}
                   >
                     <span className="block truncate">{shortMatrixLabel(matrixId)}</span>
@@ -234,7 +268,7 @@ export function FeatureMatrixHeatmap({
                       rowSelected
                         ? 'bg-[var(--scope-genomicFeature-bg)]'
                         : 'bg-card group-hover/row:bg-muted/30'
-                    }`}
+                    } ${fewColumnLayout ? HEATMAP_FEATURE_COL_CLASS : ''}`}
                   >
                     <Popover.Trigger
                       handle={popoverHandle}
@@ -259,9 +293,6 @@ export function FeatureMatrixHeatmap({
                       ? heatTextColor(value, scaleMin, scaleMax)
                       : COLOR_TEXT_DARK
 
-                    const cellClass =
-                      'flex h-10 w-full min-w-[3rem] items-center justify-center rounded-md text-xs tabular-nums'
-
                     return (
                       <td key={matrixId} className="border-b border-border/60 p-0.5">
                         {hasValue ? (
@@ -274,7 +305,7 @@ export function FeatureMatrixHeatmap({
                             })}
                             type="button"
                             title={`${featureDisplayLabel(feature)} · ${formatHeatmapValue(value!)}`}
-                            className={`${cellClass} ring-offset-background transition-[background-color,color,transform,box-shadow] duration-300 hover:ring-2 hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+                            className={`${HEATMAP_CELL_CLASS} ring-offset-background transition-[background-color,color,transform,box-shadow] duration-300 hover:ring-2 hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
                             style={{ backgroundColor: bg, color }}
                             onClick={() =>
                               openInspect({
@@ -288,7 +319,7 @@ export function FeatureMatrixHeatmap({
                           </Popover.Trigger>
                         ) : (
                           <span
-                            className={`${cellClass} cursor-default text-muted-foreground/70`}
+                            className={`${HEATMAP_CELL_CLASS} cursor-default text-muted-foreground/70`}
                             style={{ backgroundColor: bg, color }}
                             aria-hidden
                           >

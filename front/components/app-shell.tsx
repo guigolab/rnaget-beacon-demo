@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ApiDrawer } from '@/components/api-drawer'
-import { EntityRecordSheetProvider } from '@/components/shared/entity-record-sheet-provider'
+import { APP_MAX_WIDTH_CLASS } from '@/components/ui-kit'
+import { cn } from '@/lib/utils'
 
 const links = [
   { href: '/features/', label: 'Features' },
@@ -14,10 +15,14 @@ const links = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   return (
-    <EntityRecordSheetProvider>
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div
+          className={cn(
+            'mx-auto flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3',
+            APP_MAX_WIDTH_CLASS
+          )}
+        >
           <Link href="/" className="font-semibold text-foreground">
             RNA-Get Beacon
           </Link>
@@ -37,12 +42,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
       </header>
-      <main>{children}</main>
-      <footer className="mx-auto max-w-6xl border-t border-border px-4 py-6 text-xs text-muted-foreground">
+      <main className={cn('mx-auto w-full', APP_MAX_WIDTH_CLASS)}>{children}</main>
+      <footer
+        className={cn(
+          'mx-auto w-full border-t border-border px-4 py-6 text-xs text-muted-foreground',
+          APP_MAX_WIDTH_CLASS
+        )}
+      >
         Beacon v2 demo · API-backed views
       </footer>
       <ApiDrawer />
     </div>
-    </EntityRecordSheetProvider>
   )
 }

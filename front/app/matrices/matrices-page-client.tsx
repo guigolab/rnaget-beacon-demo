@@ -1,11 +1,10 @@
 'use client'
 
-import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { MatrixFilterSidebar } from '@/components/matrices/matrix-filter-sidebar'
 import { MatrixQueryBar } from '@/components/matrices/matrix-query-bar'
-import { MatrixResultsTable } from '@/components/matrices/matrix-results-table'
+import { MatrixResultsCards } from '@/components/matrices/matrix-results-cards'
 import { LensChrome } from '@/components/shared/lens-chrome'
 import { LensPageShell } from '@/components/shared/lens-page-shell'
 import { LensResultsPanel } from '@/components/shared/lens-results-panel'
@@ -15,7 +14,6 @@ import {
   dedupeFilters,
   filterKey,
   filtersQuerySummary,
-  getMatrix,
   listMatrices,
   matrixLensSearchParams,
   parseMatrixLensSearch,
@@ -25,9 +23,7 @@ import {
 import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import {
   MATRIX_LENS_PAGE_SIZE,
-  matrixDisplayLabel,
   mergeMatrixLensFilters,
-  resolveSelectedMatrix,
 } from '@/lib/matrix-lens'
 
 function MatricesContent() {
@@ -38,7 +34,7 @@ function MatricesContent() {
     () => parseMatrixLensSearch(search, scopeIndex),
     [search, scopeIndex]
   )
-  const { matrixFilters, matrix: matrixParam } = lens
+  const { matrixFilters } = lens
 
   const filterKeyLine = useMemo(
     () => matrixFilters.map((f) => filterKey(f)).join('|'),
@@ -55,11 +51,6 @@ function MatricesContent() {
   const [searchLoading, setSearchLoading] = useState(false)
   const probe = useMatrixFilterProbe(matrixFilters)
 
-  const selectedMatrix = useMemo(
-    () => resolveSelectedMatrix(matches, matrixParam),
-    [matches, matrixParam]
-  )
-
   useEffect(() => {
     setDisplayLimit(MATRIX_LENS_PAGE_SIZE)
   }, [filterKeyLine])
@@ -73,17 +64,6 @@ function MatricesContent() {
       router.replace(`/matrices/?${params.toString()}`)
     },
     [router]
-  )
-
-  const buildMatrixRowHref = useCallback(
-    (matrixId: string) => {
-      const params = matrixLensSearchParams({
-        filters: matrixFilters,
-        matrix: matrixId,
-      })
-      return `/matrices/?${params.toString()}`
-    },
-    [matrixFilters]
   )
 
   useEffect(() => {
@@ -127,45 +107,17 @@ function MatricesContent() {
     }
   }, [filterKeyLine, matrixFilters, probe.loading, probe.exists, displayLimit])
 
-  useEffect(() => {
-    if (!matrixParam || searchLoading || probe.exists !== true) return
-    if (matches.some((m) => m.matrixId === matrixParam)) return
-
-    let cancelled = false
-    getMatrix(matrixParam)
-      .then((matrix) => {
-        if (cancelled || !matrix) return
-        setMatches((prev) => {
-          const id = matrix.matrixId
-          if (!id || prev.some((m) => m.matrixId === id)) return prev
-          return [matrix, ...prev].slice(0, displayLimit)
-        })
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [matrixParam, matches, searchLoading, probe.exists, displayLimit])
-
   const canLoadMore =
     probe.exists === true &&
     probe.total != null &&
     matches.length < probe.total &&
     !searchLoading
 
-  const pageTitle = selectedMatrix
-    ? matrixDisplayLabel(selectedMatrix)
-    : 'Matrix lens'
-
   return (
     <PageFrame>
       <PageHeader
-        title={pageTitle}
-        description={
-          selectedMatrix
-            ? querySummary
-            : 'Find expression matrices by assay, feature type, unit, annotation, or assembly.'
-        }
+        title="Matrix lens"
+        description="Find expression matrices by assay, feature type, unit, annotation, or assembly."
       />
 
       <LensChrome
@@ -208,35 +160,8 @@ function MatricesContent() {
             pageSize={MATRIX_LENS_PAGE_SIZE}
             onLoadMore={() => setDisplayLimit((n) => n + MATRIX_LENS_PAGE_SIZE)}
           >
-            <MatrixResultsTable
-              matrices={matches}
-              selectedMatrixId={selectedMatrix?.matrixId ?? null}
-              buildMatrixRowHref={buildMatrixRowHref}
-            />
+            <MatrixResultsCards matrices={matches} />
           </LensResultsPanel>
-        }
-        detail={
-          selectedMatrix ? (
-            <>
-              <h3 className="text-sm font-semibold">Selected matrix</h3>
-              <p className="mt-1 font-mono text-xs text-muted-foreground">
-                {selectedMatrix.matrixId}
-              </p>
-              {selectedMatrix.description && (
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {selectedMatrix.description}
-                </p>
-              )}
-              <div className="mt-3 flex flex-wrap gap-3">
-                <Link
-                  href={`/matrices/${encodeURIComponent(selectedMatrix.matrixId ?? '')}/`}
-                  className="text-sm font-medium text-primary underline-offset-2 hover:underline"
-                >
-                  Open matrix workspace
-                </Link>
-              </div>
-            </>
-          ) : undefined
         }
       />
     </PageFrame>

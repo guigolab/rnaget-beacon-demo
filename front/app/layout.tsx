@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { QueryProvider } from '@/components/query-provider'
+import { RootProviders } from '@/components/root-providers'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -28,7 +29,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="light">
       <body className="antialiased">
-        <QueryProvider>{children}</QueryProvider>
+        <QueryProvider>
+          <RootProviders>{children}</RootProviders>
+        </QueryProvider>
       </body>
     </html>
   )

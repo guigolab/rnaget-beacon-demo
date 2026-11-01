@@ -3,33 +3,58 @@
 import Link from 'next/link'
 import { Suspense, useEffect, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
-import { MatrixHeatmap } from '@/components/matrix-heatmap'
+import {
+  MatrixDetailHeaderBadges,
+  matrixDetailDescription,
+  matrixPageHeaderDownloads,
+} from '@/components/matrices/matrix-detail-body'
+import { MatrixWorkspace } from '@/components/matrices/workspace/matrix-workspace'
 import { LensPageShell } from '@/components/shared/lens-page-shell'
-import { LoadingNote } from '@/components/status'
-import { EndpointNote, PageFrame, PageHeader, RecordFacts } from '@/components/ui-kit'
-import { getMatrix, matrixDownloads, matrixFacts, type Matrix } from '@/lib/beacon'
+import { Button } from '@/components/ui/button'
+import { EmptyState, PageFrame, PageHeader } from '@/components/ui-kit'
+import { getMatrix, isAbortError, type Matrix } from '@/lib/beacon'
+import { matrixDisplayLabel } from '@/lib/matrix-lens'
 
-export function MatrixDetailClient({ id }: { id: string }) {
-  const decoded = decodeURIComponent(id)
-  const [matrix, setMatrix] = useState<Matrix | null>(null)
-  const [error, setError] = useState('')
+function decodeMatrixRouteId(routeId: string): string {
+  try {
+    return decodeURIComponent(routeId)
+  } catch {
+    return routeId
+  }
+}
+
+type LoadState =
+  | { status: 'loading' }
+  | { status: 'ready'; matrix: Matrix }
+  | { status: 'missing' }
+  | { status: 'error'; message: string }
+
+export function MatrixDetailClient({ routeId }: { routeId: string }) {
+  const matrixId = decodeMatrixRouteId(routeId)
+  const [attempt, setAttempt] = useState(0)
+  const [state, setState] = useState<LoadState>({ status: 'loading' })
 
   useEffect(() => {
+    const controller = new AbortController()
     let cancelled = false
-    setError('')
-    getMatrix(decoded)
+    setState({ status: 'loading' })
+    getMatrix(matrixId, controller.signal)
       .then((item) => {
         if (cancelled) return
-        if (!item) setError(`Matrix '${decoded}' not found`)
-        else setMatrix(item)
+        setState(item ? { status: 'ready', matrix: item } : { status: 'missing' })
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load')
+        if (cancelled || isAbortError(err)) return
+        setState({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to load matrix',
+        })
       })
     return () => {
       cancelled = true
+      controller.abort()
     }
-  }, [decoded])
+  }, [attempt, matrixId])
 
   return (
     <LensPageShell>
@@ -41,47 +66,55 @@ export function MatrixDetailClient({ id }: { id: string }) {
           <ArrowLeft className="size-4" />
           All matrices
         </Link>
-        {error && (
-          <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {error}
-          </p>
+
+        {state.status === 'loading' && <MatrixDetailSkeleton />}
+
+        {state.status === 'missing' && (
+          <EmptyState
+            title="Matrix not found"
+            description={`No matrix is registered with id ${matrixId}.`}
+          />
         )}
-        {!matrix && !error && (
-          <p className="text-sm text-muted-foreground">Loading matrix…</p>
+
+        {state.status === 'error' && (
+          <div className="space-y-3">
+            <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {state.message}
+            </p>
+            <Button type="button" variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
+              Retry
+            </Button>
+          </div>
         )}
-        {matrix && (
+
+        {state.status === 'ready' && (
           <>
             <PageHeader
-              title={matrix.name ?? matrix.matrixId ?? id}
-              id={matrix.matrixId}
-              description={matrix.description}
+              title={matrixDisplayLabel(state.matrix)}
+              id={matrixId}
+              description={matrixDetailDescription(state.matrix)}
+              badges={<MatrixDetailHeaderBadges matrix={state.matrix} />}
+              downloads={matrixPageHeaderDownloads(state.matrix)}
             />
-            <EndpointNote>
-              {`GET /matrices/${matrix.matrixId} · GET /matrices/${matrix.matrixId}/features · GET /matrices/${matrix.matrixId}/biosamples · GET /matrices/${matrix.matrixId}/expression_values`}
-            </EndpointNote>
-            <div className="mt-6 grid items-start gap-6 lg:grid-cols-2">
-              <RecordFacts title="Record" facts={matrixFacts(matrix)} />
-              <RecordFacts
-                title="Downloads"
-                facts={[{ label: 'Files', links: matrixDownloads(matrix) }]}
-              />
-            </div>
-            <div className="mt-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-              <div className="border-b border-border bg-muted/20 px-4 py-3">
-                <h2 className="text-sm font-semibold text-foreground">Expression heatmap</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Windowed GET /matrices/{matrix.matrixId}/expression_values
-                </p>
-              </div>
-              <div className="px-4 py-4">
-                <Suspense fallback={<LoadingNote />}>
-                  <MatrixHeatmap matrixId={decoded} />
-                </Suspense>
-              </div>
-            </div>
+            <Suspense fallback={<p className="mt-6 text-sm text-muted-foreground">Loading matrix workspace…</p>}>
+              <MatrixWorkspace key={state.matrix.matrixId} matrix={state.matrix} />
+            </Suspense>
           </>
         )}
       </PageFrame>
     </LensPageShell>
+  )
+}
+
+function MatrixDetailSkeleton() {
+  return (
+    <div className="space-y-4" aria-hidden>
+      <div className="h-8 w-64 animate-pulse rounded bg-muted" />
+      <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)]">
+        <div className="h-80 animate-pulse rounded-xl bg-muted" />
+        <div className="h-80 animate-pulse rounded-xl bg-muted" />
+      </div>
+    </div>
   )
 }

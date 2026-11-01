@@ -1,14 +1,16 @@
 'use client'
 
-import Link from 'next/link'
-import { EntityRecordLink } from '@/components/shared/entity-record-link'
 import { BiosampleExtremeCard } from '@/components/genes/biosample-extreme-card'
 import { ExpressionCohortStatsVisual } from '@/components/genes/expression-cohort-stats-visual'
+import { DetailHeaderIconLink } from '@/components/shared/detail/detail-header-icon-link'
+import { DetailScrollBody } from '@/components/shared/detail/detail-scroll-body'
+import { DetailSurfaceHeader } from '@/components/shared/detail/detail-surface-header'
 import type { ExpressionSummary } from '@/lib/beacon/client'
 import type { Matrix } from '@/lib/beacon/types'
 import type { Feature } from '@/lib/beacon/types'
 import { featureDisplayLabel, matrixViewHref } from '@/lib/gene-lens'
 import { matrixUnitLabel } from '@/lib/comparability'
+import type { ReactNode } from 'react'
 
 type MatrixCellPopoverContentProps = {
   feature: Feature
@@ -16,7 +18,16 @@ type MatrixCellPopoverContentProps = {
   matrixId: string
   median?: number
   summary?: ExpressionSummary
+  /** Biosample-specific value from the heatmap cell that opened the popover. */
+  selectedSample?: {
+    biosampleId: string
+    label?: string
+    value: number
+  }
   onNavigate?: () => void
+  /** Hide the link back to this matrix workspace (already open). */
+  showMatrixLink?: boolean
+  footer?: ReactNode
 }
 
 export function MatrixCellPopoverContent({
@@ -25,7 +36,10 @@ export function MatrixCellPopoverContent({
   matrixId,
   median,
   summary,
+  selectedSample,
   onNavigate,
+  showMatrixLink = true,
+  footer,
 }: MatrixCellPopoverContentProps) {
   const matrixRange = matrix.expressionValueRange ?? {}
   const unit = matrix.expressionUnitAndScale?.unit
@@ -39,18 +53,42 @@ export function MatrixCellPopoverContent({
 
   return (
     <div className="text-popover-foreground">
-      <div className="border-b border-border px-3 py-2.5">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm font-semibold leading-snug">
-          <span className="min-w-0 [overflow-wrap:anywhere]">{geneLabel}</span>
-          <span className="shrink-0 text-base font-normal text-muted-foreground" aria-hidden>
-            ×
+      <DetailSurfaceHeader
+        density="popover"
+        title={
+          <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="min-w-0 [overflow-wrap:anywhere]">{geneLabel}</span>
+            <span className="shrink-0 text-base font-normal text-muted-foreground" aria-hidden>
+              ×
+            </span>
+            <span className="min-w-0 truncate text-foreground/90">{matrixLabel}</span>
           </span>
-          <span className="min-w-0 truncate text-foreground/90">{matrixLabel}</span>
-        </div>
-        <p className="mt-1 text-[11px] text-muted-foreground">{matrixUnitLabel(matrix)}</p>
-      </div>
+        }
+        meta={matrixUnitLabel(matrix)}
+        actions={
+          showMatrixLink ? (
+            <DetailHeaderIconLink
+              href={href}
+              label="Open feature in matrix"
+              onClick={onNavigate}
+            />
+          ) : null
+        }
+      />
 
-      <div className="max-h-[min(70vh,26rem)] space-y-3 overflow-y-auto px-3 py-2.5 text-xs">
+      <DetailScrollBody density="popover" className="max-h-[min(70vh,26rem)] space-y-3">
+        {selectedSample && (
+          <p className="rounded-md border border-border/80 bg-muted/30 px-2.5 py-2 text-xs">
+            <span className="text-muted-foreground">This biosample · </span>
+            <span className="font-medium text-foreground">
+              {selectedSample.label ?? selectedSample.biosampleId}
+            </span>
+            <span className="mt-1 block font-mono tabular-nums text-primary">
+              {selectedSample.value.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+              {unit ? ` ${unit}` : ''}
+            </span>
+          </p>
+        )}
         {!summary ? (
           <p className="text-muted-foreground">No expression summary for this cell.</p>
         ) : (
@@ -108,25 +146,8 @@ export function MatrixCellPopoverContent({
             )}
           </>
         )}
-
-        <div className="flex flex-wrap gap-x-3 gap-y-1">
-          <EntityRecordLink
-            kind="feature"
-            id={feature.id}
-            onActivate={onNavigate}
-            className="font-medium text-primary underline-offset-2 hover:underline"
-          >
-            Full feature record
-          </EntityRecordLink>
-          <Link
-            href={href}
-            className="font-medium text-primary underline-offset-2 hover:underline"
-            onClick={() => onNavigate?.()}
-          >
-            Open matrix with this feature
-          </Link>
-        </div>
-      </div>
+        {footer}
+      </DetailScrollBody>
     </div>
   )
 }

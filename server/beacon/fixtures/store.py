@@ -103,12 +103,6 @@ _FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
         },
         {
             "type": "custom",
-            "id": "GEO:sample",
-            "label": "GEO sample",
-            "scopes": ["biosample"],
-        },
-        {
-            "type": "custom",
             "id": "resource:ensembl",
             "label": "Annotation resource ensembl",
             "scopes": ["genomicFeature"],
@@ -144,6 +138,31 @@ class FixtureStore:
         from beacon.matrix_catalog import build_matrix_filtering_terms
 
         return build_matrix_filtering_terms(self.matrices)
+
+    def matrix_axis_filtering_terms(
+        self, matrix_id: str, axis: str
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        from beacon.matrix_axis_catalog import build_matrix_axis_filtering_terms
+
+        if axis not in ("features", "biosamples"):
+            return [], []
+        if not self.get_matrix(matrix_id):
+            return [], []
+        scope = "genomicFeature" if axis == "features" else "biosample"
+        global_terms, global_resources = self.filtering_terms(scopes=[scope])
+        matrix = self.get_matrix(matrix_id)
+        features = self.features_for_matrix(matrix_id) if axis == "features" else []
+        biosamples = (
+            self.biosamples_for_matrix(matrix_id) if axis == "biosamples" else []
+        )
+        return build_matrix_axis_filtering_terms(
+            axis,  # type: ignore[arg-type]
+            features=features,
+            biosamples=biosamples,
+            matrix=matrix,
+            global_terms=global_terms,
+            global_resources=global_resources,
+        )
 
     def get_matrix(self, matrix_id: str) -> Optional[Dict[str, Any]]:
         return self._matrices_by_id.get(matrix_id)
@@ -316,43 +335,99 @@ class FixtureStore:
         sort: Optional[str] = None,
         order: Optional[str] = None,
         biosample_filters: Optional[Sequence[Any]] = None,
+        feature_filters: Optional[Sequence[Any]] = None,
+        feature_id_list: Optional[str] = None,
+        biosample_id_list: Optional[str] = None,
+        min_value: Optional[float] = None,
+        max_value: Optional[float] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
-        from beacon.filters import biosample_matches
+        from beacon.filters import biosample_matches, feature_doc_matches
 
         all_feats = self.features_for_matrix(matrix_id)
-        if biosample_filters:
-            allowed_bios = {
-                b["id"]
-                for b in self.biosamples_for_matrix(matrix_id)
-                if biosample_matches(b, biosample_filters)
-            }
-            if not allowed_bios:
+        if feature_filters:
+            all_feats = [
+                feat
+                for feat in all_feats
+                if feature_doc_matches(feat, feature_filters)
+            ]
+        if feature_id_list:
+            allowed = self._resolve_feature_filter_ids(feature_id_list)
+            if not allowed:
                 return [], 0
-            feat_ids = {
-                ev["featureId"]
-                for ev in self.expression_values
-                if ev.get("matrixId") == matrix_id
-                and ev.get("biosampleId") in allowed_bios
-            }
-            native_ids = set()
-            for f in all_feats:
-                if f.get("id") in feat_ids:
-                    native_ids.add(f.get("id"))
-                gid = (
-                    (f.get("genomicFeature") or {})
+
+            def _feature_hit(feat: Dict[str, Any]) -> bool:
+                native = (
+                    (feat.get("genomicFeature") or {})
                     .get("featureIdentifier", {})
                     .get("id")
                 )
-                if gid in feat_ids:
-                    native_ids.add(f.get("id"))
-            all_feats = [f for f in all_feats if f.get("id") in native_ids]
+                return feat.get("id") in allowed or (
+                    native is not None and native in allowed
+                )
+
+            all_feats = [feat for feat in all_feats if _feature_hit(feat)]
+
+        expr_needed = bool(
+            biosample_filters
+            or biosample_id_list
+            or min_value is not None
+            or max_value is not None
+        )
+        if expr_needed:
+            allowed_bios: Optional[Set[str]] = None
+            if biosample_filters or biosample_id_list:
+                bios = self.biosamples_for_matrix(matrix_id)
+                if biosample_filters:
+                    bios = [
+                        sample
+                        for sample in bios
+                        if biosample_matches(sample, biosample_filters)
+                    ]
+                allowed_bios = {sample["id"] for sample in bios}
+                if biosample_id_list:
+                    allowed_bios &= _csv_set(biosample_id_list)
+                if not allowed_bios:
+                    return [], 0
+            expressed: Set[str] = set()
+            for ev in self.expression_values:
+                if ev.get("matrixId") != matrix_id:
+                    continue
+                if (
+                    allowed_bios is not None
+                    and ev.get("biosampleId") not in allowed_bios
+                ):
+                    continue
+                value = ev.get("value")
+                if min_value is not None and (
+                    value is None or float(value) < min_value
+                ):
+                    continue
+                if max_value is not None and (
+                    value is None or float(value) > max_value
+                ):
+                    continue
+                fid = ev.get("featureId")
+                if fid:
+                    expressed.add(str(fid))
+            kept: List[Dict[str, Any]] = []
+            for feat in all_feats:
+                native = (
+                    (feat.get("genomicFeature") or {})
+                    .get("featureIdentifier", {})
+                    .get("id")
+                )
+                if feat.get("id") in expressed or (
+                    native is not None and str(native) in expressed
+                ):
+                    kept.append(feat)
+            all_feats = kept
         _, order_key = self.effective_axis_sort(
             matrix_id, axis="features", sort=sort, order=order
         )
         reverse = order_key == "desc"
         all_feats = sorted(
             all_feats,
-            key=lambda f: f.get("id") or "",
+            key=lambda feat: feat.get("id") or "",
             reverse=reverse,
         )
         return all_feats[skip : skip + limit], len(all_feats)
@@ -380,12 +455,28 @@ class FixtureStore:
         sort: Optional[str] = None,
         order: Optional[str] = None,
         filters: Optional[Sequence[Any]] = None,
+        feature_id_list: Optional[str] = None,
+        biosample_id_list: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         from beacon.filters import biosample_matches
 
         items = self.biosamples_for_matrix(matrix_id)
         if filters:
             items = [b for b in items if biosample_matches(b, filters)]
+        if biosample_id_list:
+            wanted = _csv_set(biosample_id_list)
+            items = [b for b in items if b.get("id") in wanted]
+        if feature_id_list:
+            feature_ids = self._resolve_feature_filter_ids(feature_id_list)
+            if not feature_ids:
+                return [], 0
+            expressed = {
+                ev.get("biosampleId")
+                for ev in self.expression_values
+                if ev.get("matrixId") == matrix_id
+                and ev.get("featureId") in feature_ids
+            }
+            items = [b for b in items if b.get("id") in expressed]
         _, order_key = self.effective_axis_sort(
             matrix_id, axis="biosamples", sort=sort, order=order
         )
@@ -473,11 +564,13 @@ class FixtureStore:
         from beacon.filters import biosample_matches
 
         feature_ids = self._resolve_feature_filter_ids(feature_id_list)
+        if not feature_ids:
+            return []
         values_by_key: Dict[tuple, List[tuple[float, str]]] = {}
         for ev in self.expression_values:
             if ev.get("matrixId") != matrix_id:
                 continue
-            if feature_ids and ev.get("featureId") not in feature_ids:
+            if ev.get("featureId") not in feature_ids:
                 continue
             bid = ev.get("biosampleId")
             bio = self._biosamples_by_id.get(str(bid))
@@ -532,27 +625,6 @@ class FixtureStore:
                 rec["group"] = {"id": gkey, "label": gkey}
             out.append(rec)
         return out
-
-    def expression_summary_for_feature(
-        self, feature_id: str, *, threshold: Optional[float] = None
-    ) -> List[Dict[str, Any]]:
-        feature = self.get_feature(feature_id)
-        if not feature:
-            return []
-        native = (
-            (feature.get("genomicFeature") or {})
-            .get("featureIdentifier", {})
-            .get("id")
-        )
-        token = str(native or feature_id)
-        summaries: List[Dict[str, Any]] = []
-        for mid in feature.get("matrixIds") or []:
-            summaries.extend(
-                self.expression_summary_for_matrix(
-                    str(mid), feature_id_list=token, threshold=threshold
-                )
-            )
-        return summaries
 
 
 def _csv_set(value: Optional[str]) -> Set[str]:

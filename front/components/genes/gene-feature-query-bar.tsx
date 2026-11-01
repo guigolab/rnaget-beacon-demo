@@ -11,7 +11,7 @@ import { geneLensQueryExamples } from '@/lib/gene-lens'
 
 function isHiddenResourceTerm(id: string): boolean {
   const lower = id.toLowerCase()
-  return lower.startsWith('resource:gencode') || lower.startsWith('resource:ncbigene')
+  return lower.startsWith('resource:ncbigene')
 }
 
 function borderClass(probe: GeneFilterProbe, hasFilters: boolean): string {

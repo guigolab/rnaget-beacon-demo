@@ -14,20 +14,27 @@ REPO_ROOT = SERVER_DIR.parent
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
-# Force fixture mode before importing the app.
-os.environ.pop("DATA_PACKAGE_PATH", None)
-
-
 class FiltersSmokeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         import beacon.fixtures.store as st
 
+        cls._saved_package = os.environ.pop("DATA_PACKAGE_PATH", None)
         st._STORE = None
         from fastapi.testclient import TestClient
         from app import app
 
         cls.client = TestClient(app)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        import beacon.fixtures.store as st
+
+        st._STORE = None
+        if cls._saved_package:
+            os.environ["DATA_PACKAGE_PATH"] = cls._saved_package
+        else:
+            os.environ.pop("DATA_PACKAGE_PATH", None)
 
     def test_catalog_has_no_gene_curie_terms(self) -> None:
         r = self.client.get("/filtering_terms")
@@ -39,7 +46,9 @@ class FiltersSmokeTest(unittest.TestCase):
         self.assertTrue({"so", "hgnc", "ncbigene", "ensembl"} <= resources)
         self.assertIn("efo", resources)
         self.assertTrue(any(t["id"] == "sex" for t in terms))
-        self.assertTrue(any(t["id"] == "GEO:sample" for t in terms))
+        term_ids = {t["id"] for t in terms}
+        self.assertNotIn("GEO:sample", term_ids)
+        self.assertNotIn("resource:gencode", term_ids)
         for t in terms:
             self.assertFalse(
                 str(t["id"]).startswith(("HGNC:", "NCBIGene:", "ENSEMBL:")),

@@ -21,7 +21,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 DEFAULT_REPO = "guigolab/rnaget-beacon-demo"
 DEFAULT_TAG = "data-latest"
-DEFAULT_ASSET = "data-package.tar.xz"
+DEFAULT_ASSET = "data-package.tar.zst"
 # Refuse absurd single members (tar bomb guard).
 _MAX_MEMBER_BYTES = 8 * 1024 * 1024 * 1024  # 8 GiB
 
@@ -146,6 +146,31 @@ def _safe_extract_tar(tf: tarfile.TarFile, dest: Path) -> None:
         tf.extractall(dest)
 
 
+def _open_tar(archive: Path) -> tuple:
+    """Return (TarFile, optional temp path to delete).
+
+    ``.tar.zst`` is decompressed with the ``zstd`` CLI because the stdlib
+    tarfile module does not read zstd. ``.tar.xz`` stays supported.
+    """
+    name = archive.name
+    if name.endswith(".tar.zst") or name.endswith(".tzst"):
+        if not shutil.which("zstd"):
+            raise SystemExit("zstd is required to extract .tar.zst packages")
+        tmp = archive.with_name(archive.name + ".tmp")
+        if tmp.exists():
+            tmp.unlink()
+        with tmp.open("wb") as fh:
+            subprocess.run(
+                ["zstd", "-d", "-c", str(archive)],
+                stdout=fh,
+                check=True,
+            )
+        return tarfile.open(tmp, "r:"), tmp
+    if name.endswith(".tar.xz") or name.endswith(".txz"):
+        return tarfile.open(archive, "r:xz"), None
+    return tarfile.open(archive, "r:*"), None
+
+
 def extract_tarball(archive: Path, out_dir: Path, *, force: bool = False) -> Path:
     """Extract archive into out_dir via staging swap. Returns package root."""
     out_dir = out_dir.resolve()
@@ -161,8 +186,10 @@ def extract_tarball(archive: Path, out_dir: Path, *, force: bool = False) -> Pat
         tempfile.mkdtemp(prefix=f".{out_dir.name}.staging-", dir=str(parent))
     )
     pkg_staging = staging / "package"
+    tar_tmp: Optional[Path] = None
     try:
-        with tarfile.open(archive, "r:xz") as tf:
+        tf, tar_tmp = _open_tar(archive)
+        try:
             extract_root = staging / "_extract"
             extract_root.mkdir()
             _safe_extract_tar(tf, extract_root)
@@ -182,6 +209,8 @@ def extract_tarball(archive: Path, out_dir: Path, *, force: bool = False) -> Pat
                 raise SystemExit(
                     f"Extract failed: missing {pkg_staging / 'manifest.json'}"
                 )
+        finally:
+            tf.close()
 
         # Atomic-ish swap: move old aside, rename staging package into place.
         backup: Optional[Path] = None
@@ -194,6 +223,8 @@ def extract_tarball(archive: Path, out_dir: Path, *, force: bool = False) -> Pat
         if backup is not None:
             shutil.rmtree(backup, ignore_errors=True)
     finally:
+        if tar_tmp is not None:
+            tar_tmp.unlink(missing_ok=True)
         shutil.rmtree(staging, ignore_errors=True)
 
     if not (out_dir / "manifest.json").is_file():

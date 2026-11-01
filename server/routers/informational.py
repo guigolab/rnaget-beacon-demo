@@ -60,20 +60,21 @@ def get_info():
     )
 
 
-@router.get("/service-info", responses=OPENAPI_INFORMATIONAL_RESPONSES)
+@router.get("/service-info")
 def get_service_info():
-    return build_informational_response(
-        entity_type="info",
-        schema_key="info",
-        response_body={
-            "id": config.BEACON_ID,
-            "name": config.BEACON_NAME,
-            "type": {"group": "org.ga4gh", "artifact": "beacon", "version": "2.0.0"},
-            "description": config.BEACON_DESCRIPTION,
-            "organization": config.ORGANIZATION,
-            "version": config.API_VERSION,
+    """GA4GH Service Info (bare object, not a Beacon envelope)."""
+    return {
+        "id": config.BEACON_ID,
+        "name": config.BEACON_NAME,
+        "type": {"group": "org.ga4gh", "artifact": "beacon", "version": "2.0.0"},
+        "description": config.BEACON_DESCRIPTION,
+        "organization": {
+            "name": config.ORGANIZATION["name"],
+            "url": config.ORGANIZATION_URL,
         },
-    )
+        "version": config.API_VERSION.lstrip("v"),
+        "environment": config.BEACON_ENVIRONMENT,
+    }
 
 
 @router.get("/configuration", responses=OPENAPI_INFORMATIONAL_RESPONSES)

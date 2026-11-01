@@ -15,6 +15,8 @@ import { X } from 'lucide-react'
 import { EntityDetailPanel } from '@/components/entity-detail-panel'
 import { ErrorNote, LoadingNote } from '@/components/status'
 import { getBiosample, getFeature, type Biosample, type Feature } from '@/lib/beacon'
+import { featureDisplayLabel } from '@/lib/gene-lens'
+import { biosampleDisplayLabel } from '@/lib/sample-lens'
 import {
   parseRecordSheetParams,
   replaceRecordSheetInBrowserUrl,
@@ -30,8 +32,12 @@ type EntityRecordSheetContextValue = {
 
 const EntityRecordSheetContext = createContext<EntityRecordSheetContextValue | null>(null)
 
+export function useEntityRecordSheetOptional(): EntityRecordSheetContextValue | null {
+  return useContext(EntityRecordSheetContext)
+}
+
 export function useEntityRecordSheet(): EntityRecordSheetContextValue {
-  const ctx = useContext(EntityRecordSheetContext)
+  const ctx = useEntityRecordSheetOptional()
   if (!ctx) {
     throw new Error('useEntityRecordSheet must be used within EntityRecordSheetProvider')
   }
@@ -157,12 +163,16 @@ function EntityRecordSheetDialog({
         <Dialog.Backdrop className="fixed inset-0 z-[100] bg-black/40" />
         <Dialog.Popup className="fixed inset-y-0 right-0 z-[101] flex h-full w-full max-w-lg flex-col border-l border-border bg-background shadow-xl outline-none">
           <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2">
-            <Dialog.Title className="text-sm font-semibold text-foreground">
-              {kind === 'feature'
-                ? 'Genomic feature'
-                : kind === 'biosample'
-                  ? 'Biosample'
-                  : 'Record'}
+            <Dialog.Title className="truncate text-sm font-semibold text-foreground">
+              {item && kind === 'feature'
+                ? featureDisplayLabel(item as Feature)
+                : item && kind === 'biosample'
+                  ? biosampleDisplayLabel(item as Biosample)
+                  : kind === 'feature'
+                    ? 'Genomic feature'
+                    : kind === 'biosample'
+                      ? 'Biosample'
+                      : 'Record'}
             </Dialog.Title>
             <Dialog.Close
               type="button"

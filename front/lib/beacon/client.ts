@@ -1,4 +1,4 @@
-import { scopeOf, tokenToFilter } from './filters'
+import { needsPost, scopeOf, tokenToFilter } from './filters'
 import { collectionQuery, type QueryOptions } from './query'
 import type { MatrixQuery } from './filters'
 import type {
@@ -231,10 +231,10 @@ export function listMatrixExpressionSummary(
   )
 }
 
-export async function getMatrix(id: string): Promise<Matrix | null> {
+export async function getMatrix(id: string, signal?: AbortSignal): Promise<Matrix | null> {
   const page = await queryCollection<Matrix>(
     `/matrices/${encodeURIComponent(id)}`,
-    { granularity: 'record', limit: 1 }
+    { granularity: 'record', limit: 1, signal }
   )
   return page.results[0] ?? null
 }
@@ -287,31 +287,101 @@ export async function getBiosample(
   return page.results[0] ?? null
 }
 
+export type MatrixAxisSort = 'id' | 'expression.min' | 'expression.max'
+
+/** Paging options for `/matrices/{id}/features` and `/biosamples`. */
+export type MatrixAxisPageOpts = {
+  sort?: MatrixAxisSort
+  order?: 'asc' | 'desc'
+  filters?: UiFilter[]
+  featureIDList?: string
+  biosampleIDList?: string
+  minValue?: number
+  maxValue?: number
+  signal?: AbortSignal
+}
+
+function isAbortSignal(value: unknown): value is AbortSignal {
+  return (
+    typeof value === 'object' &&
+    value != null &&
+    'aborted' in value &&
+    typeof (value as AbortSignal).aborted === 'boolean'
+  )
+}
+
+/** Accept the historical `(axis, signal)` and `(signal)` call shapes. */
+export function normalizeMatrixAxisOpts(
+  axisOrSignal?: MatrixAxisPageOpts | AbortSignal,
+  signal?: AbortSignal
+): MatrixAxisPageOpts {
+  if (isAbortSignal(axisOrSignal)) return { signal: axisOrSignal }
+  return { ...axisOrSignal, signal: signal ?? axisOrSignal?.signal }
+}
+
+function listMatrixAxis<T>(
+  path: string,
+  skip: number,
+  limit: number,
+  opts: MatrixAxisPageOpts,
+  includeRange: boolean
+) {
+  const range = includeRange
+    ? { minValue: opts.minValue, maxValue: opts.maxValue }
+    : {}
+  const hasRange =
+    includeRange && (opts.minValue != null || opts.maxValue != null)
+  const hasIdList = Boolean(opts.featureIDList || opts.biosampleIDList)
+  const post = needsPost(opts.filters) || hasIdList || hasRange
+  const sort = { sort: opts.sort, order: opts.order }
+  return queryCollection<T>(path, {
+    granularity: 'record',
+    skip,
+    limit,
+    filters: opts.filters,
+    signal: opts.signal,
+    ...(post
+      ? {
+          requestParameters: {
+            featureIDList: opts.featureIDList,
+            biosampleIDList: opts.biosampleIDList,
+            ...range,
+            ...sort,
+          },
+        }
+      : { search: sort }),
+  })
+}
+
 export function listMatrixFeatures(
   matrixId: string,
   skip = 0,
   limit = 20,
-  axis?: { sort?: 'id' | 'expression.min' | 'expression.max'; order?: 'asc' | 'desc' },
+  axisOrSignal?: MatrixAxisPageOpts | AbortSignal,
   signal?: AbortSignal
 ) {
-  return queryCollection<Feature>(`/matrices/${encodeURIComponent(matrixId)}/features`, {
-    granularity: 'record',
+  return listMatrixAxis<Feature>(
+    `/matrices/${encodeURIComponent(matrixId)}/features`,
     skip,
     limit,
-    requestParameters: { sort: axis?.sort, order: axis?.order },
-    signal,
-  })
+    normalizeMatrixAxisOpts(axisOrSignal, signal),
+    true
+  )
 }
 
 export function listMatrixBiosamples(
   matrixId: string,
   skip = 0,
   limit = 20,
+  axisOrSignal?: MatrixAxisPageOpts | AbortSignal,
   signal?: AbortSignal
 ) {
-  return queryCollection<Biosample>(
+  return listMatrixAxis<Biosample>(
     `/matrices/${encodeURIComponent(matrixId)}/biosamples`,
-    { granularity: 'record', skip, limit, signal }
+    skip,
+    limit,
+    normalizeMatrixAxisOpts(axisOrSignal, signal),
+    false
   )
 }
 
@@ -324,15 +394,21 @@ export function listExpressionValues(
     biosampleIDList?: string
     minValue?: number
     maxValue?: number
+    filters?: UiFilter[]
+    granularity?: Granularity
     signal?: AbortSignal
   }
 ) {
+  const biosampleFilters = (params.filters ?? []).filter(
+    (filter) => scopeOf(filter) === 'biosample'
+  )
   return queryCollection<ExpressionValue>(
     `/matrices/${encodeURIComponent(matrixId)}/expression_values`,
     {
-      granularity: 'record',
+      granularity: params.granularity ?? 'record',
       skip: params.skip ?? 0,
       limit: params.limit ?? 10,
+      filters: biosampleFilters.length ? biosampleFilters : undefined,
       signal: params.signal,
       requestParameters: {
         featureIDList: params.featureIDList,
@@ -453,6 +529,98 @@ export async function resolveFeatureCohort(
   }
   if (!filters.length) total = items.length
   else total = Math.max(total, items.length)
+  return { items, total }
+}
+
+export function featuresInMatrix(
+  matrixId: string,
+  cohort: ResolvedCohort<Feature>
+): ResolvedCohort<Feature> {
+  const items = cohort.items.filter((feature) => {
+    const mids = feature.matrixIds
+    if (!mids?.length) return true
+    return mids.includes(matrixId)
+  })
+  const total =
+    items.length === cohort.items.length ? cohort.total : Math.max(items.length, 0)
+  return { items, total }
+}
+
+async function matrixBiosampleCatalog(
+  matrixId: string,
+  signal?: AbortSignal
+): Promise<Map<string, Biosample>> {
+  const path = `/matrices/${encodeURIComponent(matrixId)}/biosamples`
+  const page = await queryCollection<Biosample>(path, {
+    granularity: 'record',
+    skip: 0,
+    limit: MAX_COHORT,
+    signal,
+  })
+  return new Map(page.results.map((sample) => [sample.id, sample]))
+}
+
+export async function resolveMatrixBiosampleCohort(
+  matrixId: string,
+  query: Pick<MatrixQuery, 'filters' | 'biosampleIds'>,
+  signal?: AbortSignal
+): Promise<ResolvedCohort<Biosample> | null> {
+  const filters = query.filters.filter((filter) => scopeOf(filter) === 'biosample')
+  if (!filters.length && !query.biosampleIds.length) return null
+
+  const items: Biosample[] = []
+  const seen = new Set<string>()
+  let total = 0
+  const path = `/matrices/${encodeURIComponent(matrixId)}/biosamples`
+
+  if (filters.length) {
+    const page = await queryCollection<Biosample>(path, {
+      filters,
+      granularity: 'record',
+      skip: 0,
+      limit: MAX_COHORT,
+      signal,
+    })
+    total = page.total ?? page.results.length
+    for (const sample of page.results) {
+      if (items.length >= MAX_COHORT) break
+      seen.add(sample.id)
+      items.push(sample)
+    }
+  }
+
+  const pendingIds = query.biosampleIds
+    .filter((id) => !seen.has(id))
+    .slice(0, MAX_COHORT - items.length)
+
+  if (pendingIds.length) {
+    const catalog = await matrixBiosampleCatalog(matrixId, signal)
+    const stillMissing: string[] = []
+    for (const id of pendingIds) {
+      if (items.length >= MAX_COHORT) break
+      const fromMatrix = catalog.get(id)
+      if (fromMatrix) {
+        seen.add(id)
+        items.push(fromMatrix)
+      } else {
+        stillMissing.push(id)
+      }
+    }
+    if (stillMissing.length) {
+      const resolved = await mapPool(stillMissing, 6, async (id) => {
+        const sample = await getBiosample(id, signal)
+        return sample ?? ({ id } satisfies Biosample)
+      })
+      for (const sample of resolved) {
+        if (items.length >= MAX_COHORT) break
+        if (seen.has(sample.id)) continue
+        seen.add(sample.id)
+        items.push(sample)
+      }
+    }
+  }
+
+  if (!filters.length) total = items.length
   return { items, total }
 }
 

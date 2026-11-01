@@ -4,7 +4,7 @@ from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse
 
 from beacon.fixtures import get_store
-from beacon.responses import build_filtering_terms_response, error_json
+from beacon.responses import build_filtering_terms_response
 from beacon.schemas.envelopes import (
     OPENAPI_BEACON_RESPONSES,
     OPENAPI_FILTERING_TERMS_RESPONSES,
@@ -25,7 +25,7 @@ router = APIRouter(tags=["Genomic features"])
 @router.get("/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
 def get_features(
     skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1),
+    limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
     filters: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
@@ -45,7 +45,7 @@ def get_features(
         limit=limit,
         requested_granularity=requestedGranularity,
         cap_limit=True,
-        extra_summary={"filters": filters_summary(filt)} if filt else None,
+        extra_summary=filters_summary(filt),
         entity_type="feature",
     )
     if err:
@@ -85,7 +85,7 @@ def post_features(
     resolved, err = resolve_or_error(
         body=body_dict,
         cap_limit=True,
-        extra_summary={"filters": filters_summary(filt)} if filt else None,
+        extra_summary=filters_summary(filt),
         entity_type="feature",
     )
     if err:
@@ -128,7 +128,6 @@ def get_feature(
     id: str,
     requestedGranularity: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
-    item = get_store().get_feature(id)
     resolved, err = resolve_or_error(
         requested_granularity=requestedGranularity,
         entity_type="feature",
@@ -136,6 +135,7 @@ def get_feature(
     if err:
         return err
     _, _, gran, received = resolved
+    item = get_store().get_feature(id)
     if not item:
         return empty_entity_response("feature", id, gran, received)
     return list_response([item], "feature", id, 0, 1, gran, received)
@@ -145,7 +145,6 @@ def get_feature(
 def post_feature(
     id: str, body: BeaconRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:
-    item = get_store().get_feature(id)
     body_dict = model_to_dict(body)
     partial = partial_received_for_error(body=body_dict, entity_type="feature")
     _, perr = params_from_post(body_dict, received=partial)
@@ -155,6 +154,7 @@ def post_feature(
     if err:
         return err
     _, _, gran, received = resolved
+    item = get_store().get_feature(id)
     if not item:
         return empty_entity_response("feature", id, gran, received)
     return list_response([item], "feature", id, 0, 1, gran, received)
@@ -164,7 +164,7 @@ def post_feature(
 def get_feature_matrices(
     id: str,
     skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1),
+    limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
     resolved, err = resolve_or_error(
@@ -177,9 +177,15 @@ def get_feature_matrices(
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
-    if not get_store().get_feature(id):
+    store = get_store()
+    feature = store.get_feature(id)
+    if not feature:
         return empty_entity_response("matrix", id, gran, received)
-    results = get_store().matrices_for_feature(id)
+    results = [
+        matrix
+        for mid in (feature.get("matrixIds") or [])
+        if (matrix := store.get_matrix(mid))
+    ]
     return list_response(
         results,
         "matrix",
@@ -206,9 +212,15 @@ def post_feature_matrices(
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
-    if not get_store().get_feature(id):
+    store = get_store()
+    feature = store.get_feature(id)
+    if not feature:
         return empty_entity_response("matrix", id, gran, received)
-    results = get_store().matrices_for_feature(id)
+    results = [
+        matrix
+        for mid in (feature.get("matrixIds") or [])
+        if (matrix := store.get_matrix(mid))
+    ]
     return list_response(
         results,
         "matrix",
@@ -217,121 +229,4 @@ def post_feature_matrices(
         limit_v,
         gran,
         received,
-    )
-
-
-@router.get(
-    "/features/{id}/expression_summary",
-    response_model=None,
-    responses=OPENAPI_BEACON_RESPONSES,
-)
-def get_feature_expression_summary(
-    id: str,
-    threshold: Optional[float] = Query(None),
-    requestedGranularity: Optional[str] = Query(None),
-) -> Union[Dict[str, Any], JSONResponse]:
-    store = get_store()
-    resolved, err = resolve_or_error(
-        requested_granularity=requestedGranularity,
-        extra_summary={"threshold": threshold} if threshold is not None else None,
-        entity_type="expressionSummary",
-    )
-    if err:
-        return err
-    _, _, gran, received = resolved
-    if not store.get_feature(id):
-        return empty_entity_response("expressionSummary", id, gran, received)
-    getter = getattr(store, "expression_summary_for_feature", None)
-    if not callable(getter):
-        return error_json(
-            501,
-            "expression_summary not available",
-            received=received,
-        )
-    results = getter(id, threshold=threshold)
-    if gran.value != "record":
-        return list_response(
-            [],
-            "expressionSummary",
-            id,
-            0,
-            1,
-            gran,
-            received,
-            total_count=len(results),
-            results_are_page=True,
-        )
-    return list_response(
-        results,
-        "expressionSummary",
-        id,
-        0,
-        max(len(results), 1),
-        gran,
-        received,
-        total_count=len(results),
-        results_are_page=True,
-    )
-
-
-@router.post(
-    "/features/{id}/expression_summary",
-    response_model=None,
-    responses=OPENAPI_BEACON_RESPONSES,
-)
-def post_feature_expression_summary(
-    id: str, body: BeaconRequestBody = Body(...)
-) -> Union[Dict[str, Any], JSONResponse]:
-    store = get_store()
-    payload = model_to_dict(body)
-    partial = partial_received_for_error(
-        body=payload, entity_type="expressionSummary"
-    )
-    params, perr = params_from_post(payload, received=partial)
-    if perr:
-        return perr
-    thr = params.get("threshold")
-    extra = params_summary(params) or None
-    if thr is not None and extra is None:
-        extra = {"threshold": thr}
-    elif extra and thr is not None:
-        extra = {**extra, "threshold": thr}
-    resolved, err = resolve_or_error(
-        body=payload, extra_summary=extra, entity_type="expressionSummary"
-    )
-    if err:
-        return err
-    _, _, gran, received = resolved
-    if not store.get_feature(id):
-        return empty_entity_response("expressionSummary", id, gran, received)
-    getter = getattr(store, "expression_summary_for_feature", None)
-    if not callable(getter):
-        return error_json(
-            501,
-            "expression_summary not available",
-            received=received,
-        )
-    results = getter(id, threshold=float(thr) if thr is not None else None)
-    if gran.value != "record":
-        return list_response(
-            [],
-            "expressionSummary",
-            id,
-            0,
-            1,
-            gran,
-            received,
-            total_count=len(results),
-            results_are_page=True,
-        )
-    return list_response(
-        results,
-        "expressionSummary",
-        id,
-        0,
-        max(len(results), 1),
-        gran,
-        received,
-        total_count=len(results),
-        results_are_page=True,
     )

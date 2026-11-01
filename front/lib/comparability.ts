@@ -62,7 +62,11 @@ export function groupMatricesForCompare(matrices: Matrix[]): CompareBucket[] {
       matrices: bucket,
       comparability: compareMatrixSet(bucket),
     }))
-    .sort((a, b) => a.label.localeCompare(b.label))
+    .sort(
+      (a, b) =>
+        b.matrices.length - a.matrices.length ||
+        a.label.localeCompare(b.label)
+    )
 }
 
 export function compareMatrices(a: Matrix, b: Matrix): ComparabilityResult {

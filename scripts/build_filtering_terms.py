@@ -209,6 +209,25 @@ def _add_term(
         existing["values"] = merged
 
 
+def _emit_resource_term(
+    terms: Dict[str, Dict[str, Any]],
+    resource: Any,
+    scopes: List[str],
+) -> None:
+    if resource is None:
+        return
+    res = str(resource).strip()
+    if not res or res.lower() == "gencode":
+        return
+    _add_term(
+        terms,
+        type_="custom",
+        id_=f"resource:{res}",
+        label=f"Annotation resource {res}",
+        scopes=scopes,
+    )
+
+
 def build_catalog(package: Path) -> Dict[str, Any]:
     import pyarrow.parquet as pq
 
@@ -220,7 +239,6 @@ def build_catalog(package: Path) -> Dict[str, Any]:
 
     terms: Dict[str, Dict[str, Any]] = {}
     needed_resources: Set[str] = set()
-    has_geo = False
     sex_values: Set[str] = set()
     age_values: Set[str] = set()
     condition_values: Set[str] = set()
@@ -262,7 +280,6 @@ def build_catalog(package: Path) -> Dict[str, Any]:
         for row in rows:
             oid = row.get("ontology_id")
             olabel = row.get("ontology_label")
-            osource = row.get("ontology_source")
             sex = row.get("sex")
             if sex is not None and str(sex).strip():
                 sex_values.add(str(sex).strip())
@@ -273,13 +290,6 @@ def build_catalog(package: Path) -> Dict[str, Any]:
             if cond is not None and str(cond).strip():
                 condition_values.add(str(cond).strip())
             oid_missing = oid is None or (isinstance(oid, float) and oid != oid)
-            # Keep GEO:sample facet only while some samples still lack detail.
-            if (
-                oid_missing
-                and osource
-                and str(osource).upper() == "GEO"
-            ):
-                has_geo = True
             if oid_missing:
                 continue
             oid_s = str(oid)
@@ -352,14 +362,6 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                     )
         del rows
 
-    if has_geo:
-        _add_term(
-            terms,
-            type_="custom",
-            id_="GEO:sample",
-            label="GEO sample",
-            scopes=["biosample"],
-        )
     # Advertise sex field when any biosample matrix exists; values optional.
     _add_term(
         terms,
@@ -436,15 +438,7 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                         scopes=["genomicFeature"],
                     )
             resource = g.get("resource")
-            if resource:
-                rid = f"resource:{resource}"
-                _add_term(
-                    terms,
-                    type_="custom",
-                    id_=rid,
-                    label=f"Annotation resource {resource}",
-                    scopes=["genomicFeature"],
-                )
+            _emit_resource_term(terms, resource, scopes=["genomicFeature"])
             src = (g.get("annotation_source") or "").lower()
             if src in ("gencode", "ensembl"):
                 needed_resources.add("ensembl")
@@ -479,15 +473,9 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                         else None,
                         scopes=["genomicFeature"],
                     )
-                resource = row.get("resource")
-                if resource:
-                    _add_term(
-                        terms,
-                        type_="custom",
-                        id_=f"resource:{resource}",
-                        label=f"Annotation resource {resource}",
-                        scopes=["genomicFeature"],
-                    )
+                _emit_resource_term(
+                    terms, row.get("resource"), scopes=["genomicFeature"]
+                )
 
     for pref in xref_prefixes:
         if pref == "HGNC":

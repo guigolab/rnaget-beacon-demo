@@ -1,0 +1,43 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": true,
+    "description": "Aggregate expression statistics for one genomic feature in one matrix, optionally split by a biosample group.",
+    "properties": {
+        "id": {
+            "description": "Internal identifier for this summary row.",
+            "type": "string"
+        },
+        "matrixId": {
+            "description": "Matrix this summary was computed from.",
+            "type": "string"
+        },
+        "featureId": {
+            "description": "Native feature accession (genomicFeature.featureIdentifier.id).",
+            "type": "string"
+        },
+        "n": {
+            "description": "Number of biosamples included in the aggregate.",
+            "minimum": 0,
+            "type": "integer"
+        },
+        "mean": {"type": ["number", "null"]},
+        "median": {"type": ["number", "null"]},
+        "q1": {"type": ["number", "null"]},
+        "q3": {"type": ["number", "null"]},
+        "min": {"type": ["number", "null"]},
+        "max": {"type": ["number", "null"]},
+        "minBiosampleId": {"type": "string"},
+        "maxBiosampleId": {"type": "string"},
+        "fractionAboveThreshold": {"type": "number"},
+        "group": {
+            "description": "Present when the request set groupBy.",
+            "properties": {
+                "id": {"type": "string"},
+                "label": {"type": "string"}
+            },
+            "type": "object"
+        }
+    },
+    "required": ["id", "matrixId", "featureId", "n"],
+    "type": "object"
+}

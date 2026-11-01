@@ -53,8 +53,11 @@ def _merge_with_duckdb(parts: List[Path], out_path: Path) -> int:
     con = connect_duckdb(database=":memory:")
     try:
         con.execute(
-            f"COPY (SELECT * FROM read_parquet('{src}', union_by_name := true)) "
-            f"TO '{dest}' (FORMAT PARQUET, COMPRESSION ZSTD)"
+            "COPY ("
+            "SELECT matrix_id, feature_id, biosample_id, value "
+            f"FROM read_parquet('{src}', union_by_name := true) "
+            "ORDER BY feature_id, biosample_id"
+            f") TO '{dest}' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 122880)"
         )
     finally:
         con.close()

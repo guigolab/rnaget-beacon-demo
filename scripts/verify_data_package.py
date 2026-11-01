@@ -44,9 +44,66 @@ def _check_stats_parquet(
     if table.num_rows <= 0:
         errs.append(f"{matrix_id}: {label} has zero rows")
     cols = set(table.column_names)
-    for required in (id_col, "min_value", "max_value"):
+    required_cols = [id_col, "min_value", "max_value"]
+    if id_col == "feature_id":
+        required_cols.extend(["min_biosample_id", "max_biosample_id"])
+    else:
+        required_cols.extend(["min_feature_id", "max_feature_id"])
+    for required in required_cols:
         if required not in cols:
             errs.append(f"{matrix_id}: {label} missing column {required}")
+    return errs
+
+
+def _check_expression_files(
+    matrix_id: str,
+    paths: List[Path],
+    entry: dict,
+) -> List[str]:
+    """Schema, dtypes, null/NaN, and row counts for expression parquet."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    errs: List[str] = []
+    total = 0
+    required = ("matrix_id", "feature_id", "biosample_id", "value")
+    for path in paths:
+        try:
+            pf = pq.ParquetFile(path)
+        except Exception as exc:  # noqa: BLE001
+            errs.append(f"{matrix_id}: {path.name} unreadable: {exc}")
+            continue
+        names = set(pf.schema_arrow.names)
+        missing = [col for col in required if col not in names]
+        if missing:
+            errs.append(f"{matrix_id}: {path.name} missing columns {missing}")
+            continue
+        value_type = pf.schema_arrow.field("value").type
+        if not pa.types.is_floating(value_type):
+            errs.append(
+                f"{matrix_id}: {path.name} value type {value_type} is not floating"
+            )
+        rows = int(pf.metadata.num_rows) if pf.metadata is not None else 0
+        total += rows
+        if rows:
+            values = pq.read_table(path, columns=["value"]).column("value")
+            nulls = int(pc.sum(pc.is_null(values)).as_py() or 0)
+            nans = int(pc.sum(pc.is_nan(values)).as_py() or 0)
+            if nulls:
+                errs.append(f"{matrix_id}: {path.name} has {nulls} null values")
+            if nans:
+                errs.append(f"{matrix_id}: {path.name} has {nans} NaN values")
+    declared = entry.get("expressionRows")
+    shard_rows = (entry.get("shards") or {}).get("rows")
+    if declared is not None and int(declared) != total:
+        errs.append(
+            f"{matrix_id}: expression rows {total} != manifest expressionRows {declared}"
+        )
+    if shard_rows is not None and int(shard_rows) != total:
+        errs.append(
+            f"{matrix_id}: expression rows {total} != manifest shards.rows {shard_rows}"
+        )
     return errs
 
 
@@ -125,6 +182,9 @@ def main(argv: List[str] | None = None) -> int:
             errors.append(
                 f"{mid}: missing expression.parquet and expression/part-*.parquet"
             )
+        else:
+            expr_paths = [merged_expr] if merged_expr.is_file() else parts
+            errors.extend(_check_expression_files(mid, expr_paths, entry))
         doc = by_id.get(mid)
         if doc is None:
             errors.append(f"{mid}: listed in manifest but missing from matrices.json")
@@ -477,6 +537,10 @@ def main(argv: List[str] | None = None) -> int:
                     errors.append(f"filteringTerm {term.get('id')!r} missing {req}")
                     break
             tid = str(term.get("id") or "")
+            if tid in ("resource:gencode", "GEO:sample"):
+                errors.append(
+                    f"filteringTerms must not include deprecated facet {tid!r}"
+                )
             if tid.startswith(("HGNC:", "NCBIGene:", "ENSEMBL:", "Ensembl:")):
                 errors.append(
                     f"filteringTerms must not enumerate gene CURIEs (found {tid})"

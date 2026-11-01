@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -21,6 +22,77 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--package", type=Path, required=True)
     return p
+
+
+_INDEX_SCALARS = (
+    "feature_id",
+    "resource",
+    "symbol",
+    "feature_type_id",
+    "feature_type_label",
+    "chrom",
+    "start",
+    "end",
+    "strand",
+)
+
+
+def _blank(value: Any) -> bool:
+    return value is None or value == ""
+
+
+def _merge_feature_index_row(
+    existing: Dict[str, Any], incoming: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Keep the newer annotation's scalars, fill blanks from the other row, union lists."""
+    newer = incoming.get("_ann_rank", (0,)) >= existing.get("_ann_rank", (0,))
+    winner = incoming if newer else existing
+    other = existing if newer else incoming
+    for key in _INDEX_SCALARS:
+        if _blank(winner.get(key)) and not _blank(other.get(key)):
+            winner[key] = other[key]
+    winner["aliases"] = _union_strings(existing.get("aliases"), incoming.get("aliases"))
+    winner["xrefs"] = _union_strings(existing.get("xrefs"), incoming.get("xrefs"))
+    winner["ontology_terms"] = _union_terms(
+        existing.get("ontology_terms"), incoming.get("ontology_terms")
+    )
+    if newer:
+        winner["_ann_rank"] = incoming.get("_ann_rank", (0,))
+    return winner
+
+
+def _version_rank(version: str) -> Tuple[int, ...]:
+    nums = tuple(int(part) for part in re.findall(r"\d+", str(version or "")))
+    return nums or (0,)
+
+
+def _union_strings(left: Any, right: Any) -> List[str]:
+    out: List[str] = []
+    seen: Set[str] = set()
+    for item in list(_as_list(left)) + list(_as_list(right)):
+        if item is None:
+            continue
+        text = str(item)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
+def _union_terms(left: Any, right: Any) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+    for term in list(_as_list(left)) + list(_as_list(right)):
+        if not isinstance(term, dict) or not term.get("id"):
+            continue
+        tid = str(term["id"])
+        if tid in seen:
+            continue
+        seen.add(tid)
+        label = term.get("label")
+        out.append({"id": tid, "label": None if label is None else str(label)})
+    return out
 
 
 def _as_list(value: Any) -> List[Any]:
@@ -46,7 +118,20 @@ def build_indexes(package: Path) -> Dict[str, int]:
     with manifest_path.open(encoding="utf-8") as fh:
         manifest: Dict[str, Any] = json.load(fh)
 
-    # feature_id / wrapper_id -> index row (first wins)
+    ann_rank: Dict[str, Tuple[int, ...]] = {}
+    matrices_path = package / "matrices.json"
+    if matrices_path.is_file():
+        with matrices_path.open(encoding="utf-8") as fh:
+            matrix_docs = json.load(fh)
+        if isinstance(matrix_docs, list):
+            for doc in matrix_docs:
+                if not isinstance(doc, dict) or not doc.get("matrixId"):
+                    continue
+                version = str((doc.get("annotation") or {}).get("version") or "")
+                ann_rank[str(doc["matrixId"])] = _version_rank(version)
+
+    # wrapper_id -> index row. Shared ids keep the newest annotation and the
+    # union of aliases, xrefs, and ontology terms.
     index_by_wrapper: Dict[str, Dict[str, Any]] = {}
     # (feature_id, ontology_id, role) -> ontology row
     ontology_seen: Set[Tuple[str, str, str]] = set()
@@ -101,26 +186,31 @@ def build_indexes(package: Path) -> Dict[str, int]:
                             "matrix_id": matrix_id,
                         }
                     )
-                if wid not in index_by_wrapper:
-                    index_by_wrapper[wid] = {
-                        "wrapper_id": wid,
-                        "feature_id": fid,
-                        "resource": row.get("resource"),
-                        "symbol": row.get("symbol"),
-                        "aliases": list(_as_list(row.get("aliases"))),
-                        "xrefs": list(_as_list(row.get("xrefs"))),
-                        "feature_type_id": row.get("feature_type_id"),
-                        "feature_type_label": row.get("feature_type_label"),
-                        "ontology_terms": [
-                            {"id": t.get("id"), "label": t.get("label")}
-                            for t in _as_list(row.get("ontology_terms"))
-                            if isinstance(t, dict) and t.get("id")
-                        ],
-                        "chrom": row.get("chrom"),
-                        "start": row.get("start"),
-                        "end": row.get("end"),
-                        "strand": row.get("strand"),
-                    }
+                incoming = {
+                    "wrapper_id": wid,
+                    "feature_id": fid,
+                    "resource": row.get("resource"),
+                    "symbol": row.get("symbol"),
+                    "aliases": list(_as_list(row.get("aliases"))),
+                    "xrefs": list(_as_list(row.get("xrefs"))),
+                    "feature_type_id": row.get("feature_type_id"),
+                    "feature_type_label": row.get("feature_type_label"),
+                    "ontology_terms": [
+                        {"id": t.get("id"), "label": t.get("label")}
+                        for t in _as_list(row.get("ontology_terms"))
+                        if isinstance(t, dict) and t.get("id")
+                    ],
+                    "chrom": row.get("chrom"),
+                    "start": row.get("start"),
+                    "end": row.get("end"),
+                    "strand": row.get("strand"),
+                    "_ann_rank": ann_rank.get(matrix_id, (0,)),
+                }
+                existing = index_by_wrapper.get(wid)
+                if existing is None:
+                    index_by_wrapper[wid] = incoming
+                else:
+                    index_by_wrapper[wid] = _merge_feature_index_row(existing, incoming)
                 # Ontology edges
                 ft_id = row.get("feature_type_id")
                 if ft_id:
@@ -248,6 +338,8 @@ def build_indexes(package: Path) -> Dict[str, int]:
                     }
             del bio_table
 
+    for row in index_by_wrapper.values():
+        row.pop("_ann_rank", None)
     index_rows = sorted(index_by_wrapper.values(), key=lambda r: r["wrapper_id"])
     bio_rows = sorted(bio_by_id.values(), key=lambda r: r["biosample_id"])
 

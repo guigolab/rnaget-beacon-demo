@@ -13,7 +13,7 @@ export function isOntologyId(value: string): boolean {
 
 export function isCustomId(value: string): boolean {
   const text = value.trim()
-  return text === 'GEO:sample' || text.toLowerCase().startsWith('resource:')
+  return text.toLowerCase().startsWith('resource:')
 }
 
 /** Biosample fields sent as Beacon alphanumeric filters (sex uses kind `sex`). */
@@ -220,7 +220,7 @@ function pushId(filters: UiFilter[], id: string) {
   const text = id.trim()
   if (!text) return
   if (isCustomId(text)) {
-    filters.push({ kind: 'custom', id: text === 'GEO:sample' ? 'GEO:sample' : text })
+    filters.push({ kind: 'custom', id: text })
     return
   }
   filters.push({ kind: 'ontology', id: text })
@@ -599,10 +599,7 @@ export function tokenToFilter(
   const text = token.trim()
   if (!text) return null
   if (isCustomId(text)) {
-    const filter: UiFilter = {
-      kind: 'custom',
-      id: text.toLowerCase().startsWith('resource:') ? text : 'GEO:sample',
-    }
+    const filter: UiFilter = { kind: 'custom', id: text }
     if (scope !== 'both' && scopeOf(filter, index) !== scope) return null
     return filter
   }

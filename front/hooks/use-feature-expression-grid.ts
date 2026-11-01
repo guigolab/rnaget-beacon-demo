@@ -1,77 +1,53 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { listMatrixExpressionSummary, type ExpressionSummary } from '@/lib/beacon'
+import type { Feature } from '@/lib/beacon/types'
 import { mapPool } from '@/lib/async-pool'
-import { medianForMatrix, primarySummaryForMatrix } from '@/lib/gene-lens'
-import { queryCollection, type ExpressionSummary, type Feature } from '@/lib/beacon'
+import {
+  applySummaryRows,
+  cellKey,
+  matrixBatchCacheKey,
+  matrixIdsForFeatures,
+  matrixSummaryBatches,
+  type FeatureMatrixCell,
+} from '@/lib/feature-expression-grid'
 
-export type FeatureMatrixCell = {
-  featureId: string
-  matrixId: string
-  median?: number
-  summary?: ExpressionSummary
-}
-
-function cellKey(featureId: string, matrixId: string) {
-  return `${featureId}\0${matrixId}`
-}
+export type { FeatureMatrixCell }
 
 const summaryCache = new Map<string, ExpressionSummary[]>()
 const summaryInflight = new Map<string, Promise<ExpressionSummary[]>>()
 
-function loadExpressionSummaries(featureId: string): Promise<ExpressionSummary[]> {
-  const cached = summaryCache.get(featureId)
+function loadMatrixBatch(
+  matrixId: string,
+  featureIDList: string
+): Promise<ExpressionSummary[]> {
+  const key = matrixBatchCacheKey(matrixId, featureIDList)
+  const cached = summaryCache.get(key)
   if (cached) return Promise.resolve(cached)
 
-  let pending = summaryInflight.get(featureId)
+  let pending = summaryInflight.get(key)
   if (pending) return pending
 
-  pending = queryCollection<ExpressionSummary>(
-    `/features/${encodeURIComponent(featureId)}/expression_summary`,
-    { granularity: 'record', limit: 500 }
-  )
+  pending = listMatrixExpressionSummary(matrixId, { featureIDList })
     .then((page) => {
       const rows = page.results ?? []
-      summaryCache.set(featureId, rows)
+      summaryCache.set(key, rows)
       return rows
     })
     .finally(() => {
-      summaryInflight.delete(featureId)
+      summaryInflight.delete(key)
     })
 
-  summaryInflight.set(featureId, pending)
+  summaryInflight.set(key, pending)
   return pending
 }
 
-function mergeFeatureSummaries(
-  target: Map<string, FeatureMatrixCell>,
-  feature: Feature,
-  rows: ExpressionSummary[]
-) {
-  const byMatrix = new Map<string, ExpressionSummary[]>()
-  for (const row of rows) {
-    const mid = row.matrixId
-    if (!mid) continue
-    const bucket = byMatrix.get(mid) ?? []
-    bucket.push(row)
-    byMatrix.set(mid, bucket)
-  }
-  for (const [matrixId, group] of byMatrix) {
-    const primary = primarySummaryForMatrix(group)
-    target.set(cellKey(feature.id, matrixId), {
-      featureId: feature.id,
-      matrixId,
-      median: medianForMatrix(group),
-      summary: primary,
-    })
-  }
-}
-
-function cellsFromFeatures(features: Feature[]): Map<string, FeatureMatrixCell> {
+function cellsFromCache(features: Feature[]): Map<string, FeatureMatrixCell> {
   const next = new Map<string, FeatureMatrixCell>()
-  for (const feature of features) {
-    const rows = summaryCache.get(feature.id)
-    if (rows?.length) mergeFeatureSummaries(next, feature, rows)
+  for (const { matrixId, featureIDList } of matrixSummaryBatches(features)) {
+    const rows = summaryCache.get(matrixBatchCacheKey(matrixId, featureIDList))
+    if (rows?.length) applySummaryRows(next, features, matrixId, rows)
   }
   return next
 }
@@ -85,28 +61,18 @@ export function useFeatureExpressionGrid(features: Feature[]) {
   featuresRef.current = features
 
   const [cells, setCells] = useState<Map<string, FeatureMatrixCell>>(() =>
-    cellsFromFeatures(features)
+    cellsFromCache(features)
   )
   const [pendingCount, setPendingCount] = useState(0)
   const [error, setError] = useState('')
-  const fetchedIdsRef = useRef<Set<string>>(new Set())
-
-  useEffect(() => {
-    for (const feature of featuresRef.current) {
-      if (summaryCache.has(feature.id)) fetchedIdsRef.current.add(feature.id)
-    }
-  }, [featureKey])
+  const fetchGenRef = useRef(0)
 
   useEffect(() => {
     const current = featuresRef.current
-    const currentIdSet = new Set(current.map((f) => f.id))
-
-    for (const id of fetchedIdsRef.current) {
-      if (!currentIdSet.has(id)) fetchedIdsRef.current.delete(id)
-    }
+    const gen = ++fetchGenRef.current
 
     setCells((prev) => {
-      const hydrated = cellsFromFeatures(current)
+      const hydrated = cellsFromCache(current)
       if (hydrated.size === 0 && prev.size === 0) return prev
       let changed = prev.size !== hydrated.size
       if (!changed) {
@@ -117,11 +83,15 @@ export function useFeatureExpressionGrid(features: Feature[]) {
           }
         }
       }
-      if (!changed) return prev
-      return hydrated
+      return changed ? hydrated : prev
     })
 
-    const needFetch = current.filter((f) => !fetchedIdsRef.current.has(f.id))
+    const batches = matrixSummaryBatches(current)
+    const needFetch = batches.filter(
+      ({ matrixId, featureIDList }) =>
+        !summaryCache.has(matrixBatchCacheKey(matrixId, featureIDList))
+    )
+
     if (!needFetch.length) {
       setPendingCount(0)
       return
@@ -129,34 +99,31 @@ export function useFeatureExpressionGrid(features: Feature[]) {
 
     let cancelled = false
     setError('')
-
-    async function loadOne(feature: Feature) {
-      const rows = await loadExpressionSummaries(feature.id)
-      if (cancelled) return
-      fetchedIdsRef.current.add(feature.id)
-      setCells((prev) => {
-        const next = new Map(prev)
-        mergeFeatureSummaries(next, feature, rows)
-        return next
-      })
-    }
-
     let remaining = needFetch.length
     setPendingCount(remaining)
 
     async function run() {
-      await mapPool(needFetch, 4, async (feature) => {
+      await mapPool(needFetch, 5, async ({ matrixId, featureIDList }) => {
+        if (cancelled || fetchGenRef.current !== gen) return
         try {
-          await loadOne(feature)
+          const rows = await loadMatrixBatch(matrixId, featureIDList)
+          if (cancelled || fetchGenRef.current !== gen) return
+          setCells((prev) => {
+            const next = new Map(prev)
+            applySummaryRows(next, featuresRef.current, matrixId, rows)
+            return next
+          })
         } catch (err: unknown) {
-          if (!cancelled) {
+          if (!cancelled && fetchGenRef.current === gen) {
             setError(
               err instanceof Error ? err.message : 'Expression summary failed'
             )
           }
         } finally {
           remaining -= 1
-          if (!cancelled) setPendingCount(Math.max(0, remaining))
+          if (!cancelled && fetchGenRef.current === gen) {
+            setPendingCount(Math.max(0, remaining))
+          }
         }
       })
     }
@@ -167,13 +134,10 @@ export function useFeatureExpressionGrid(features: Feature[]) {
     }
   }, [featureKey])
 
-  const matrixIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const feature of features) {
-      for (const mid of feature.matrixIds ?? []) ids.add(mid)
-    }
-    return [...ids].sort((a, b) => a.localeCompare(b))
-  }, [featureKey, features])
+  const matrixIds = useMemo(
+    () => matrixIdsForFeatures(features),
+    [featureKey, features]
+  )
 
   function getCell(featureId: string, matrixId: string): FeatureMatrixCell | undefined {
     return cells.get(cellKey(featureId, matrixId))

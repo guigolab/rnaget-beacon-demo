@@ -27,7 +27,7 @@ MATRIX_ALPHANUMERIC_FIELDS = frozenset(
         "matrix.profileSource",
     }
 )
-CUSTOM_BIOSAMPLE_IDS = frozenset({"GEO:sample"})
+CUSTOM_BIOSAMPLE_IDS: frozenset[str] = frozenset()
 ALPHANUMERIC_OPS = frozenset({"=", "!", "<", ">", "<=", ">="})
 
 
@@ -138,11 +138,107 @@ def normalize_filters(raw: Optional[Sequence[Any]]) -> List[NormalizedFilter]:
     return out
 
 
+_GET_FILTER_OPS = (">=", "<=", "!=", "=", "!", ">", "<")
+
+
+def _token_to_raw_filter(token: str) -> Dict[str, Any]:
+    """Parse ``id`` or ``field:op:value`` (op is =, !, <, >, <=, >=, !=).
+
+    CURIEs such as ``UBERON:0002107`` stay ontology filters. Alphanumeric GET
+    filters use a colon on both sides of the operator, for example ``rin:>=:7``.
+    """
+    known = (
+        ALPHANUMERIC_FEATURE_FIELDS
+        | ALPHANUMERIC_BIOSAMPLE_FIELDS
+        | NUMERIC_BIOSAMPLE_FIELDS
+        | MATRIX_ALPHANUMERIC_FIELDS
+    )
+    for op in _GET_FILTER_OPS:
+        marker = f":{op}:"
+        if marker not in token:
+            continue
+        left, right = token.split(marker, 1)
+        if left in known and right != "":
+            return {
+                "id": left,
+                "operator": "!" if op == "!=" else op,
+                "value": right,
+            }
+    return {"id": token}
+
+
 def parse_get_filters_csv(raw: Optional[str]) -> List[NormalizedFilter]:
     if not raw or not str(raw).strip():
         return []
     tokens = [p.strip() for p in str(raw).split(",") if p.strip()]
-    return normalize_filters([{"id": t} for t in tokens])
+    return normalize_filters([_token_to_raw_filter(t) for t in tokens])
+
+
+# Biosample material-entity OBI terms. Other OBI ids are matrix assay types.
+BIOSAMPLE_OBI_ORIGIN = frozenset({"OBI:0001876", "OBI:0001479"})
+
+
+def axis_filter_scope(filt: NormalizedFilter) -> str:
+    """Classify a filter for matrix feature/biosample axis routes.
+
+    Returns ``feature``, ``biosample``, ``matrix``, or ``unknown``.
+    SO/GO and gene public ids are feature-scoped (same as the matrix workspace).
+    """
+    if filt.kind == "alphanumeric":
+        if filt.id in ALPHANUMERIC_FEATURE_FIELDS:
+            return "feature"
+        if filt.id in ALPHANUMERIC_BIOSAMPLE_FIELDS or filt.id in NUMERIC_BIOSAMPLE_FIELDS:
+            return "biosample"
+        if filt.id in MATRIX_ALPHANUMERIC_FIELDS:
+            return "matrix"
+        return "unknown"
+    if filt.kind == "custom":
+        if filt.id.startswith("resource:"):
+            return "feature"
+        return "unknown"
+    if filt.id.startswith("NCBIGene:"):
+        return "feature"
+    pref = (filt.prefix or _curie_prefix(filt.id) or "").upper().replace("_", "")
+    if pref in FEATURE_ONTOLOGY_PREFIXES or pref in GENE_PUBLIC_ID_PREFIXES:
+        return "feature"
+    if pref == "OBI":
+        upper_id = filt.id.upper()
+        if filt.id in BIOSAMPLE_OBI_ORIGIN or upper_id in BIOSAMPLE_OBI_ORIGIN:
+            return "biosample"
+        return "matrix"
+    if pref in BIOSAMPLE_ONTOLOGY_PREFIXES:
+        return "biosample"
+    return "unknown"
+
+
+def split_matrix_axis_filters(
+    filters: Sequence[NormalizedFilter],
+) -> Tuple[Optional[Tuple[List[NormalizedFilter], List[NormalizedFilter]]], Optional[str]]:
+    """Split mixed axis filters into (feature, biosample).
+
+    Matrix-scoped filters are rejected: they select matrices, not rows inside one.
+    """
+    feature: List[NormalizedFilter] = []
+    biosample: List[NormalizedFilter] = []
+    for filt in filters:
+        scope = axis_filter_scope(filt)
+        if scope == "feature":
+            feature.append(filt)
+        elif scope == "biosample":
+            biosample.append(filt)
+        elif scope == "matrix":
+            return None, (
+                f"matrix-scoped filter {filt.id!r} is not supported on matrix axis endpoints"
+            )
+        else:
+            return None, f"unsupported filter for matrix axis: {filt.id}"
+    err = validate_filters_for_entity(feature, entity="feature")
+    if err:
+        return None, err
+    err = validate_filters_for_entity(biosample, entity="biosample")
+    if err:
+        return None, err
+    return (feature, biosample), None
 
 
 def validate_filters_for_entity(
@@ -329,11 +425,6 @@ def _biosample_ontology_ids(doc: Dict[str, Any]) -> Set[str]:
 
 def biosample_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> bool:
     for f in filters:
-        if f.kind == "custom" and f.id == "GEO:sample":
-            src = doc.get("ontology_source") or doc.get("_ontology_source")
-            if str(src).upper() == "GEO":
-                continue
-            return False
         if f.kind == "alphanumeric" and f.id in ALPHANUMERIC_BIOSAMPLE_FIELDS:
             actual = _biosample_field(doc, f.id if f.id != "sex" else "sex")
             if not _compare_alphanumeric(actual, f.operator, f.value):
@@ -453,6 +544,10 @@ def filters_to_summary(filters: Sequence[NormalizedFilter]) -> List[Dict[str, An
         if f.kind == "alphanumeric":
             d["operator"] = f.operator
             d["value"] = f.value
+        elif f.kind == "ontology":
+            # No ontology closure is shipped; matching is the term id only.
+            d["includeDescendantTerms"] = False
+            d["similarity"] = "exact"
         if f.scope:
             d["scope"] = f.scope
         out.append(d)

@@ -8,7 +8,7 @@ openapi: 3.1.0
 info:
   title: RNAget Beacon Demo
   description: Demo Beacon v2 instance exposing RNA-seq matrices, genomic features,
-    biosamples, and expression values (fixture-backed).
+    biosamples, and expression values.
   version: v2.0.0
 paths:
   /info:
@@ -42,14 +42,14 @@ paths:
       tags:
       - Informational endpoints
       summary: Get Service Info
+      description: GA4GH Service Info (bare object, not a Beacon envelope).
       operationId: get_service_info_service_info_get
       responses:
         '200':
-          description: Beacon informational response
+          description: Successful Response
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconInformationalResponse'
+              schema: {}
   /configuration:
     get:
       tags:
@@ -134,7 +134,7 @@ paths:
         required: false
         schema:
           type: integer
-          minimum: 1
+          minimum: 0
           default: 10
           title: Limit
       - name: requestedGranularity
@@ -366,7 +366,7 @@ paths:
         required: false
         schema:
           type: integer
-          minimum: 1
+          minimum: 0
           default: 10
           title: Limit
       - name: requestedGranularity
@@ -471,7 +471,7 @@ paths:
         required: false
         schema:
           type: integer
-          minimum: 1
+          minimum: 0
           default: 10
           title: Limit
       - name: requestedGranularity
@@ -703,7 +703,7 @@ paths:
         required: false
         schema:
           type: integer
-          minimum: 1
+          minimum: 0
           default: 10
           title: Limit
       - name: requestedGranularity
@@ -788,109 +788,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /features/{id}/expression_summary:
-    get:
-      tags:
-      - Genomic features
-      summary: Get Feature Expression Summary
-      operationId: get_feature_expression_summary_features__id__expression_summary_get
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Id
-      - name: threshold
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: number
-          - type: 'null'
-          title: Threshold
-      - name: requestedGranularity
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Requestedgranularity
-      responses:
-        '200':
-          description: Beacon success response (boolean, count, or resultSets by granularity)
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - $ref: '#/components/schemas/BeaconBooleanResponse'
-                - $ref: '#/components/schemas/BeaconCountResponse'
-                - $ref: '#/components/schemas/BeaconResultsetsResponse'
-        '400':
-          description: Beacon error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconErrorResponse'
-        '404':
-          description: Beacon error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconErrorResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    post:
-      tags:
-      - Genomic features
-      summary: Post Feature Expression Summary
-      operationId: post_feature_expression_summary_features__id__expression_summary_post
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BeaconRequestBody'
-      responses:
-        '200':
-          description: Beacon success response (boolean, count, or resultSets by granularity)
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - $ref: '#/components/schemas/BeaconBooleanResponse'
-                - $ref: '#/components/schemas/BeaconCountResponse'
-                - $ref: '#/components/schemas/BeaconResultsetsResponse'
-        '400':
-          description: Beacon error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconErrorResponse'
-        '404':
-          description: Beacon error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconErrorResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /matrices:
     get:
       tags:
@@ -911,7 +808,7 @@ paths:
         required: false
         schema:
           type: integer
-          minimum: 1
+          minimum: 0
           default: 10
           title: Limit
       - name: requestedGranularity
@@ -1143,7 +1040,7 @@ paths:
         required: false
         schema:
           type: integer
-          minimum: 1
+          minimum: 0
           default: 10
           title: Limit
       - name: requestedGranularity
@@ -1174,6 +1071,38 @@ paths:
         schema:
           $ref: '#/components/schemas/AxisOrder'
           default: asc
+      - name: featureIDList
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Featureidlist
+      - name: biosampleIDList
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Biosampleidlist
+      - name: minValue
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Minvalue
+      - name: maxValue
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Maxvalue
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1248,6 +1177,108 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /matrices/{id}/features/filtering_terms:
+    post:
+      tags:
+      - Matrices
+      summary: Matrix Features Filtering Terms
+      operationId: matrix_features_filtering_terms_matrices__id__features_filtering_terms_post
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Id
+      responses:
+        '200':
+          description: Beacon filtering terms response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Matrices
+      summary: Matrix Features Filtering Terms
+      operationId: matrix_features_filtering_terms_matrices__id__features_filtering_terms_get
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Id
+      responses:
+        '200':
+          description: Beacon filtering terms response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /matrices/{id}/biosamples/filtering_terms:
+    post:
+      tags:
+      - Matrices
+      summary: Matrix Biosamples Filtering Terms
+      operationId: matrix_biosamples_filtering_terms_matrices__id__biosamples_filtering_terms_post
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Id
+      responses:
+        '200':
+          description: Beacon filtering terms response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Matrices
+      summary: Matrix Biosamples Filtering Terms
+      operationId: matrix_biosamples_filtering_terms_matrices__id__biosamples_filtering_terms_get
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Id
+      responses:
+        '200':
+          description: Beacon filtering terms response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /matrices/{id}/biosamples:
     get:
       tags:
@@ -1274,7 +1305,7 @@ paths:
         required: false
         schema:
           type: integer
-          minimum: 1
+          minimum: 0
           default: 10
           title: Limit
       - name: requestedGranularity
@@ -1305,6 +1336,22 @@ paths:
         schema:
           $ref: '#/components/schemas/AxisOrder'
           default: asc
+      - name: featureIDList
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Featureidlist
+      - name: biosampleIDList
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Biosampleidlist
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1405,7 +1452,7 @@ paths:
         required: false
         schema:
           type: integer
-          minimum: 1
+          minimum: 0
           default: 10
           title: Limit
       - name: requestedGranularity
@@ -1669,8 +1716,11 @@ components:
           title: Operator
           type: string
         value:
+          anyOf:
+          - type: string
+          - type: integer
+          - type: number
           title: Value
-          type: string
         scope:
           anyOf:
           - type: string
@@ -1773,10 +1823,9 @@ components:
           title: Requestparameters
         includeResultsetResponses:
           anyOf:
-          - type: boolean
+          - $ref: '#/components/schemas/IncludeResultsetResponses'
           - type: 'null'
           default: null
-          title: Includeresultsetresponses
         testMode:
           anyOf:
           - type: boolean
@@ -1867,6 +1916,14 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    IncludeResultsetResponses:
+      enum:
+      - ALL
+      - HIT
+      - MISS
+      - NONE
+      title: IncludeResultsetResponses
+      type: string
     MatrixAxisRequestBody:
       properties:
         meta:
@@ -1919,7 +1976,7 @@ components:
           title: Skip
         limit:
           anyOf:
-          - minimum: 1
+          - minimum: 0
             type: integer
           - type: 'null'
           default: 10
@@ -2051,13 +2108,14 @@ components:
           nullable: true
           description: 'Page of entity records. Item schema depends on setType: matrix
             → Matrix, feature → GenomicFeatureWrapper, biosample → Biosample, expressionValue
-            → ExpressionValue.'
+            → ExpressionValue, expressionSummary → ExpressionSummary.'
           items:
             oneOf:
             - $ref: '#/components/schemas/Matrix'
             - $ref: '#/components/schemas/GenomicFeatureWrapper'
             - $ref: '#/components/schemas/Biosample'
             - $ref: '#/components/schemas/ExpressionValue'
+            - $ref: '#/components/schemas/ExpressionSummary'
       required:
       - id
       - setType
@@ -2660,4 +2718,66 @@ components:
       - matrixId
       - id
       title: Expression value
+      type: object
+    ExpressionSummary:
+      additionalProperties: true
+      description: Aggregate expression statistics for one genomic feature in one
+        matrix, optionally split by a biosample group.
+      properties:
+        id:
+          description: Internal identifier for this summary row.
+          type: string
+        matrixId:
+          description: Matrix this summary was computed from.
+          type: string
+        featureId:
+          description: Native feature accession (genomicFeature.featureIdentifier.id).
+          type: string
+        n:
+          description: Number of biosamples included in the aggregate.
+          minimum: 0
+          type: integer
+        mean:
+          type:
+          - number
+          - 'null'
+        median:
+          type:
+          - number
+          - 'null'
+        q1:
+          type:
+          - number
+          - 'null'
+        q3:
+          type:
+          - number
+          - 'null'
+        min:
+          type:
+          - number
+          - 'null'
+        max:
+          type:
+          - number
+          - 'null'
+        minBiosampleId:
+          type: string
+        maxBiosampleId:
+          type: string
+        fractionAboveThreshold:
+          type: number
+        group:
+          description: Present when the request set groupBy.
+          properties:
+            id:
+              type: string
+            label:
+              type: string
+          type: object
+      required:
+      - id
+      - matrixId
+      - featureId
+      - n
       type: object

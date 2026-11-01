@@ -104,14 +104,3 @@ export function mergeMatrixLensFilters(current: UiFilter[], added: UiFilter): Ui
 export function matrixDisplayLabel(matrix: Matrix): string {
   return matrix.name ?? matrix.matrixId ?? 'Matrix'
 }
-
-export function resolveSelectedMatrix(
-  matches: Matrix[],
-  matrixParam: string | null
-): Matrix | null {
-  if (matrixParam) {
-    return matches.find((m) => m.matrixId === matrixParam) ?? null
-  }
-  if (matches.length === 1) return matches[0]
-  return null
-}

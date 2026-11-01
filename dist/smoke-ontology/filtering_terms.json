@@ -98,14 +98,6 @@
     },
     {
       "type": "custom",
-      "id": "resource:gencode",
-      "scopes": [
-        "genomicFeature"
-      ],
-      "label": "Annotation resource gencode"
-    },
-    {
-      "type": "custom",
       "id": "resource:ncbigene",
       "scopes": [
         "genomicFeature"
@@ -138,7 +130,6 @@
     "genomicFeature": [
       "SO:0000704",
       "genomicFeature.symbol",
-      "resource:gencode",
       "resource:ncbigene"
     ]
   }

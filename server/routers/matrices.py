@@ -26,7 +26,11 @@ from routers.deps import (
     partial_received_for_error,
     resolve_or_error,
 )
-from routers.filter_helpers import filters_summary, resolve_entity_filters
+from routers.filter_helpers import (
+    filters_summary,
+    resolve_entity_filters,
+    resolve_matrix_feature_axis_filters,
+)
 from routers.request_params import params_from_get, params_from_post, params_summary
 
 router = APIRouter(tags=["Matrices"])
@@ -46,7 +50,7 @@ _ALLOWED_EXPRESSION_GROUP_BY = frozenset(
 @router.get("/matrices", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
 def get_matrices(
     skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1),
+    limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
     filters: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
@@ -142,7 +146,6 @@ def get_matrix(
     id: str,
     requestedGranularity: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
-    item = get_store().get_matrix(id)
     resolved, err = resolve_or_error(
         requested_granularity=requestedGranularity,
         entity_type="matrix",
@@ -150,6 +153,7 @@ def get_matrix(
     if err:
         return err
     _, _, gran, received = resolved
+    item = get_store().get_matrix(id)
     if not item:
         return empty_entity_response("matrix", id, gran, received)
     return list_response([item], "matrix", id, 0, 1, gran, received)
@@ -159,7 +163,6 @@ def get_matrix(
 def post_matrix(
     id: str, body: BeaconRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:
-    item = get_store().get_matrix(id)
     body_dict = model_to_dict(body)
     partial = partial_received_for_error(body=body_dict, entity_type="matrix")
     _, perr = params_from_post(body_dict, received=partial)
@@ -169,6 +172,7 @@ def post_matrix(
     if err:
         return err
     _, _, gran, received = resolved
+    item = get_store().get_matrix(id)
     if not item:
         return empty_entity_response("matrix", id, gran, received)
     return list_response([item], "matrix", id, 0, 1, gran, received)
@@ -194,6 +198,22 @@ def _effective_axis_summary(
     return {"sort": sort_v, "order": order_v}
 
 
+def _reject_inverted_range(params: Dict[str, Any], received):
+    min_value = params.get("minValue")
+    max_value = params.get("maxValue")
+    if (
+        min_value is not None
+        and max_value is not None
+        and float(min_value) > float(max_value)
+    ):
+        return error_json(
+            400,
+            "minValue must be less than or equal to maxValue",
+            received=received,
+        )
+    return None
+
+
 def _matrix_axis_list(
     id: str,
     *,
@@ -207,6 +227,11 @@ def _matrix_axis_list(
     sort: str,
     order: str,
     biosample_filters=None,
+    feature_filters=None,
+    feature_id_list: Optional[str] = None,
+    biosample_id_list: Optional[str] = None,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
 ):
     store = get_store()
     page_limit = limit_v if gran.value == "record" else 0
@@ -217,7 +242,12 @@ def _matrix_axis_list(
             limit=page_limit,
             sort=sort,
             order=order,
-            biosample_filters=biosample_filters or filt,
+            biosample_filters=biosample_filters if biosample_filters is not None else filt,
+            feature_filters=feature_filters,
+            feature_id_list=feature_id_list,
+            biosample_id_list=biosample_id_list,
+            min_value=min_value,
+            max_value=max_value,
         )
     else:
         results, total = store.biosamples_for_matrix_page(
@@ -227,6 +257,8 @@ def _matrix_axis_list(
             sort=sort,
             order=order,
             filters=filt,
+            feature_id_list=feature_id_list,
+            biosample_id_list=biosample_id_list,
         )
     return list_response(
         results,
@@ -241,15 +273,36 @@ def _matrix_axis_list(
     )
 
 
+def _feature_axis_extra(store: Any, matrix_id: str, params: Dict[str, Any], feature_filters, biosample_filters):
+    extra = _effective_axis_summary(
+        store,
+        matrix_id,
+        axis="features",
+        sort=params.get("sort"),
+        order=params.get("order"),
+    )
+    merged = list(feature_filters or []) + list(biosample_filters or [])
+    if merged:
+        extra = {**extra, **(filters_summary(merged) or {})}
+    rp = params_summary(params)
+    if rp:
+        extra = {**extra, **rp}
+    return extra
+
+
 @router.get("/matrices/{id}/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
 def get_matrix_features(
     id: str,
     skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1),
+    limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
     filters: Optional[str] = Query(None),
     sort: AxisSort = Query(AxisSort.id),
     order: AxisOrder = Query(AxisOrder.asc),
+    featureIDList: Optional[str] = Query(None),
+    biosampleIDList: Optional[str] = Query(None),
+    minValue: Optional[float] = Query(None),
+    maxValue: Optional[float] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
     store = get_store()
     partial = partial_received_for_error(
@@ -258,14 +311,29 @@ def get_matrix_features(
         requested_granularity=requestedGranularity,
         entity_type="feature",
     )
-    filt, ferr = resolve_entity_filters(
-        entity="biosample", filters_csv=filters, received=partial
+    split, ferr = resolve_matrix_feature_axis_filters(
+        filters_csv=filters, received=partial
     )
     if ferr:
         return ferr
-    extra = _effective_axis_summary(store, id, axis="features", sort=sort, order=order)
-    if filt:
-        extra = {**extra, **(filters_summary(filt) or {})}
+    feature_filters, biosample_filters = split
+    params, perr = params_from_get(
+        received=partial,
+        featureIDList=featureIDList,
+        biosampleIDList=biosampleIDList,
+        minValue=minValue,
+        maxValue=maxValue,
+        sort=axis_sort_value(sort),
+        order=axis_order_value(order),
+    )
+    if perr:
+        return perr
+    inverted = _reject_inverted_range(params, partial)
+    if inverted:
+        return inverted
+    extra = _feature_axis_extra(
+        store, id, params, feature_filters, biosample_filters
+    )
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
@@ -283,14 +351,19 @@ def get_matrix_features(
         id,
         axis="features",
         entity_type="feature",
-        filt=filt,
+        filt=biosample_filters,
         skip_v=skip_v,
         limit_v=limit_v,
         gran=gran,
         received=received,
         sort=extra["sort"],
         order=extra["order"],
-        biosample_filters=filt,
+        biosample_filters=biosample_filters,
+        feature_filters=feature_filters,
+        feature_id_list=params.get("featureIDList"),
+        biosample_id_list=params.get("biosampleIDList"),
+        min_value=params.get("minValue"),
+        max_value=params.get("maxValue"),
     )
 
 
@@ -304,23 +377,18 @@ def post_matrix_features(
     params, perr = params_from_post(payload, received=partial)
     if perr:
         return perr
-    filt, ferr = resolve_entity_filters(
-        entity="biosample", body=payload, received=partial
+    split, ferr = resolve_matrix_feature_axis_filters(
+        body=payload, received=partial
     )
     if ferr:
         return ferr
-    extra = _effective_axis_summary(
-        store,
-        id,
-        axis="features",
-        sort=params.get("sort"),
-        order=params.get("order"),
+    feature_filters, biosample_filters = split
+    inverted = _reject_inverted_range(params, partial)
+    if inverted:
+        return inverted
+    extra = _feature_axis_extra(
+        store, id, params, feature_filters, biosample_filters
     )
-    if filt:
-        extra = {**extra, **(filters_summary(filt) or {})}
-    rp = params_summary(params)
-    if rp:
-        extra = {**extra, **rp}
     resolved, err = resolve_or_error(
         body=payload,
         extra_summary=extra,
@@ -336,26 +404,72 @@ def post_matrix_features(
         id,
         axis="features",
         entity_type="feature",
-        filt=filt,
+        filt=biosample_filters,
         skip_v=skip_v,
         limit_v=limit_v,
         gran=gran,
         received=received,
         sort=extra["sort"],
         order=extra["order"],
-        biosample_filters=filt,
+        biosample_filters=biosample_filters,
+        feature_filters=feature_filters,
+        feature_id_list=params.get("featureIDList"),
+        biosample_id_list=params.get("biosampleIDList"),
+        min_value=params.get("minValue"),
+        max_value=params.get("maxValue"),
     )
+
+
+def _matrix_axis_filtering_terms_handler(matrix_id: str, axis: str):
+    store = get_store()
+    if not store.get_matrix(matrix_id):
+        return build_filtering_terms_response([])
+    getter = getattr(store, "matrix_axis_filtering_terms", None)
+    if callable(getter):
+        terms, resources = getter(matrix_id, axis)
+        return build_filtering_terms_response(terms, resources)
+    return build_filtering_terms_response([])
+
+
+@router.get(
+    "/matrices/{id}/features/filtering_terms",
+    response_model=None,
+    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
+)
+@router.post(
+    "/matrices/{id}/features/filtering_terms",
+    response_model=None,
+    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
+)
+def matrix_features_filtering_terms(id: str):
+    return _matrix_axis_filtering_terms_handler(id, "features")
+
+
+@router.get(
+    "/matrices/{id}/biosamples/filtering_terms",
+    response_model=None,
+    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
+)
+@router.post(
+    "/matrices/{id}/biosamples/filtering_terms",
+    response_model=None,
+    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
+)
+def matrix_biosamples_filtering_terms(id: str):
+    return _matrix_axis_filtering_terms_handler(id, "biosamples")
 
 
 @router.get("/matrices/{id}/biosamples", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
 def get_matrix_biosamples(
     id: str,
     skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1),
+    limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
     filters: Optional[str] = Query(None),
     sort: AxisSort = Query(AxisSort.id),
     order: AxisOrder = Query(AxisOrder.asc),
+    featureIDList: Optional[str] = Query(None),
+    biosampleIDList: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
     store = get_store()
     partial = partial_received_for_error(
@@ -369,11 +483,27 @@ def get_matrix_biosamples(
     )
     if ferr:
         return ferr
+    params, perr = params_from_get(
+        received=partial,
+        featureIDList=featureIDList,
+        biosampleIDList=biosampleIDList,
+        sort=axis_sort_value(sort),
+        order=axis_order_value(order),
+    )
+    if perr:
+        return perr
     extra = _effective_axis_summary(
-        store, id, axis="biosamples", sort=sort, order=order
+        store,
+        id,
+        axis="biosamples",
+        sort=params.get("sort"),
+        order=params.get("order"),
     )
     if filt:
         extra = {**extra, **(filters_summary(filt) or {})}
+    rp = params_summary(params)
+    if rp:
+        extra = {**extra, **rp}
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
@@ -398,6 +528,8 @@ def get_matrix_biosamples(
         received=received,
         sort=extra["sort"],
         order=extra["order"],
+        feature_id_list=params.get("featureIDList"),
+        biosample_id_list=params.get("biosampleIDList"),
     )
 
 
@@ -450,6 +582,8 @@ def post_matrix_biosamples(
         received=received,
         sort=extra["sort"],
         order=extra["order"],
+        feature_id_list=params.get("featureIDList"),
+        biosample_id_list=params.get("biosampleIDList"),
     )
 
 
@@ -495,7 +629,7 @@ def _expression_values_handler(
 def get_expression_values(
     id: str,
     skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1),
+    limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
     featureIDList: Optional[str] = Query(None),
     biosampleIDList: Optional[str] = Query(None),
@@ -552,6 +686,7 @@ def get_expression_values(
         requested_granularity=requestedGranularity,
         extra_summary=extra or None,
         cap_limit=True,
+        cap_skip=True,
         entity_type="expressionValue",
     )
     if err:
@@ -598,6 +733,7 @@ def post_expression_values(
         body=payload,
         extra_summary=extra or None,
         cap_limit=True,
+        cap_skip=True,
         entity_type="expressionValue",
     )
     if err:
@@ -612,6 +748,16 @@ def post_expression_values(
         skip_v=skip_v,
         limit_v=limit_v,
         gran=gran,
+        received=received,
+    )
+
+
+def _require_summary_features(params: Dict[str, Any], received):
+    if params.get("featureIDList"):
+        return None
+    return error_json(
+        400,
+        "featureIDList is required for expression_summary",
         received=received,
     )
 
@@ -639,13 +785,16 @@ def _matrix_expression_summary_response(
             f"unsupported groupBy {group!r}; allowed: {sorted(_ALLOWED_EXPRESSION_GROUP_BY)}",
             received=received,
         )
-    results = getter(
-        id,
-        feature_id_list=params.get("featureIDList"),
-        group_by=group,
-        biosample_filters=bio_filt,
-        threshold=params.get("threshold"),
-    )
+    try:
+        results = getter(
+            id,
+            feature_id_list=params.get("featureIDList"),
+            group_by=group,
+            biosample_filters=bio_filt,
+            threshold=params.get("threshold"),
+        )
+    except ValueError as exc:
+        return error_json(400, str(exc), received=received)
     if gran.value != "record":
         total = len(results)
         return list_response(
@@ -703,12 +852,13 @@ def get_matrix_expression_summary(
             entity_type="expressionSummary",
             extra_summary=params_summary(params) or None,
         )
-    if groupBy and groupBy not in _ALLOWED_EXPRESSION_GROUP_BY:
-        return error_json(
-            400,
-            f"unsupported groupBy {groupBy!r}; allowed: {sorted(_ALLOWED_EXPRESSION_GROUP_BY)}",
-            received=partial,
+    if featureIDList:
+        featureIDList, ferr = parse_id_list_or_error(
+            featureIDList, received=partial
         )
+        if ferr:
+            return ferr
+        params["featureIDList"] = featureIDList
     bio_filt, bferr = resolve_entity_filters(
         entity="biosample", filters_csv=filters, received=partial
     )
@@ -723,6 +873,9 @@ def get_matrix_expression_summary(
     if err:
         return err
     _, _, gran, received = resolved
+    missing = _require_summary_features(params, received)
+    if missing:
+        return missing
     if not get_store().get_matrix(id):
         return empty_entity_response("expressionSummary", id, gran, received)
     return _matrix_expression_summary_response(
@@ -753,13 +906,6 @@ def post_matrix_expression_summary(
             entity_type="expressionSummary",
             extra_summary=params_summary(params) or None,
         )
-    group = params.get("groupBy")
-    if group and group not in _ALLOWED_EXPRESSION_GROUP_BY:
-        return error_json(
-            400,
-            f"unsupported groupBy {group!r}; allowed: {sorted(_ALLOWED_EXPRESSION_GROUP_BY)}",
-            received=partial,
-        )
     bio_filt, bferr = resolve_entity_filters(
         entity="biosample", body=payload, received=partial
     )
@@ -774,6 +920,9 @@ def post_matrix_expression_summary(
     if err:
         return err
     _, _, gran, received = resolved
+    missing = _require_summary_features(params, received)
+    if missing:
+        return missing
     if not get_store().get_matrix(id):
         return empty_entity_response("expressionSummary", id, gran, received)
     return _matrix_expression_summary_response(
