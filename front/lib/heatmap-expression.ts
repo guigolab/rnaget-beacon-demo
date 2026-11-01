@@ -1,0 +1,120 @@
+import {
+  COLOR_HIGH,
+  COLOR_LOW,
+  COLOR_MID,
+  COLOR_MID_LOW,
+  COLOR_TEXT_DARK,
+  COLOR_TEXT_LIGHT,
+  COLOR_TOP,
+} from '@/components/heatmap-colors'
+import type { ExpressionValue, Feature } from '@/lib/beacon/types'
+
+export const HEATMAP_PREVIEW_COLS = 10
+
+export function nativeFeatureId(feature: Feature) {
+  return feature.genomicFeature?.featureIdentifier?.id ?? feature.id
+}
+
+export function featureTokens(feature: Feature): string[] {
+  const tokens: string[] = []
+  const push = (value?: string) => {
+    if (value && !tokens.includes(value)) tokens.push(value)
+  }
+  push(feature.genomicFeature?.featureIdentifier?.id)
+  push(feature.genomicFeature?.aliases?.[0])
+  push(feature.id)
+  return tokens
+}
+
+export function cellKey(featureId: string, biosampleId: string) {
+  return `${featureId}:${biosampleId}`
+}
+
+export function mergeFeatureExpressionCells(
+  next: Map<string, number>,
+  feature: Feature,
+  cells: Map<string, number> | undefined
+) {
+  if (!cells) return
+  const rowId = nativeFeatureId(feature)
+  for (const [biosampleId, value] of cells) {
+    const key = cellKey(rowId, biosampleId)
+    const prev = next.get(key)
+    if (prev == null || value > prev) next.set(key, value)
+  }
+}
+
+export function indexExpression(features: Feature[], rows: ExpressionValue[]): {
+  values: Map<string, number>
+  unmatched: Feature[]
+} {
+  const byFeature = new Map<string, Map<string, number>>()
+  for (const row of rows) {
+    let cells = byFeature.get(row.featureId)
+    if (!cells) {
+      cells = new Map()
+      byFeature.set(row.featureId, cells)
+    }
+    cells.set(row.biosampleId, row.value)
+  }
+  const values = new Map<string, number>()
+  const claimed = new Set<string>()
+  const unmatched: Feature[] = []
+  for (const feature of features) {
+    const tokens = new Set(featureTokens(feature))
+    let matched = false
+    for (const featureId of byFeature.keys()) {
+      if (!tokens.has(featureId)) continue
+      matched = true
+      claimed.add(featureId)
+      mergeFeatureExpressionCells(values, feature, byFeature.get(featureId))
+    }
+    if (!matched) unmatched.push(feature)
+  }
+  const leftover = [...byFeature.keys()].filter((id) => !claimed.has(id))
+  if (unmatched.length === 1) {
+    for (const id of leftover)
+      mergeFeatureExpressionCells(values, unmatched[0], byFeature.get(id))
+    return { values, unmatched: [] }
+  }
+  return { values, unmatched }
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace('#', '')
+  return [
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  ]
+}
+
+function mix(a: string, b: string, t: number) {
+  const [ar, ag, ab] = hexToRgb(a)
+  const [br, bg, bb] = hexToRgb(b)
+  const r = Math.round(ar + (br - ar) * t)
+  const g = Math.round(ag + (bg - ag) * t)
+  const bl = Math.round(ab + (bb - ab) * t)
+  return `rgb(${r},${g},${bl})`
+}
+
+export function heatFill(value: number, min: number, max: number) {
+  const ratio = max === min ? 0.5 : (value - min) / (max - min)
+  const t = Math.max(0, Math.min(1, ratio))
+  if (t < 0.33) return mix(COLOR_LOW, COLOR_MID_LOW, t / 0.33)
+  if (t < 0.66) return mix(COLOR_MID_LOW, COLOR_MID, (t - 0.33) / 0.33)
+  if (t < 0.85) return mix(COLOR_MID, COLOR_HIGH, (t - 0.66) / 0.19)
+  return mix(COLOR_HIGH, COLOR_TOP, (t - 0.85) / 0.15)
+}
+
+export function heatTextColor(value: number, min: number, max: number) {
+  const ratio = max === min ? 0.5 : (value - min) / (max - min)
+  return ratio >= 0.45 ? COLOR_TEXT_LIGHT : COLOR_TEXT_DARK
+}
+
+export function formatHeatmapValue(value: number) {
+  if (!Number.isFinite(value)) return '—'
+  if (Math.abs(value) >= 100) return value.toFixed(0)
+  if (Math.abs(value) >= 10) return value.toFixed(1)
+  return value.toFixed(2)
+}

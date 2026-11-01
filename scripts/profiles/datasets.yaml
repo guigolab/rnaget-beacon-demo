@@ -24,7 +24,7 @@ profiles:
       name: GRCh38
     assay_type:
       id: OBI:0003090
-      label: polyA plus RNA-seq
+      label: bulk RNA-seq assay
     feature_type:
       id: SO:0000704
       label: gene
@@ -68,7 +68,7 @@ profiles:
       name: GRCh38
     assay_type:
       id: OBI:0003090
-      label: polyA plus RNA-seq
+      label: bulk RNA-seq assay
     feature_type:
       id: SO:0000704
       label: gene

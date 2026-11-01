@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   useEffect,
   useMemo,
@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ChevronUp,
 } from 'lucide-react'
+import { useEntityRecordSheet } from '@/components/shared/entity-record-sheet-provider'
 import {
   isAbortError,
   listExpressionValues,
@@ -42,19 +43,25 @@ const ROW_LABEL_W = 176
 const COL_HEADER_H = 76
 const AXIS_BTN = 36
 
-const COLOR_LOW = '#f7faf9'
-const COLOR_MID_LOW = '#c9e5e5'
-const COLOR_MID = '#0c7c86'
-const COLOR_HIGH = '#095f67'
-const COLOR_TOP = '#20353d'
-const COLOR_MISSING = '#edf2f3'
-const COLOR_TEXT_DARK = '#20353d'
-const COLOR_TEXT_LIGHT = '#ffffff'
-const COLOR_HOVER = '#0c7c86'
-
-function nativeFeatureId(feature: Feature) {
-  return feature.genomicFeature?.featureIdentifier?.id ?? feature.id
-}
+import {
+  COLOR_HIGH,
+  COLOR_HOVER,
+  COLOR_LOW,
+  COLOR_MID,
+  COLOR_MID_LOW,
+  COLOR_MISSING,
+  COLOR_TOP,
+} from '@/components/heatmap-colors'
+import {
+  cellKey,
+  featureTokens,
+  formatHeatmapValue,
+  heatFill,
+  heatTextColor,
+  indexExpression,
+  mergeFeatureExpressionCells,
+  nativeFeatureId,
+} from '@/lib/heatmap-expression'
 
 function labelForFeature(feature: Feature) {
   return (
@@ -89,109 +96,6 @@ function biosampleSecondary(sample: Biosample) {
   return candidates[0]
 }
 
-function cellKey(featureId: string, biosampleId: string) {
-  return `${featureId}:${biosampleId}`
-}
-
-function featureTokens(feature: Feature): string[] {
-  const tokens: string[] = []
-  const push = (value?: string) => {
-    if (value && !tokens.includes(value)) tokens.push(value)
-  }
-  push(feature.genomicFeature?.featureIdentifier?.id)
-  push(feature.genomicFeature?.aliases?.[0])
-  push(feature.id)
-  return tokens
-}
-
-function writeCells(
-  next: Map<string, number>,
-  feature: Feature,
-  cells: Map<string, number> | undefined
-) {
-  if (!cells) return
-  const rowId = nativeFeatureId(feature)
-  for (const [biosampleId, value] of cells) {
-    const key = cellKey(rowId, biosampleId)
-    const prev = next.get(key)
-    if (prev == null || value > prev) next.set(key, value)
-  }
-}
-
-function indexExpression(features: Feature[], rows: ExpressionValue[]): {
-  values: Map<string, number>
-  unmatched: Feature[]
-} {
-  const byFeature = new Map<string, Map<string, number>>()
-  for (const row of rows) {
-    let cells = byFeature.get(row.featureId)
-    if (!cells) {
-      cells = new Map()
-      byFeature.set(row.featureId, cells)
-    }
-    cells.set(row.biosampleId, row.value)
-  }
-  const values = new Map<string, number>()
-  const claimed = new Set<string>()
-  const unmatched: Feature[] = []
-  for (const feature of features) {
-    const tokens = new Set(featureTokens(feature))
-    let matched = false
-    for (const featureId of byFeature.keys()) {
-      if (!tokens.has(featureId)) continue
-      matched = true
-      claimed.add(featureId)
-      writeCells(values, feature, byFeature.get(featureId))
-    }
-    if (!matched) unmatched.push(feature)
-  }
-  const leftover = [...byFeature.keys()].filter((id) => !claimed.has(id))
-  if (unmatched.length === 1) {
-    for (const id of leftover) writeCells(values, unmatched[0], byFeature.get(id))
-    return { values, unmatched: [] }
-  }
-  return { values, unmatched }
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const h = hex.replace('#', '')
-  return [
-    parseInt(h.slice(0, 2), 16),
-    parseInt(h.slice(2, 4), 16),
-    parseInt(h.slice(4, 6), 16),
-  ]
-}
-
-function mix(a: string, b: string, t: number) {
-  const [ar, ag, ab] = hexToRgb(a)
-  const [br, bg, bb] = hexToRgb(b)
-  const r = Math.round(ar + (br - ar) * t)
-  const g = Math.round(ag + (bg - ag) * t)
-  const bl = Math.round(ab + (bb - ab) * t)
-  return `rgb(${r},${g},${bl})`
-}
-
-function heatFill(value: number, min: number, max: number) {
-  const ratio = max === min ? 0.5 : (value - min) / (max - min)
-  const t = Math.max(0, Math.min(1, ratio))
-  if (t < 0.33) return mix(COLOR_LOW, COLOR_MID_LOW, t / 0.33)
-  if (t < 0.66) return mix(COLOR_MID_LOW, COLOR_MID, (t - 0.33) / 0.33)
-  if (t < 0.85) return mix(COLOR_MID, COLOR_HIGH, (t - 0.66) / 0.19)
-  return mix(COLOR_HIGH, COLOR_TOP, (t - 0.85) / 0.15)
-}
-
-function heatTextColor(value: number, min: number, max: number) {
-  const ratio = max === min ? 0.5 : (value - min) / (max - min)
-  return ratio >= 0.45 ? COLOR_TEXT_LIGHT : COLOR_TEXT_DARK
-}
-
-function formatValue(value: number) {
-  if (!Number.isFinite(value)) return '—'
-  if (Math.abs(value) >= 100) return value.toFixed(0)
-  if (Math.abs(value) >= 10) return value.toFixed(1)
-  return value.toFixed(2)
-}
-
 function roundRect(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -221,8 +125,8 @@ type HoverCell = { row: number; col: number; clientX: number; clientY: number }
 type Props = { matrixId: string }
 
 export function MatrixHeatmap({ matrixId }: Props) {
+  const { openRecordSheet } = useEntityRecordSheet()
   const searchParams = useSearchParams()
-  const pathname = usePathname()
   const router = useRouter()
   const query = useMemo(() => parseMatrixQuery(searchParams), [searchParams])
   const queryKey = searchParams.toString()
@@ -284,11 +188,6 @@ export function MatrixHeatmap({ matrixId }: Props) {
 
   function replaceQuery(patch: Partial<MatrixQuery> & { filters?: UiFilter[] }) {
     const params = matrixSearchParams(searchParams, patch)
-    if (pathname.includes('/matrices/view')) {
-      params.set('id', matrixId)
-      router.replace(`/matrices/view/?${params}`)
-      return
-    }
     const qs = params.toString()
     router.replace(
       qs
@@ -485,7 +384,7 @@ export function MatrixHeatmap({ matrixId }: Props) {
               const prev = cells.get(row.biosampleId)
               if (prev == null || row.value > prev) cells.set(row.biosampleId, row.value)
             }
-            writeCells(values, feature, cells)
+            mergeFeatureExpressionCells(values, feature, cells)
           }
         })
         setValues(new Map(values))
@@ -589,7 +488,7 @@ export function MatrixHeatmap({ matrixId }: Props) {
           ctx.stroke()
         }
 
-        const label = value === undefined ? '—' : formatValue(value)
+        const label = value === undefined ? '—' : formatHeatmapValue(value)
         ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif'
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
@@ -936,22 +835,24 @@ export function MatrixHeatmap({ matrixId }: Props) {
                 {biosampleSecondary(tipSample) ? ` · ${biosampleSecondary(tipSample)}` : ''}
               </p>
               <p className="mt-1 font-mono text-[#0c7c86]">
-                {tipValue === undefined ? '—' : formatValue(tipValue)}
+                {tipValue === undefined ? '—' : formatHeatmapValue(tipValue)}
               </p>
               {pinned && (
                 <p className="mt-2 flex gap-3">
-                  <Link
-                    href={`/features/detail/?id=${encodeURIComponent(tipFeature.id)}`}
+                  <button
+                    type="button"
                     className="text-[#0c6870] underline"
+                    onClick={() => openRecordSheet('feature', tipFeature.id)}
                   >
                     Feature
-                  </Link>
-                  <Link
-                    href={`/biosamples/detail/?id=${encodeURIComponent(tipSample.id)}`}
+                  </button>
+                  <button
+                    type="button"
                     className="text-[#0c6870] underline"
+                    onClick={() => openRecordSheet('biosample', tipSample.id)}
                   >
                     Biosample
-                  </Link>
+                  </button>
                 </p>
               )}
             </div>

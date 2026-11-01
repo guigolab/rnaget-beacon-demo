@@ -37,6 +37,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BeaconInformationalResponse'
+  /service-info:
+    get:
+      tags:
+      - Informational endpoints
+      summary: Get Service Info
+      operationId: get_service_info_service_info_get
+      responses:
+        '200':
+          description: Beacon informational response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconInformationalResponse'
   /configuration:
     get:
       tags:
@@ -775,6 +788,109 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /features/{id}/expression_summary:
+    get:
+      tags:
+      - Genomic features
+      summary: Get Feature Expression Summary
+      operationId: get_feature_expression_summary_features__id__expression_summary_get
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Id
+      - name: threshold
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Threshold
+      - name: requestedGranularity
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requestedgranularity
+      responses:
+        '200':
+          description: Beacon success response (boolean, count, or resultSets by granularity)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/BeaconBooleanResponse'
+                - $ref: '#/components/schemas/BeaconCountResponse'
+                - $ref: '#/components/schemas/BeaconResultsetsResponse'
+        '400':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
+        '404':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Genomic features
+      summary: Post Feature Expression Summary
+      operationId: post_feature_expression_summary_features__id__expression_summary_post
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BeaconRequestBody'
+      responses:
+        '200':
+          description: Beacon success response (boolean, count, or resultSets by granularity)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/BeaconBooleanResponse'
+                - $ref: '#/components/schemas/BeaconCountResponse'
+                - $ref: '#/components/schemas/BeaconResultsetsResponse'
+        '400':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
+        '404':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /matrices:
     get:
       tags:
@@ -806,6 +922,14 @@ paths:
           - type: string
           - type: 'null'
           title: Requestedgranularity
+      - name: filters
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filters
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1030,22 +1154,26 @@ paths:
           - type: string
           - type: 'null'
           title: Requestedgranularity
+      - name: filters
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filters
       - name: sort
         in: query
         required: false
         schema:
           $ref: '#/components/schemas/AxisSort'
-          description: 'Sort key: id | expression.min | expression.max'
           default: id
-        description: 'Sort key: id | expression.min | expression.max'
       - name: order
         in: query
         required: false
         schema:
           $ref: '#/components/schemas/AxisOrder'
-          description: 'Sort direction: asc | desc'
           default: asc
-        description: 'Sort direction: asc | desc'
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1157,22 +1285,26 @@ paths:
           - type: string
           - type: 'null'
           title: Requestedgranularity
+      - name: filters
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filters
       - name: sort
         in: query
         required: false
         schema:
           $ref: '#/components/schemas/AxisSort'
-          description: 'Sort key: id | expression.min | expression.max'
           default: id
-        description: 'Sort key: id | expression.min | expression.max'
       - name: order
         in: query
         required: false
         schema:
           $ref: '#/components/schemas/AxisOrder'
-          description: 'Sort direction: asc | desc'
           default: asc
-        description: 'Sort direction: asc | desc'
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1300,6 +1432,14 @@ paths:
           - type: string
           - type: 'null'
           title: Biosampleidlist
+      - name: filters
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filters
       - name: minValue
         in: query
         required: false
@@ -1349,6 +1489,133 @@ paths:
       - Matrices
       summary: Post Expression Values
       operationId: post_expression_values_matrices__id__expression_values_post
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpressionValuesRequestBody'
+      responses:
+        '200':
+          description: Beacon success response (boolean, count, or resultSets by granularity)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/BeaconBooleanResponse'
+                - $ref: '#/components/schemas/BeaconCountResponse'
+                - $ref: '#/components/schemas/BeaconResultsetsResponse'
+        '400':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
+        '404':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /matrices/{id}/expression_summary:
+    get:
+      tags:
+      - Matrices
+      summary: Get Matrix Expression Summary
+      operationId: get_matrix_expression_summary_matrices__id__expression_summary_get
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Id
+      - name: featureIDList
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Featureidlist
+      - name: groupBy
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Groupby
+      - name: threshold
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Threshold
+      - name: filters
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filters
+      - name: requestedGranularity
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requestedgranularity
+      responses:
+        '200':
+          description: Beacon success response (boolean, count, or resultSets by granularity)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/BeaconBooleanResponse'
+                - $ref: '#/components/schemas/BeaconCountResponse'
+                - $ref: '#/components/schemas/BeaconResultsetsResponse'
+        '400':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
+        '404':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Matrices
+      summary: Post Matrix Expression Summary
+      operationId: post_matrix_expression_summary_matrices__id__expression_summary_post
       parameters:
       - name: id
         in: path
@@ -1498,6 +1765,24 @@ components:
           - type: 'null'
           default: null
           title: Filters
+        requestParameters:
+          anyOf:
+          - type: object
+          - type: 'null'
+          default: null
+          title: Requestparameters
+        includeResultsetResponses:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Includeresultsetresponses
+        testMode:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Testmode
       title: BeaconQuery
       type: object
     BeaconRequestBody:
@@ -1510,6 +1795,7 @@ components:
           anyOf:
           - $ref: '#/components/schemas/BeaconQuery'
           - type: 'null'
+      additionalProperties: false
       type: object
       title: BeaconRequestBody
     BeaconRequestMeta:
@@ -1547,38 +1833,10 @@ components:
           anyOf:
           - $ref: '#/components/schemas/BeaconQuery'
           - type: 'null'
-        featureIDList:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Featureidlist
-        biosampleIDList:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Biosampleidlist
-        minValue:
-          anyOf:
-          - type: number
-          - type: 'null'
-          title: Minvalue
-        maxValue:
-          anyOf:
-          - type: number
-          - type: 'null'
-          title: Maxvalue
-        skip:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Skip
-        limit:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Limit
+      additionalProperties: false
       type: object
       title: ExpressionValuesRequestBody
+      description: POST body for matrix expression_values / expression_summary.
     FilteringTermsPayload:
       properties:
         filteringTerms:
@@ -1619,24 +1877,7 @@ components:
           anyOf:
           - $ref: '#/components/schemas/BeaconQuery'
           - type: 'null'
-        sort:
-          anyOf:
-          - $ref: '#/components/schemas/AxisSort'
-          - type: 'null'
-        order:
-          anyOf:
-          - $ref: '#/components/schemas/AxisOrder'
-          - type: 'null'
-        skip:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Skip
-        limit:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Limit
+      additionalProperties: false
       type: object
       title: MatrixAxisRequestBody
       description: POST body for nested matrix features / biosamples listings.

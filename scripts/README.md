@@ -157,7 +157,9 @@ Runs **after** `build_feature_indexes`. Writes a small Beacon-shaped `filtering_
 - **Fields:** alphanumeric `genomicFeature.symbol`, `sex` (not every symbol value)
 - **Resources:** `so`, `uberon`, `efo`, plus `hgnc` / `ncbigene` / `ensembl` namespaces — **never** one filteringTerm per HGNC/NCBIGene
 
-CI order: `export_parquet` → `hydrate_genes` → **`build_feature_indexes`** → **`build_filtering_terms`** → `build_expression_stats` → `verify`.
+CI order: `export_parquet` → `hydrate_genes` → **`enrich_gene_annotations`** → **`build_feature_indexes`** → **`build_filtering_terms`** → `build_expression_stats` → `verify`.
+
+Curated biosample maps: `scripts/data/geo_biosample_status.json`, `scripts/data/biosample_measurements.json` (plus existing `geo_biosample_ontology.json`).
 
 ### Gene hydration (`hydrate_genes.py`)
 

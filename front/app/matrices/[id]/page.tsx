@@ -1,5 +1,4 @@
-import { Suspense } from 'react'
-import { FALLBACK_MATRIX_IDS } from '@/lib/rnaget'
+import { FALLBACK_MATRIX_IDS } from '@/lib/beacon'
 import { MatrixDetailClient } from './matrix-detail-client'
 
 async function idsFromApi(base: string): Promise<string[]> {
@@ -45,9 +44,5 @@ export default async function MatrixDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  return (
-    <Suspense fallback={<p className="px-5 py-10 text-sm text-[#71818a]">Loading…</p>}>
-      <MatrixDetailClient id={id} />
-    </Suspense>
-  )
+  return <MatrixDetailClient id={id} />
 }

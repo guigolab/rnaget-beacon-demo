@@ -1,4 +1,4 @@
-import { compareMatrices } from './comparability'
+import { compareMatrices, groupMatricesForCompare } from './comparability'
 import type { Matrix } from '@/lib/beacon/types'
 
 function m(partial: Partial<Matrix>): Matrix {
@@ -28,3 +28,7 @@ const geo = m({
 
 console.assert(compareMatrices(gtexA, gtexB).level === 'direct')
 console.assert(compareMatrices(gtexA, geo).level === 'bridged')
+
+const buckets = groupMatricesForCompare([gtexA, gtexB, geo])
+console.assert(buckets.length === 1 && buckets[0].matrices.length === 3)
+console.assert(buckets[0].comparability.level === 'bridged')

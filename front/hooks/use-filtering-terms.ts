@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { getFilteringTerms, peekFilteringTerms } from '@/lib/beacon'
-import type { FilteringTerm } from '@/lib/beacon'
+import type { FilteringResource, FilteringTerm } from '@/lib/beacon'
 
 export function useFilteringTerms(path: string) {
   const cached = peekFilteringTerms(path)
   const [terms, setTerms] = useState<FilteringTerm[]>(cached?.terms ?? [])
+  const [resources, setResources] = useState<FilteringResource[]>(cached?.resources ?? [])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(!cached)
 
@@ -14,6 +15,7 @@ export function useFilteringTerms(path: string) {
     const hit = peekFilteringTerms(path)
     if (hit) {
       setTerms(hit.terms)
+      setResources(hit.resources)
       setLoading(false)
       setError('')
       return
@@ -23,11 +25,15 @@ export function useFilteringTerms(path: string) {
     setError('')
     getFilteringTerms(path)
       .then((data) => {
-        if (!cancelled) setTerms(data.terms)
+        if (!cancelled) {
+          setTerms(data.terms)
+          setResources(data.resources)
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return
         setTerms([])
+        setResources([])
         setError(err instanceof Error ? err.message : 'Failed to load filtering terms')
       })
       .finally(() => {
@@ -38,5 +44,5 @@ export function useFilteringTerms(path: string) {
     }
   }, [path])
 
-  return { terms, error, loading }
+  return { terms, resources, error, loading }
 }

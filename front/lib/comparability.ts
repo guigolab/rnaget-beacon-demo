@@ -8,7 +8,15 @@ export type ComparabilityResult = {
   detail: string
 }
 
-function matrixSignature(m: Matrix) {
+export type MatrixSignature = {
+  unit: string
+  scale: string
+  source: string
+  version: string
+  assembly: string
+}
+
+export function matrixSignature(m: Matrix): MatrixSignature {
   const uas = m.expressionUnitAndScale ?? {}
   const ann = m.annotation ?? {}
   return {
@@ -18,6 +26,43 @@ function matrixSignature(m: Matrix) {
     version: String(ann.version ?? ''),
     assembly: String(m.assembly?.name ?? m.assembly?.accession ?? ''),
   }
+}
+
+export function matrixUnitLabel(m: Matrix): string {
+  const s = matrixSignature(m)
+  const unit = s.unit || 'unknown unit'
+  const scale = s.scale && s.scale !== 'linear' ? ` · ${s.scale}` : ''
+  return `${unit}${scale}`
+}
+
+export function unitScaleKey(m: Matrix): string {
+  const s = matrixSignature(m)
+  return `${s.unit}|${s.scale}`
+}
+
+export type CompareBucket = {
+  key: string
+  label: string
+  matrices: Matrix[]
+  comparability: ComparabilityResult
+}
+
+export function groupMatricesForCompare(matrices: Matrix[]): CompareBucket[] {
+  const map = new Map<string, Matrix[]>()
+  for (const m of matrices) {
+    const key = unitScaleKey(m)
+    const list = map.get(key) ?? []
+    list.push(m)
+    map.set(key, list)
+  }
+  return [...map.entries()]
+    .map(([key, bucket]) => ({
+      key,
+      label: bucket[0] ? matrixUnitLabel(bucket[0]) : key,
+      matrices: bucket,
+      comparability: compareMatrixSet(bucket),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label))
 }
 
 export function compareMatrices(a: Matrix, b: Matrix): ComparabilityResult {

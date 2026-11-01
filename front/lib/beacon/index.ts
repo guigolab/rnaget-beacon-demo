@@ -27,24 +27,35 @@ export {
 } from './client'
 export {
   catalogSearchParams,
+  compareGeneToken,
   dedupeFilters,
   filterKey,
   filterLabel,
+  filtersQuerySummary,
+  geneLensSearchParams,
+  sampleLensSearchParams,
   isCustomId,
   isOntologyId,
   matrixSearchParams,
   needsPost,
   parseCatalogSearch,
+  parseGeneLensSearch,
+  parseSampleLensSearch,
+  parseMatrixLensSearch,
   parseMatrixQuery,
+  matrixLensSearchParams,
+  isMatrixLensFilter,
   preserveQuery,
   scopeOf,
+  MATRIX_ALPHANUMERIC_FIELD_IDS,
   toBeaconFilter,
   tokenToFilter,
+  BIOSAMPLE_ALPHANUMERIC_FIELD_IDS,
   withoutFilter,
   matrixHref,
 } from './filters'
 export type { ExpressionSummary, ResolvedCohort } from './client'
-export type { MatrixQuery } from './filters'
+export type { GeneLensSearch, MatrixQuery, SampleLensSearch } from './filters'
 export type { Fact } from './facts'
 export { biosampleFacts, curieHref, featureFacts, matrixDownloads, matrixFacts, ncbiAssemblyFtp } from './facts'
 export { FALLBACK_MATRIX_IDS, MAX_COHORT } from './types'

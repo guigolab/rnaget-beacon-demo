@@ -40,7 +40,9 @@ export function getLastBeaconCall(): RecordedCall | null {
 
 export function subscribeBeaconCalls(fn: (call: RecordedCall) => void) {
   listeners.add(fn)
-  return () => listeners.delete(fn)
+  return () => {
+    listeners.delete(fn)
+  }
 }
 
 export function curlFor(call: RecordedCall, baseUrl: string): string {

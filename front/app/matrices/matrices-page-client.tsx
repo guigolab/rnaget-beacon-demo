@@ -1,104 +1,247 @@
 'use client'
 
 import Link from 'next/link'
-import { Suspense, useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { AppShell } from '@/components/app-shell'
-import { EndpointNote, PageFrame, PageHeader, Pagination } from '@/components/ui-kit'
-import { listMatrices, matrixHref, type Matrix } from '@/lib/beacon'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { MatrixFilterSidebar } from '@/components/matrices/matrix-filter-sidebar'
+import { MatrixQueryBar } from '@/components/matrices/matrix-query-bar'
+import { MatrixResultsTable } from '@/components/matrices/matrix-results-table'
+import { LensChrome } from '@/components/shared/lens-chrome'
+import { LensPageShell } from '@/components/shared/lens-page-shell'
+import { LensResultsPanel } from '@/components/shared/lens-results-panel'
+import { PageFrame, PageHeader } from '@/components/ui-kit'
+import { useMatrixFilterProbe } from '@/hooks/use-matrix-filter-probe'
+import {
+  dedupeFilters,
+  filterKey,
+  filtersQuerySummary,
+  getMatrix,
+  listMatrices,
+  matrixLensSearchParams,
+  parseMatrixLensSearch,
+  type Matrix,
+  type UiFilter,
+} from '@/lib/beacon'
+import {
+  MATRIX_LENS_PAGE_SIZE,
+  matrixDisplayLabel,
+  mergeMatrixLensFilters,
+  resolveSelectedMatrix,
+} from '@/lib/matrix-lens'
 
-function MatricesInner() {
-  const searchParams = useSearchParams()
-  const skip = Number(searchParams.get('skip') ?? 0)
-  const [data, setData] = useState<{ results: Matrix[]; total: number } | null>(
-    null
+function MatricesContent() {
+  const search = useSearchParams()
+  const router = useRouter()
+  const lens = useMemo(() => parseMatrixLensSearch(search), [search])
+  const { matrixFilters, matrix: matrixParam } = lens
+
+  const filterKeyLine = useMemo(
+    () => matrixFilters.map((f) => filterKey(f)).join('|'),
+    [matrixFilters]
   )
-  const [error, setError] = useState('')
+  const querySummary = useMemo(
+    () => filtersQuerySummary(matrixFilters),
+    [matrixFilters]
+  )
+
+  const [matches, setMatches] = useState<Matrix[]>([])
+  const [displayLimit, setDisplayLimit] = useState(MATRIX_LENS_PAGE_SIZE)
+  const [searchError, setSearchError] = useState('')
+  const [searchLoading, setSearchLoading] = useState(false)
+  const probe = useMatrixFilterProbe(matrixFilters)
+
+  const selectedMatrix = useMemo(
+    () => resolveSelectedMatrix(matches, matrixParam),
+    [matches, matrixParam]
+  )
 
   useEffect(() => {
+    setDisplayLimit(MATRIX_LENS_PAGE_SIZE)
+  }, [filterKeyLine])
+
+  const writeFilters = useCallback(
+    (next: UiFilter[]) => {
+      const params = matrixLensSearchParams({
+        filters: dedupeFilters(next),
+        matrix: null,
+      })
+      router.replace(`/matrices/?${params.toString()}`)
+    },
+    [router]
+  )
+
+  const buildMatrixRowHref = useCallback(
+    (matrixId: string) => {
+      const params = matrixLensSearchParams({
+        filters: matrixFilters,
+        matrix: matrixId,
+      })
+      return `/matrices/?${params.toString()}`
+    },
+    [matrixFilters]
+  )
+
+  useEffect(() => {
+    if (matrixFilters.length === 0) {
+      setMatches([])
+      setSearchError('')
+      setSearchLoading(false)
+      return
+    }
+    if (probe.loading || probe.exists !== true) {
+      setMatches([])
+      setSearchError('')
+      setSearchLoading(false)
+      return
+    }
+
     let cancelled = false
-    setError('')
-    listMatrices(skip, 10)
-      .then((page) => {
+    async function loadMatches() {
+      const showBlockingLoad = matches.length === 0
+      if (showBlockingLoad) setSearchLoading(true)
+      setSearchError('')
+      try {
+        const page = await listMatrices(0, displayLimit, {
+          filters: matrixFilters,
+          granularity: 'record',
+        })
+        if (cancelled) return
+        setMatches(page.results)
+      } catch (err: unknown) {
         if (!cancelled) {
-          setData({
-            results: page.results,
-            total: page.total ?? page.results.length,
-          })
+          setSearchError(err instanceof Error ? err.message : 'Cannot reach the beacon.')
+          setMatches([])
         }
-      })
-      .catch((err) => {
-        if (!cancelled)
-          setError(err instanceof Error ? err.message : 'Failed to load')
-      })
+      } finally {
+        if (!cancelled) setSearchLoading(false)
+      }
+    }
+    loadMatches()
     return () => {
       cancelled = true
     }
-  }, [skip])
+  }, [filterKeyLine, matrixFilters, probe.loading, probe.exists, displayLimit])
+
+  useEffect(() => {
+    if (!matrixParam || searchLoading || probe.exists !== true) return
+    if (matches.some((m) => m.matrixId === matrixParam)) return
+
+    let cancelled = false
+    getMatrix(matrixParam)
+      .then((matrix) => {
+        if (cancelled || !matrix) return
+        setMatches((prev) => {
+          const id = matrix.matrixId
+          if (!id || prev.some((m) => m.matrixId === id)) return prev
+          return [matrix, ...prev].slice(0, displayLimit)
+        })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [matrixParam, matches, searchLoading, probe.exists, displayLimit])
+
+  const canLoadMore =
+    probe.exists === true &&
+    probe.total != null &&
+    matches.length < probe.total &&
+    !searchLoading
+
+  const pageTitle = selectedMatrix
+    ? matrixDisplayLabel(selectedMatrix)
+    : 'Matrix lens'
 
   return (
     <PageFrame>
       <PageHeader
-        eyebrow="Catalog"
-        title="Expression matrices"
-        description="Browse datasets available through the RNA-Get endpoint. Select a matrix to inspect its annotation, dimensions, and expression values."
+        title={pageTitle}
+        description={
+          selectedMatrix
+            ? querySummary
+            : 'Find expression matrices by assay, feature type, unit, annotation, or assembly.'
+        }
       />
-      <EndpointNote>GET /matrices</EndpointNote>
-      {error && (
-        <p className="mt-6 rounded-md bg-[#fff4f1] px-3 py-2 text-sm text-[#a34c3b]">{error}</p>
-      )}
-      {!data && !error && <p className="mt-6 text-sm text-[#71818a]">Loading matrices…</p>}
-      {data && (
-        <div className="mt-6">
-          <div className="overflow-hidden rounded-xl border border-[#dce7ea] bg-white">
-            <div className="hidden grid-cols-[2fr_1.2fr_1fr_1fr] gap-4 border-b border-[#e5ecee] bg-[#f7fafb] px-5 py-3 text-xs font-semibold uppercase tracking-wider text-[#789098] sm:grid">
-              <span>Matrix</span>
-              <span>Assay</span>
-              <span>Annotation</span>
-              <span>Dimensions</span>
-            </div>
-            {data.results.map((matrix) => (
-              <Link
-                key={matrix.matrixId}
-                href={matrixHref(matrix.matrixId)}
-                className="grid gap-2 border-b border-[#e8eef0] px-5 py-4 transition last:border-0 hover:bg-[#f5faf9] sm:grid-cols-[2fr_1.2fr_1fr_1fr] sm:items-center sm:gap-4"
-              >
-                <div>
-                  <p className="font-medium text-[#1f343d]">{matrix.name ?? matrix.matrixId}</p>
-                  <p className="mt-1 truncate font-mono text-xs text-[#8a999f]">{matrix.matrixId}</p>
-                </div>
-                <span className="text-sm text-[#52666f]">{matrix.assayType?.label ?? '—'}</span>
-                <span className="text-sm text-[#52666f]">
-                  {[matrix.annotation?.source, matrix.annotation?.version].filter(Boolean).join(' ') ||
-                    '—'}
-                </span>
-                <span className="text-sm text-[#52666f]">
-                  {matrix.dimensions?.features?.toLocaleString()} ×{' '}
-                  {matrix.dimensions?.biosamples?.toLocaleString()}
-                </span>
-              </Link>
-            ))}
-          </div>
-          <Pagination
-            skip={skip}
-            limit={10}
-            total={data.total}
-            href={(nextSkip) =>
-              nextSkip ? `/matrices/?skip=${nextSkip}&limit=10` : '/matrices/?limit=10'
+
+      <LensChrome
+        sidebar={
+          <MatrixFilterSidebar
+            activeFilters={matrixFilters}
+            onAddFilter={(added) =>
+              writeFilters(mergeMatrixLensFilters(matrixFilters, added))
             }
           />
-        </div>
-      )}
+        }
+        queryBar={
+          <MatrixQueryBar
+            filters={matrixFilters}
+            onChange={writeFilters}
+            probe={probe}
+          />
+        }
+        endpointLines={['GET or POST /matrices']}
+        hasFilters={matrixFilters.length > 0}
+        emptyState={{
+          title: 'Start with a filter',
+          description:
+            'Use an example chip, type in the bar, or pick OBI/SO terms or matrix facets from the sidebar.',
+        }}
+        resultsPanel={
+          <LensResultsPanel
+            probe={probe}
+            querySummary={querySummary}
+            previewLimit={displayLimit}
+            previewCount={matches.length}
+            previewHint="GET or POST /matrices"
+            noMatchesMessage="No matrices match these filters at boolean granularity."
+            loadErrorTitle="Could not load matrices"
+            searchError={searchError}
+            searchLoading={searchLoading}
+            hasMatches={matches.length > 0}
+            refreshingLabel="Refreshing matrix list…"
+            canLoadMore={canLoadMore}
+            pageSize={MATRIX_LENS_PAGE_SIZE}
+            onLoadMore={() => setDisplayLimit((n) => n + MATRIX_LENS_PAGE_SIZE)}
+          >
+            <MatrixResultsTable
+              matrices={matches}
+              selectedMatrixId={selectedMatrix?.matrixId ?? null}
+              buildMatrixRowHref={buildMatrixRowHref}
+            />
+          </LensResultsPanel>
+        }
+        detail={
+          selectedMatrix ? (
+            <>
+              <h3 className="text-sm font-semibold">Selected matrix</h3>
+              <p className="mt-1 font-mono text-xs text-muted-foreground">
+                {selectedMatrix.matrixId}
+              </p>
+              {selectedMatrix.description && (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {selectedMatrix.description}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-3">
+                <Link
+                  href={`/matrices/${encodeURIComponent(selectedMatrix.matrixId ?? '')}/`}
+                  className="text-sm font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  Open matrix workspace
+                </Link>
+              </div>
+            </>
+          ) : undefined
+        }
+      />
     </PageFrame>
   )
 }
 
 export function MatricesPageClient() {
   return (
-    <AppShell>
-      <Suspense fallback={<p className="p-14 text-sm text-[#71818a]">Loading…</p>}>
-        <MatricesInner />
-      </Suspense>
-    </AppShell>
+    <LensPageShell>
+      <MatricesContent />
+    </LensPageShell>
   )
 }

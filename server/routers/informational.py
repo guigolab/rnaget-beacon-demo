@@ -1,4 +1,5 @@
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict
 
@@ -16,21 +17,26 @@ router = APIRouter(tags=["Informational endpoints"])
 _FIXTURES = Path(__file__).resolve().parents[1] / "beacon" / "fixtures" / "data"
 
 
-def _rewrite_urls(obj: Any) -> Any:
+def _rewrite_urls(obj: Any, base_url: str) -> Any:
     placeholder = "https://exampleBeacons.org"
     if isinstance(obj, dict):
-        return {k: _rewrite_urls(v) for k, v in obj.items()}
+        return {k: _rewrite_urls(v, base_url) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_rewrite_urls(v) for v in obj]
+        return [_rewrite_urls(v, base_url) for v in obj]
     if isinstance(obj, str) and obj.startswith(placeholder):
-        return obj.replace(placeholder, config.BASE_URL, 1)
+        return obj.replace(placeholder, base_url, 1)
     return obj
 
 
-def _load_fixture(name: str) -> Dict[str, Any]:
+@lru_cache(maxsize=32)
+def _load_fixture_cached(name: str, base_url: str) -> Dict[str, Any]:
     path = _FIXTURES / name
     with path.open(encoding="utf-8") as fh:
-        return _rewrite_urls(json.load(fh))
+        return _rewrite_urls(json.load(fh), base_url)
+
+
+def _load_fixture(name: str) -> Dict[str, Any]:
+    return _load_fixture_cached(name, config.BASE_URL)
 
 
 def _info_body() -> Dict[str, Any]:
@@ -51,6 +57,22 @@ def get_info():
         entity_type="info",
         schema_key="info",
         response_body=_info_body(),
+    )
+
+
+@router.get("/service-info", responses=OPENAPI_INFORMATIONAL_RESPONSES)
+def get_service_info():
+    return build_informational_response(
+        entity_type="info",
+        schema_key="info",
+        response_body={
+            "id": config.BEACON_ID,
+            "name": config.BEACON_NAME,
+            "type": {"group": "org.ga4gh", "artifact": "beacon", "version": "2.0.0"},
+            "description": config.BEACON_DESCRIPTION,
+            "organization": config.ORGANIZATION,
+            "version": config.API_VERSION,
+        },
     )
 
 

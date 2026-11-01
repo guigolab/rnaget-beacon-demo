@@ -10,7 +10,6 @@ import {
 } from '@/lib/beacon'
 
 export function ApiDrawer() {
-  const [open, setOpen] = useState(false)
   const [call, setCall] = useState<RecordedCall | null>(getLastBeaconCall())
 
   useEffect(() => subscribeBeaconCalls(setCall), [])
@@ -18,29 +17,27 @@ export function ApiDrawer() {
   if (!call) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex max-w-md flex-col gap-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="self-end rounded-full bg-[#0c7c86] px-4 py-2 text-xs font-medium text-white shadow-lg"
-      >
-        {open ? 'Hide API call' : 'Show API call'}
-      </button>
-      {open && (
-        <div className="max-h-[50vh] overflow-auto rounded-xl border border-[#dfe7eb] bg-white p-3 text-xs shadow-xl">
-          <p className="font-mono text-[#52666f]">
-            {call.method} {call.path}
-          </p>
-          {call.body != null && (
-            <pre className="mt-2 whitespace-pre-wrap break-all rounded bg-[#f4f8f9] p-2 font-mono text-[10px]">
-              {JSON.stringify(call.body, null, 2)}
-            </pre>
-          )}
-          <pre className="mt-2 whitespace-pre-wrap break-all rounded bg-[#15232c] p-2 font-mono text-[10px] text-[#e8f4f3]">
-            {curlFor(call, apiBase())}
+    <details className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background shadow-lg">
+      <summary className="cursor-pointer px-4 py-2 text-xs font-medium text-foreground">
+        Show API call · {call.method} {call.path}
+      </summary>
+      <div className="max-h-48 overflow-auto border-t border-border px-4 py-2 text-xs">
+        {call.body != null && (
+          <pre className="whitespace-pre-wrap break-all font-mono text-muted-foreground">
+            {JSON.stringify(call.body, null, 2)}
           </pre>
-        </div>
-      )}
-    </div>
+        )}
+        <pre className="mt-2 whitespace-pre-wrap break-all bg-muted p-2 font-mono text-foreground">
+          {curlFor(call, apiBase())}
+        </pre>
+        <button
+          type="button"
+          className="mt-2 border border-border px-2 py-1 text-xs hover:bg-muted"
+          onClick={() => navigator.clipboard.writeText(curlFor(call, apiBase()))}
+        >
+          Copy curl
+        </button>
+      </div>
+    </details>
   )
 }

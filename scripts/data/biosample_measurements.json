@@ -1,0 +1,22 @@
+{
+  "_comment": "Source column → Beacon measurements[] shape (assayCode + measurementValue).",
+  "gtex": {
+    "SMRIN": {
+      "assayCode": {
+        "id": "NCIT:C63637",
+        "label": "RNA Integrity Number"
+      },
+      "measurementValue": {
+        "unit": {
+          "id": "UO:0000186",
+          "label": "dimensionless unit"
+        },
+        "value_from_column": "rin"
+      }
+    },
+    "SMTSISCH": {
+      "_note": "Total ischemic time (minutes). No total-ischemic-time NCIT assay found; numeric filter via ischemic_time_min only.",
+      "parquet_column": "ischemic_time_min"
+    }
+  }
+}

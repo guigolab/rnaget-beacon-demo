@@ -473,7 +473,7 @@ class FixtureStore:
         from beacon.filters import biosample_matches
 
         feature_ids = self._resolve_feature_filter_ids(feature_id_list)
-        values_by_key: Dict[tuple, List[float]] = {}
+        values_by_key: Dict[tuple, List[tuple[float, str]]] = {}
         for ev in self.expression_values:
             if ev.get("matrixId") != matrix_id:
                 continue
@@ -497,11 +497,17 @@ class FixtureStore:
             val = ev.get("value")
             if val is None:
                 continue
-            values_by_key.setdefault(key, []).append(float(val))
+            bid_str = str(bid) if bid is not None else ""
+            values_by_key.setdefault(key, []).append((float(val), bid_str))
         out: List[Dict[str, Any]] = []
-        for (fid, gkey), vals in sorted(values_by_key.items()):
-            if not vals:
+        for (fid, gkey), pairs in sorted(values_by_key.items()):
+            if not pairs:
                 continue
+            vals = [p[0] for p in pairs]
+            min_v = min(vals)
+            max_v = max(vals)
+            min_bid = next((p[1] for p in pairs if p[0] == min_v and p[1]), None)
+            max_bid = next((p[1] for p in pairs if p[0] == max_v and p[1]), None)
             rec = {
                 "id": f"{matrix_id}:{fid}:{gkey}",
                 "matrixId": matrix_id,
@@ -509,11 +515,15 @@ class FixtureStore:
                 "n": len(vals),
                 "mean": statistics.fmean(vals),
                 "median": statistics.median(vals),
-                "min": min(vals),
-                "max": max(vals),
+                "min": min_v,
+                "max": max_v,
                 "q1": statistics.quantiles(vals, n=4)[0] if len(vals) > 1 else vals[0],
                 "q3": statistics.quantiles(vals, n=4)[2] if len(vals) > 1 else vals[0],
             }
+            if min_bid:
+                rec["minBiosampleId"] = min_bid
+            if max_bid:
+                rec["maxBiosampleId"] = max_bid
             if threshold is not None:
                 rec["fractionAboveThreshold"] = sum(1 for v in vals if v >= threshold) / len(
                     vals

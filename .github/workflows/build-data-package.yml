@@ -65,7 +65,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: scripts/.cache
-          key: export-cache-${{ hashFiles('scripts/profiles/datasets.yaml', 'scripts/requirements-export.txt', 'scripts/data/geo_biosample_ontology.json') }}
+          key: export-cache-${{ hashFiles('scripts/profiles/datasets.yaml', 'scripts/requirements-export.txt', 'scripts/data/geo_biosample_ontology.json', 'scripts/data/geo_biosample_status.json', 'scripts/data/biosample_measurements.json') }}
           restore-keys: |
             export-cache-
 
@@ -100,6 +100,9 @@ jobs:
 
       - name: Hydrate genes from GTF/GFF
         run: python scripts/hydrate_genes.py --package dist/data-package
+
+      - name: Enrich gene xrefs and GO slim
+        run: python scripts/enrich_gene_annotations.py --package dist/data-package
 
       - name: Build feature/biosample indexes
         run: python scripts/build_feature_indexes.py --package dist/data-package

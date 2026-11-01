@@ -23,6 +23,8 @@ export type UiFilter =
   | { kind: 'ontology'; id: string; label?: string }
   | { kind: 'symbol'; value: string }
   | { kind: 'sex'; value: string }
+  | { kind: 'alphanumeric'; id: string; value: string; label?: string }
+  | { kind: 'matrixUnit'; value: string }
   | { kind: 'custom'; id: string; label?: string }
 
 export type FilteringTerm = {
@@ -127,12 +129,25 @@ export type Feature = {
 
 export type OntologyTerm = { id?: string; label?: string }
 
+export type PhenotypicFeature = {
+  featureType?: OntologyTerm
+  severity?: OntologyTerm
+  notes?: string
+}
+
+export type Measurement = {
+  assayCode?: OntologyTerm
+  measurementValue?: { unit?: OntologyTerm; value?: number }
+  notes?: string
+}
+
 export type Biosample = {
   id: string
   individualId?: string
   biosampleStatus?: string | OntologyTerm
   organism?: { scientificName?: string }
   collectionMoment?: string
+  collectionDate?: string
   matrixIds?: string[]
   description?: string
   summary?: string
@@ -140,8 +155,19 @@ export type Biosample = {
   sex?: string
   sampleOriginType?: OntologyTerm
   sampleOriginDetail?: OntologyTerm
+  sampleProcessing?: OntologyTerm
   sampleType?: OntologyTerm
-  info?: { sex?: string; lab?: string }
+  phenotypicFeatures?: PhenotypicFeature[]
+  measurements?: Measurement[]
+  info?: {
+    sex?: string
+    lab?: string
+    age_bracket?: string
+    condition?: string
+    timepoint?: string
+    rin?: number
+    ischemic_time_min?: number
+  }
 }
 
 export type ExpressionValue = {

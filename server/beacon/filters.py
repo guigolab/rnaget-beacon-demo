@@ -6,8 +6,10 @@ import fnmatch
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-FEATURE_ONTOLOGY_PREFIXES = frozenset({"SO"})
-BIOSAMPLE_ONTOLOGY_PREFIXES = frozenset({"UBERON", "EFO"})
+FEATURE_ONTOLOGY_PREFIXES = frozenset({"SO", "GO"})
+BIOSAMPLE_ONTOLOGY_PREFIXES = frozenset(
+    {"UBERON", "EFO", "OBI", "GO", "MONDO", "HP", "NCIT"}
+)
 GENE_PUBLIC_ID_PREFIXES = frozenset({"HGNC", "NCBIGENE", "ENSEMBL"})
 ALPHANUMERIC_FEATURE_FIELDS = frozenset({"genomicFeature.symbol"})
 ALPHANUMERIC_BIOSAMPLE_FIELDS = frozenset(
@@ -22,6 +24,7 @@ MATRIX_ALPHANUMERIC_FIELDS = frozenset(
         "matrix.annotation.version",
         "matrix.assembly.name",
         "matrix.reproducible",
+        "matrix.profileSource",
     }
 )
 CUSTOM_BIOSAMPLE_IDS = frozenset({"GEO:sample"})
@@ -151,6 +154,10 @@ def validate_filters_for_entity(
             if f.kind == "alphanumeric":
                 if f.id not in ALPHANUMERIC_FEATURE_FIELDS:
                     return f"unsupported alphanumeric filter for features: {f.id}"
+                if f.operator in (">", "<", ">=", "<="):
+                    return (
+                        f"operator {f.operator!r} is only supported on numeric biosample fields"
+                    )
                 continue
             if f.kind == "custom":
                 if not f.id.startswith("resource:"):
@@ -169,6 +176,13 @@ def validate_filters_for_entity(
             if f.kind == "alphanumeric":
                 if f.id not in ALPHANUMERIC_BIOSAMPLE_FIELDS | NUMERIC_BIOSAMPLE_FIELDS:
                     return f"unsupported alphanumeric filter for biosamples: {f.id}"
+                if (
+                    f.operator in (">", "<", ">=", "<=")
+                    and f.id not in NUMERIC_BIOSAMPLE_FIELDS
+                ):
+                    return (
+                        f"operator {f.operator!r} is only supported on numeric biosample fields"
+                    )
                 continue
             if f.kind == "custom":
                 if f.id not in CUSTOM_BIOSAMPLE_IDS:
@@ -230,6 +244,15 @@ def is_so_filter(f: NormalizedFilter) -> bool:
     return f.kind == "ontology" and f.id.startswith("SO:")
 
 
+def is_go_filter(f: NormalizedFilter) -> bool:
+    return f.kind == "ontology" and f.id.startswith("GO:")
+
+
+def is_feature_ontology_filter(f: NormalizedFilter) -> bool:
+    """SO / GO filters on featureType or ontologyTerms."""
+    return is_so_filter(f) or is_go_filter(f)
+
+
 def _biosample_field(doc: Dict[str, Any], field: str) -> Any:
     if field in doc and doc[field] is not None:
         return doc[field]
@@ -275,6 +298,35 @@ def _compare_numeric(actual: Any, op: Optional[str], expected: Optional[str]) ->
     return False
 
 
+def _biosample_ontology_ids(doc: Dict[str, Any]) -> Set[str]:
+    ids: Set[str] = set()
+    for key in ("sampleOriginDetail", "sampleType", "sampleOriginType", "sampleProcessing"):
+        block = doc.get(key) or {}
+        if isinstance(block, dict) and block.get("id"):
+            ids.add(str(block["id"]))
+    status = doc.get("biosampleStatus")
+    if isinstance(status, dict) and status.get("id"):
+        ids.add(str(status["id"]))
+    if doc.get("ontology_id"):
+        ids.add(str(doc["ontology_id"]))
+    for feat in doc.get("phenotypicFeatures") or []:
+        if not isinstance(feat, dict):
+            continue
+        ft = feat.get("featureType") or {}
+        if isinstance(ft, dict) and ft.get("id"):
+            ids.add(str(ft["id"]))
+        sev = feat.get("severity") or {}
+        if isinstance(sev, dict) and sev.get("id"):
+            ids.add(str(sev["id"]))
+    for meas in doc.get("measurements") or []:
+        if not isinstance(meas, dict):
+            continue
+        code = meas.get("assayCode") or {}
+        if isinstance(code, dict) and code.get("id"):
+            ids.add(str(code["id"]))
+    return ids
+
+
 def biosample_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> bool:
     for f in filters:
         if f.kind == "custom" and f.id == "GEO:sample":
@@ -293,14 +345,7 @@ def biosample_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) 
                 return False
             continue
         if f.kind == "ontology":
-            ids = set()
-            for key in ("sampleOriginDetail", "sampleType"):
-                block = doc.get(key) or {}
-                if isinstance(block, dict) and block.get("id"):
-                    ids.add(str(block["id"]))
-            if doc.get("ontology_id"):
-                ids.add(str(doc["ontology_id"]))
-            if f.id not in ids:
+            if f.id not in _biosample_ontology_ids(doc):
                 return False
             continue
         return False
@@ -330,7 +375,7 @@ def feature_doc_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]
             if f.operator == "!" and hit:
                 return False
             continue
-        if is_so_filter(f):
+        if is_feature_ontology_filter(f):
             ft = (gf.get("featureType") or {}).get("id")
             ont_ids = {
                 str(t.get("id"))
@@ -384,6 +429,9 @@ def matrix_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> 
             elif f.id == "matrix.reproducible":
                 actual = doc.get("reproducible")
                 val = str(val).lower() in ("1", "true", "yes")
+            elif f.id == "matrix.profileSource":
+                info = doc.get("info") or {}
+                actual = info.get("profileSource") or info.get("catalogSource")
             else:
                 return False
             if f.id == "matrix.reproducible":

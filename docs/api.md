@@ -48,7 +48,7 @@ Filled from export/hydrate when data exists; clinical biosample fields and gene 
 |---|---|
 | **Matrix** | Required Beacon fields from profiles + `expressionValueRange` (stats) + `annotation.md5Checksum` (hydrate of GTF/GFF) |
 | **genomicFeature** | `featureType` / `ontologyTerms` / `xrefs` / `aliases`; `genomicInterval` as VRS `SequenceLocation` (`refseq:NC_…` via GRCh38 contig map, GFF 1-based → 0-based interbase). Unmapped contigs omit the interval. No `relationship` on gene matrices |
-| **Biosample** | `sampleOriginType` = OBI material category (`OBI:0001479` specimen / `OBI:0001876` cell culture); tissue/cell line in `sampleOriginDetail`; `individualId` ← donor; `notes` ← summary. Pathology/clinical schema fields stay absent unless source data exists |
+| **Biosample** | `biosampleStatus`, `sampleOriginType`, `sampleOriginDetail`, optional `sampleProcessing`, `collectionDate`, `phenotypicFeatures`, GTEx RIN in `measurements[]` (`NCIT:C63637`); `individualId` ← donor; experimental offsets in `info`. Sex remains an extension field for filtering |
 
 ## Filtering terms and `query.filters`
 
@@ -58,14 +58,15 @@ Informational catalogs:
 - `GET|POST /features/filtering_terms` — `genomicFeature` facets
 - `GET|POST /biosamples/filtering_terms` — `biosample` facets
 
-The package ships a small `filtering_terms.json` (DISTINCT SO / UBERON / EFO facets, alphanumeric field ids, `resources[]` including `hgnc` / `ncbigene` / `ensembl`). Individual HGNC/NCBIGene values are **not** listed.
+The package ships `filtering_terms.json` (SO/GO feature facets; UBERON/EFO/OBI/MONDO/HP/NCIT biosample facets; matrix assay facets; alphanumeric field ids; `resources[]` including `hgnc` / `ncbigene` / `ensembl` / `go` / `mondo` when used). Individual HGNC/NCBIGene values are **not** listed.
 
 Apply filters on list endpoints (`GET|POST /features`, `GET|POST /biosamples`):
 
 | Filter | Example | Behavior |
 |---|---|---|
 | Ontology SO | `{"id":"SO:0001217"}` | Match `featureType` **or** `ontologyTerms` (via `feature_ontology` index when present; payloads still include nested `ontologyTerms`) |
-| Ontology biosample | `{"id":"UBERON:0002107"}` | Match sample ontology id |
+| Ontology biosample | `{"id":"UBERON:0002107"}` | Match `sampleOriginDetail`, `biosampleStatus`, `sampleOriginType`, `sampleProcessing`, phenotype, or measurement assay id |
+| Ontology GO (features) | `{"id":"GO:0008150"}` | Match `featureType` or `ontologyTerms` |
 | Gene public id | `{"id":"HGNC:11998"}` | Resolve via `gene_lookup` / xrefs; miss → empty page |
 | Symbol | `{"id":"genomicFeature.symbol","operator":"=","value":"TP53"}` | Lookup; miss → empty page |
 | Unknown prefix / field | — | HTTP 400 |

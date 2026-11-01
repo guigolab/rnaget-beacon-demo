@@ -202,6 +202,8 @@ export type ExpressionSummary = {
   q1?: number
   q3?: number
   fractionAboveThreshold?: number
+  minBiosampleId?: string
+  maxBiosampleId?: string
   group?: { id: string; label: string }
 }
 
@@ -220,7 +222,7 @@ export function listMatrixExpressionSummary(
       granularity: 'record',
       limit: 500,
       filters: params.filters,
-      search: {
+      requestParameters: {
         featureIDList: params.featureIDList,
         groupBy: params.groupBy,
         threshold: params.threshold,
@@ -229,14 +231,12 @@ export function listMatrixExpressionSummary(
   )
 }
 
-export async function getMatrix(id: string): Promise<Matrix> {
+export async function getMatrix(id: string): Promise<Matrix | null> {
   const page = await queryCollection<Matrix>(
     `/matrices/${encodeURIComponent(id)}`,
     { granularity: 'record', limit: 1 }
   )
-  const item = page.results[0]
-  if (!item) throw new BeaconError(`Matrix '${id}' not found`, 404)
-  return item
+  return page.results[0] ?? null
 }
 
 export function listFeatures(
@@ -252,14 +252,15 @@ export function listFeatures(
   })
 }
 
-export async function getFeature(id: string, signal?: AbortSignal): Promise<Feature> {
+export async function getFeature(
+  id: string,
+  signal?: AbortSignal
+): Promise<Feature | null> {
   const page = await queryCollection<Feature>(
     `/features/${encodeURIComponent(id)}`,
     { granularity: 'record', limit: 1, signal }
   )
-  const item = page.results[0]
-  if (!item) throw new BeaconError(`Feature '${id}' not found`, 404)
-  return item
+  return page.results[0] ?? null
 }
 
 export function listBiosamples(
@@ -275,14 +276,15 @@ export function listBiosamples(
   })
 }
 
-export async function getBiosample(id: string, signal?: AbortSignal): Promise<Biosample> {
+export async function getBiosample(
+  id: string,
+  signal?: AbortSignal
+): Promise<Biosample | null> {
   const page = await queryCollection<Biosample>(
     `/biosamples/${encodeURIComponent(id)}`,
     { granularity: 'record', limit: 1, signal }
   )
-  const item = page.results[0]
-  if (!item) throw new BeaconError(`Biosample '${id}' not found`, 404)
-  return item
+  return page.results[0] ?? null
 }
 
 export function listMatrixFeatures(
@@ -296,7 +298,7 @@ export function listMatrixFeatures(
     granularity: 'record',
     skip,
     limit,
-    search: { sort: axis?.sort, order: axis?.order },
+    requestParameters: { sort: axis?.sort, order: axis?.order },
     signal,
   })
 }
@@ -332,7 +334,7 @@ export function listExpressionValues(
       skip: params.skip ?? 0,
       limit: params.limit ?? 10,
       signal: params.signal,
-      search: {
+      requestParameters: {
         featureIDList: params.featureIDList,
         biosampleIDList: params.biosampleIDList,
         minValue: params.minValue,
@@ -390,12 +392,9 @@ async function resolveToken(token: string, signal?: AbortSignal): Promise<Featur
     })
     if (page.results.length) return page.results
   }
-  try {
-    return [await getFeature(token, signal)]
-  } catch (err) {
-    if (isAbortError(err)) throw err
-    return [stubFeature(token)]
-  }
+  const direct = await getFeature(token, signal)
+  if (direct) return [direct]
+  return [stubFeature(token)]
 }
 
 export async function resolveFeatureCohort(
@@ -443,12 +442,8 @@ export async function resolveFeatureCohort(
     .filter((token) => !hasFeature(seen, token))
     .slice(0, MAX_COHORT - items.length)
   const resolvedIds = await mapPool(pendingIds, 6, async (token) => {
-    try {
-      return await getFeature(token, signal)
-    } catch (err) {
-      if (isAbortError(err)) throw err
-      return stubFeature(token)
-    }
+    const feature = await getFeature(token, signal)
+    return feature ?? stubFeature(token)
   })
   for (const feature of resolvedIds) {
     if (items.length >= MAX_COHORT) break
@@ -492,12 +487,8 @@ export async function resolveBiosampleCohort(
     .filter((id) => !seen.has(id))
     .slice(0, MAX_COHORT - items.length)
   const resolved = await mapPool(pendingIds, 6, async (id) => {
-    try {
-      return await getBiosample(id, signal)
-    } catch (err) {
-      if (isAbortError(err)) throw err
-      return { id } satisfies Biosample
-    }
+    const sample = await getBiosample(id, signal)
+    return sample ?? ({ id } satisfies Biosample)
   })
   for (const sample of resolved) {
     if (items.length >= MAX_COHORT) break

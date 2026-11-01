@@ -19,6 +19,35 @@ MAX_PAGE_LIMIT = 1000
 MAX_SKIP = 100_000
 MAX_ID_LIST_TOKENS = 200
 
+BIOSAMPLE_HYDRATE_COLS: Tuple[str, ...] = (
+    "biosample_id",
+    "ontology_id",
+    "ontology_label",
+    "ontology_source",
+    "sample_origin_type_id",
+    "sample_origin_type_label",
+    "biosample_status_id",
+    "biosample_status_label",
+    "phenotype_ids",
+    "phenotype_labels",
+    "phenotypic_ontology_ids",
+    "phenotypic_features",
+    "sample_processing_id",
+    "sample_processing_label",
+    "collection_date",
+    "measurements",
+    "measurement_assay_ids",
+    "sex",
+    "donor",
+    "summary",
+    "lab",
+    "age_bracket",
+    "condition",
+    "timepoint",
+    "rin",
+    "ischemic_time_min",
+)
+
 AXIS_SORT_VALUES = frozenset({"id", "expression.min", "expression.max"})
 AXIS_ORDER_VALUES = frozenset({"asc", "desc"})
 
@@ -414,6 +443,10 @@ class DuckDBStore:
         # DuckDB DESCRIBE returns column_name as first field
         return {str(r[0]) for r in rows if r and r[0] is not None}
 
+    def _biosample_hydrate_columns(self, view: str) -> List[str]:
+        avail = self._view_columns(view)
+        return [c for c in BIOSAMPLE_HYDRATE_COLS if c in avail]
+
     def _load_indexes(self) -> None:
         """Load per-matrix feature counts + biosample→matrix membership via SQL.
 
@@ -669,11 +702,20 @@ class DuckDBStore:
                     "specimen from organism",
                 )
 
+        status_id = row.get("biosample_status_id")
+        status_label = row.get("biosample_status_label")
+        if status_id is not None and _is_nan(status_id):
+            status_id = None
+        if status_label is not None and _is_nan(status_label):
+            status_label = None
+        if not status_id:
+            status_id, status_label = "EFO:0009654", "reference sample"
+
         doc: Dict[str, Any] = {
             "id": bid,
             "biosampleStatus": {
-                "id": "EFO:0009654",
-                "label": "reference sample",
+                "id": str(status_id),
+                "label": str(status_label or status_id),
             },
             "sampleOriginType": {
                 "id": str(origin_type_id),
@@ -690,6 +732,38 @@ class DuckDBStore:
                 # OntologyTerm requires id; skip detail if GEO-only label with no id.
                 if detail.get("id"):
                     doc["sampleOriginDetail"] = detail
+        proc_id = row.get("sample_processing_id")
+        proc_label = row.get("sample_processing_label")
+        if proc_id is not None and not _is_nan(proc_id):
+            proc: Dict[str, Any] = {"id": str(proc_id)}
+            if proc_label is not None and not _is_nan(proc_label):
+                proc["label"] = str(proc_label)
+            doc["sampleProcessing"] = proc
+        coll = row.get("collection_date")
+        if coll is not None and not _is_nan(coll) and str(coll).strip():
+            doc["collectionDate"] = str(coll)[:10]
+        raw_pheno = row.get("phenotypic_features")
+        if raw_pheno is not None and not _is_nan(raw_pheno):
+            if isinstance(raw_pheno, str):
+                try:
+                    import json as _json
+
+                    raw_pheno = _json.loads(raw_pheno)
+                except Exception:
+                    raw_pheno = None
+            if isinstance(raw_pheno, list) and raw_pheno:
+                doc["phenotypicFeatures"] = raw_pheno
+        raw_meas = row.get("measurements")
+        if raw_meas is not None and not _is_nan(raw_meas):
+            if isinstance(raw_meas, str):
+                try:
+                    import json as _json
+
+                    raw_meas = _json.loads(raw_meas)
+                except Exception:
+                    raw_meas = None
+            if isinstance(raw_meas, list) and raw_meas:
+                doc["measurements"] = raw_meas
         donor = row.get("donor")
         if donor is not None and not _is_nan(donor):
             doc["individualId"] = str(donor)
@@ -897,6 +971,37 @@ class DuckDBStore:
                     scopes=["biosample"],
                     values=sorted(sexes),
                 )
+            for col, label in (
+                ("age_bracket", "Age bracket"),
+                ("condition", "Condition / treatment"),
+                ("timepoint", "Timepoint"),
+            ):
+                try:
+                    facet_rows, _ = self._fetchall(
+                        f"""
+                        SELECT DISTINCT CAST({col} AS VARCHAR)
+                        FROM {self._all_biosamples_view}
+                        WHERE {col} IS NOT NULL
+                        """
+                    )
+                except duckdb.Error as exc:
+                    logger.debug("biosample facet %s skipped: %s", col, exc)
+                    continue
+                values = sorted(
+                    {
+                        str(row[0])
+                        for row in facet_rows
+                        if row and row[0] is not None and str(row[0]).strip()
+                    }
+                )
+                if values:
+                    add_term(
+                        type_="alphanumeric",
+                        id_=col,
+                        label=label,
+                        scopes=["biosample"],
+                        values=values,
+                    )
 
         # Feature SO + resource facets
         feat_src = self._all_features_view
@@ -1086,14 +1191,14 @@ class DuckDBStore:
     ) -> Tuple[str, List[Any], bool]:
         """Return (AND sql fragment without leading AND, params, empty_forced)."""
         from beacon.filters import (
+            is_feature_ontology_filter,
             is_gene_public_id_filter,
-            is_so_filter,
         )
 
         clauses: List[str] = []
         params: List[Any] = []
         for f in filters:
-            if is_so_filter(f):
+            if is_feature_ontology_filter(f):
                 if use_ontology_index and self._feature_ontology_view:
                     clauses.append(
                         "wrapper_id IN ("
@@ -1218,6 +1323,8 @@ class DuckDBStore:
                 one = self._fetchone(f"SELECT COUNT(*) FROM {view}")
                 self._global_feature_count = int(one[0]) if one else 0
             total = self._global_feature_count
+        if limit <= 0:
+            return [], int(total)
         rows, cols = self._fetchall(
             f"""
             SELECT
@@ -1432,10 +1539,30 @@ class DuckDBStore:
                     clauses.append(f"CAST({col} AS DOUBLE) {op} ?")
                     params.append(float(f.value))
             elif f.kind == "ontology":
-                clauses.append(
-                    "(CAST(ontology_id AS VARCHAR) = ?)"
-                )
-                params.append(f.id)
+                or_parts: List[str] = []
+                oid = f.id
+                for col in (
+                    "ontology_id",
+                    "sample_origin_type_id",
+                    "biosample_status_id",
+                    "sample_processing_id",
+                ):
+                    if not cols or col in cols:
+                        or_parts.append(f"CAST({col} AS VARCHAR) = ?")
+                        params.append(oid)
+                if not cols or "phenotypic_ontology_ids" in cols:
+                    or_parts.append("list_contains(phenotypic_ontology_ids, ?)")
+                    params.append(oid)
+                elif not cols or "phenotype_ids" in cols:
+                    or_parts.append("list_contains(phenotype_ids, ?)")
+                    params.append(oid)
+                if not cols or "measurement_assay_ids" in cols:
+                    or_parts.append("list_contains(measurement_assay_ids, ?)")
+                    params.append(oid)
+                if or_parts:
+                    clauses.append("(" + " OR ".join(or_parts) + ")")
+                else:
+                    clauses.append("1=0")
             else:
                 raise ValueError(f"unhandled biosample filter: {f.id}")
         if not clauses:
@@ -1501,19 +1628,15 @@ class DuckDBStore:
                 self._global_biosample_count = total
         else:
             total = self._global_biosample_count
+        if limit <= 0:
+            return [], int(total)
+        sel_cols = self._biosample_hydrate_columns(view)
+        if "biosample_id" not in sel_cols:
+            sel_cols = ["biosample_id"] + sel_cols
+        col_sql = ", ".join(sel_cols)
         rows, cols = self._fetchall(
             f"""
-            SELECT
-              biosample_id,
-              ontology_id,
-              ontology_label,
-              ontology_source,
-              sample_origin_type_id,
-              sample_origin_type_label,
-              sex,
-              donor,
-              summary,
-              lab
+            SELECT {col_sql}
             FROM {view}
             {where_sql}
             ORDER BY biosample_id
@@ -1525,7 +1648,7 @@ class DuckDBStore:
         for tup in rows:
             row = dict(zip(cols, tup))
             out.append(self._hydrate_biosample_row(row))
-        return out, total
+        return out, int(total)
 
     def _list_biosamples_page_union(
         self,
@@ -1561,20 +1684,17 @@ class DuckDBStore:
         """
         one = self._fetchone(count_sql, params if params else None)
         total = int(one[0]) if one else 0
+        union_cols = self._biosample_hydrate_columns(view)
+        if "biosample_id" not in union_cols:
+            union_cols = ["biosample_id"] + union_cols
+        agg_parts = [
+            f"arbitrary({c}) AS {c}" if c != "biosample_id" else "biosample_id"
+            for c in union_cols
+        ]
+        agg_sql = ", ".join(agg_parts) + ", list(DISTINCT matrix_id) AS matrix_ids"
         rows, cols = self._fetchall(
             f"""
-            SELECT
-              biosample_id,
-              arbitrary(ontology_id) AS ontology_id,
-              arbitrary(ontology_label) AS ontology_label,
-              arbitrary(ontology_source) AS ontology_source,
-              arbitrary(sample_origin_type_id) AS sample_origin_type_id,
-              arbitrary(sample_origin_type_label) AS sample_origin_type_label,
-              arbitrary(sex) AS sex,
-              arbitrary(donor) AS donor,
-              arbitrary(summary) AS summary,
-              arbitrary(lab) AS lab,
-              list(DISTINCT matrix_id) AS matrix_ids
+            SELECT {agg_sql}
             FROM {view}
             {where_sql}
             GROUP BY biosample_id
@@ -1599,20 +1719,15 @@ class DuckDBStore:
 
     def get_biosample(self, biosample_id: str) -> Optional[Dict[str, Any]]:
         if self._has_biosample_indexes and self._biosamples_global_view:
+            view = self._biosamples_global_view
+            sel_cols = self._biosample_hydrate_columns(view)
+            if "biosample_id" not in sel_cols:
+                sel_cols = ["biosample_id"] + sel_cols
+            col_sql = ", ".join(sel_cols)
             rows, cols = self._fetchall(
                 f"""
-                SELECT
-                  biosample_id,
-                  ontology_id,
-                  ontology_label,
-                  ontology_source,
-                  sample_origin_type_id,
-                  sample_origin_type_label,
-                  sex,
-                  donor,
-                  summary,
-                  lab
-                FROM {self._biosamples_global_view}
+                SELECT {col_sql}
+                FROM {view}
                 WHERE biosample_id = ?
                 LIMIT 1
                 """,
@@ -1625,20 +1740,17 @@ class DuckDBStore:
         view = self._all_biosamples_view
         if not view:
             return None
+        union_cols = self._biosample_hydrate_columns(view)
+        if "biosample_id" not in union_cols:
+            union_cols = ["biosample_id"] + union_cols
+        agg_parts = [
+            f"arbitrary({c}) AS {c}" if c != "biosample_id" else "biosample_id"
+            for c in union_cols
+        ]
+        agg_sql = ", ".join(agg_parts) + ", list(DISTINCT matrix_id) AS matrix_ids"
         rows, cols = self._fetchall(
             f"""
-            SELECT
-              biosample_id,
-              arbitrary(ontology_id) AS ontology_id,
-              arbitrary(ontology_label) AS ontology_label,
-              arbitrary(ontology_source) AS ontology_source,
-              arbitrary(sample_origin_type_id) AS sample_origin_type_id,
-              arbitrary(sample_origin_type_label) AS sample_origin_type_label,
-              arbitrary(sex) AS sex,
-              arbitrary(donor) AS donor,
-              arbitrary(summary) AS summary,
-              arbitrary(lab) AS lab,
-              list(DISTINCT matrix_id) AS matrix_ids
+            SELECT {agg_sql}
             FROM {view}
             WHERE biosample_id = ?
             GROUP BY biosample_id
@@ -1744,6 +1856,8 @@ class DuckDBStore:
                 self._feature_counts[matrix_id] = total
         limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
         skip = max(0, min(int(skip), MAX_SKIP))
+        if limit <= 0:
+            return [], int(total)
         sort_key, order_key = self.effective_axis_sort(
             matrix_id, axis="features", sort=sort, order=order
         )
@@ -1873,6 +1987,8 @@ class DuckDBStore:
         total = int(one[0]) if one else 0
         limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
         skip = max(0, min(int(skip), MAX_SKIP))
+        if limit <= 0:
+            return [], int(total)
         stats = self._bio_stats_views.get(matrix_id)
         order_sql = "ASC" if order_key == "asc" else "DESC"
         if sort_key == "expression.max" and stats:
@@ -2065,6 +2181,9 @@ class DuckDBStore:
             limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
         skip = max(0, min(int(skip), MAX_SKIP))
 
+        if limit <= 0:
+            return [], int(total)
+
         # Unfiltered pages use storage order (avoids full-table ORDER BY).
         order_sql = "ORDER BY feature_id, biosample_id" if filtered else ""
         page_sql = f"""
@@ -2092,12 +2211,38 @@ class DuckDBStore:
             )
         return out, int(total)
 
-    _GROUP_BY_COLUMNS = {
-        "sex": "CAST(b.sex AS VARCHAR)",
-        "condition": "CAST(b.condition AS VARCHAR)",
-        "age_bracket": "CAST(b.age_bracket AS VARCHAR)",
-        "tissue": "CAST(b.ontology_label AS VARCHAR)",
-    }
+    def _expression_group_by_sql(
+        self, bio_view: str, group_by: Optional[str]
+    ) -> Optional[str]:
+        if not group_by:
+            return None
+        cols = self._view_columns(bio_view)
+        col_map = {
+            "sex": "sex",
+            "condition": "condition",
+            "age_bracket": "age_bracket",
+            "tissue": "ontology_label",
+            "biosampleStatus": "biosample_status_label",
+        }
+        if group_by in col_map:
+            name = col_map[group_by]
+            if cols and name not in cols:
+                return None
+            return f"CAST(b.{name} AS VARCHAR)"
+        if group_by == "phenotype":
+            if cols and "phenotype_labels" in cols:
+                return "CAST(b.phenotype_labels[1] AS VARCHAR)"
+            if cols and "phenotype_ids" in cols:
+                return "CAST(b.phenotype_ids[1] AS VARCHAR)"
+            if not cols:
+                return (
+                    "COALESCE("
+                    "CAST(b.phenotype_labels[1] AS VARCHAR), "
+                    "CAST(b.phenotype_ids[1] AS VARCHAR)"
+                    ")"
+                )
+            return None
+        return None
 
     def expression_summary_for_matrix(
         self,
@@ -2126,7 +2271,7 @@ class DuckDBStore:
         )
         if cohort_requested and not cohort_ids:
             return []
-        group_col = self._GROUP_BY_COLUMNS.get(group_by or "") if group_by else None
+        group_col = self._expression_group_by_sql(bio_view, group_by)
         bio_where, bio_params = self._matrix_bio_filter_clause(bio_view, biosample_filters)
         join_filter = bio_where.replace(" WHERE ", " AND ", 1) if bio_where else ""
         group_select = f", {group_col} AS group_key" if group_col else ""
@@ -2148,7 +2293,9 @@ class DuckDBStore:
               quantile_cont(e.value, 0.25) AS q1,
               quantile_cont(e.value, 0.75) AS q3,
               MIN(e.value) AS min,
-              MAX(e.value) AS max
+              MAX(e.value) AS max,
+              arg_min(e.biosample_id, e.value) AS minBiosampleId,
+              arg_max(e.biosample_id, e.value) AS maxBiosampleId
               {thr_sql}
               {group_select}
             FROM {view} e
@@ -2176,6 +2323,10 @@ class DuckDBStore:
                 "min": float(row["min"]) if row.get("min") is not None else None,
                 "max": float(row["max"]) if row.get("max") is not None else None,
             }
+            if row.get("minBiosampleId") is not None:
+                rec["minBiosampleId"] = str(row["minBiosampleId"])
+            if row.get("maxBiosampleId") is not None:
+                rec["maxBiosampleId"] = str(row["maxBiosampleId"])
             if threshold is not None and row.get("fractionAboveThreshold") is not None:
                 rec["fractionAboveThreshold"] = float(row["fractionAboveThreshold"])
             if group_col and row.get("group_key") is not None:

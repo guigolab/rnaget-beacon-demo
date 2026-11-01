@@ -1,0 +1,10 @@
+/** Neutral sequential ramp for matrix heatmap cells. */
+export const COLOR_LOW = '#f4f4f5'
+export const COLOR_MID_LOW = '#d4d4d8'
+export const COLOR_MID = '#71717a'
+export const COLOR_HIGH = '#52525b'
+export const COLOR_TOP = '#27272a'
+export const COLOR_MISSING = '#e4e4e7'
+export const COLOR_TEXT_DARK = '#18181b'
+export const COLOR_TEXT_LIGHT = '#fafafa'
+export const COLOR_HOVER = '#3f3f46'

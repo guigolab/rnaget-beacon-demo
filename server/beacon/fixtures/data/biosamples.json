@@ -13,6 +13,33 @@
       "id": "UBERON:0000474",
       "label": "female reproductive system"
     },
+    "phenotypicFeatures": [
+      {
+        "featureType": {
+          "id": "MONDO:0100096",
+          "label": "COVID-19"
+        },
+        "severity": {
+          "id": "HP:0012828",
+          "label": "Severe"
+        }
+      }
+    ],
+    "measurements": [
+      {
+        "assayCode": {
+          "id": "NCIT:C63637",
+          "label": "RNA Integrity Number"
+        },
+        "measurementValue": {
+          "unit": {
+            "id": "UO:0000186",
+            "label": "dimensionless unit"
+          },
+          "value": 8.2
+        }
+      }
+    ],
     "sex": "female"
   },
   {

@@ -79,13 +79,34 @@ export function featureFacts(feature: Feature, resources: FilteringResource[] = 
 
 export function biosampleFacts(sample: Biosample): Fact[] {
   const sex = sample.sex ?? sample.info?.sex
+  const phenotypes = (sample.phenotypicFeatures ?? [])
+    .map((pf) => {
+      const disease = termText(pf.featureType)
+      const sev = termText(pf.severity)
+      const bits = [disease, sev, pf.notes].filter(Boolean)
+      return bits.join(' — ')
+    })
+    .filter(Boolean)
+  const measurements = (sample.measurements ?? [])
+    .map((m) => {
+      const assay = termText(m.assayCode)
+      const val = m.measurementValue?.value
+      const unit = termText(m.measurementValue?.unit)
+      if (val == null) return assay
+      return unit ? `${assay}: ${val} ${unit}` : `${assay}: ${val}`
+    })
+    .filter(Boolean)
   return [
     { label: 'Origin', value: termText(sample.sampleOriginType) },
     { label: 'Origin detail', value: termText(sample.sampleOriginDetail) },
+    { label: 'Processing', value: termText(sample.sampleProcessing) },
     { label: 'Sample type', value: termText(sample.sampleType) },
     { label: 'Status', value: termText(sample.biosampleStatus) },
+    { label: 'Phenotypes', value: phenotypes.length ? phenotypes.join('; ') : undefined },
+    { label: 'Measurements', value: measurements.length ? measurements.join('; ') : undefined },
     { label: 'Sex', value: sex },
     { label: 'Individual', value: sample.individualId },
+    { label: 'Collection date', value: sample.collectionDate },
     { label: 'Collection', value: sample.collectionMoment },
     { label: 'Organism', value: sample.organism?.scientificName },
     { label: 'Lab', value: sample.info?.lab },

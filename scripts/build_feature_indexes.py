@@ -183,6 +183,17 @@ def build_indexes(package: Path) -> Dict[str, int]:
                     "timepoint",
                     "rin",
                     "ischemic_time_min",
+                    "biosample_status_id",
+                    "biosample_status_label",
+                    "phenotype_ids",
+                    "phenotype_labels",
+                    "phenotypic_ontology_ids",
+                    "phenotypic_features",
+                    "sample_processing_id",
+                    "sample_processing_label",
+                    "collection_date",
+                    "measurements",
+                    "measurement_assay_ids",
                 )
                 if c in bio_names
             ]
@@ -217,6 +228,23 @@ def build_indexes(package: Path) -> Dict[str, int]:
                         "timepoint": row.get("timepoint"),
                         "rin": row.get("rin"),
                         "ischemic_time_min": row.get("ischemic_time_min"),
+                        "biosample_status_id": row.get("biosample_status_id"),
+                        "biosample_status_label": row.get("biosample_status_label"),
+                        "phenotype_ids": list(_as_list(row.get("phenotype_ids"))),
+                        "phenotype_labels": list(
+                            _as_list(row.get("phenotype_labels"))
+                        ),
+                        "phenotypic_ontology_ids": list(
+                            _as_list(row.get("phenotypic_ontology_ids"))
+                        ),
+                        "phenotypic_features": row.get("phenotypic_features"),
+                        "sample_processing_id": row.get("sample_processing_id"),
+                        "sample_processing_label": row.get("sample_processing_label"),
+                        "collection_date": row.get("collection_date"),
+                        "measurements": row.get("measurements"),
+                        "measurement_assay_ids": list(
+                            _as_list(row.get("measurement_assay_ids"))
+                        ),
                     }
             del bio_table
 

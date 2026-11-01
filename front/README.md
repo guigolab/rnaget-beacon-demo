@@ -6,11 +6,10 @@ Next.js App Router frontend for the Beacon v2–style RNA-Get API. Built as a **
 
 | Route | Purpose |
 |-------|---------|
-| `/` | Home, demo scenario chips, filtering terms |
-| `/datasets` | Matrix catalog with `/matrices/filtering_terms` facets |
-| `/genes/[symbol]` | Gene lens → per-matrix `expression_summary` |
-| `/samples` | Sample lens → biosample facets |
-| `/compare` | Cross-matrix bar chart + comparability badge |
+| `/` | Light-themed home: scope legend, entry-type cards, ontology resources, namespace×scope filtering chips (popover detail) |
+| `/features/` | Features lens: `GET /features/filtering_terms` namespaces, multi-filter search (symbol/HGNC/SO/…), matrix median heatmap + popovers |
+| `/biosamples/` | Biosamples lens: filtering_terms sidebar, compound query bar + probe, preview table (load 5 more), `?sample=` selection |
+| `/matrices/` | Matrix lens: `/matrices/filtering_terms` sidebar, query bar + probe, matrix preview table |
 | `/matrices/[id]` | Matrix workspace (heatmap, provenance) |
 
 Every page includes a floating **Show API call** drawer (last Beacon request + curl).
@@ -44,4 +43,4 @@ docker compose -f docker-compose-dev.yml up --build
 - `output: 'export'` + `basePath: '/rnaget-beacon'`
 - `NEXT_PUBLIC_API_BASE_URL` defaults to `/rnaget-beacon/api` in the nginx image build
 - Matrix detail pages are pre-rendered for known package IDs (or `MATRIX_IDS` / `API_BUILD_URL` at build time)
-- Feature/biosample detail uses `/features/detail/?id=` and `/biosamples/detail/?id=`
+- Feature/biosample records open in a global right sheet (`?recordKind=feature|biosample&recordId=…` on any lens route)

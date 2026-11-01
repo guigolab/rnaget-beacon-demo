@@ -14,6 +14,10 @@
         {
           "id": "SO:0001217",
           "label": "protein_coding_gene"
+        },
+        {
+          "id": "GO:0008150",
+          "label": "biological_process"
         }
       ],
       "aliases": ["TP53"],

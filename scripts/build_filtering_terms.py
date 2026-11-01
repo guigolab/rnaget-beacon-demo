@@ -16,6 +16,37 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 GENE_CURIE_RE = re.compile(r"^(HGNC|NCBIGene|ENSEMBL):", re.IGNORECASE)
 
+SERVER_DIR = SCRIPTS_DIR.parent / "server"
+if str(SERVER_DIR) not in sys.path:
+    sys.path.insert(0, str(SERVER_DIR))
+
+
+def _append_matrix_scope_terms(
+    terms: Dict[str, Dict[str, Any]], needed_resources: Set[str]
+) -> None:
+    try:
+        from beacon.matrix_catalog_seed import load_matrix_seed_terms
+    except ImportError:
+        return
+    for term in load_matrix_seed_terms():
+        type_ = str(term.get("type") or "unknown")
+        id_ = str(term.get("id") or "")
+        if not id_:
+            continue
+        if type_ == "SO":
+            needed_resources.add("so")
+        if type_ == "OBI":
+            needed_resources.add("obi")
+        _add_term(
+            terms,
+            type_=type_,
+            id_=id_,
+            label=term.get("label"),
+            scopes=list(term.get("scopes") or ["matrix"]),
+            values=term.get("values"),
+        )
+
+
 RESOURCE_DEFS: Dict[str, Dict[str, str]] = {
     "so": {
         "id": "so",
@@ -59,7 +90,73 @@ RESOURCE_DEFS: Dict[str, Dict[str, str]] = {
         "iriPrefix": "https://www.ensembl.org/id/",
         "url": "https://www.ensembl.org",
     },
+    "obi": {
+        "id": "obi",
+        "name": "Ontology for Biomedical Investigations",
+        "nameSpacePrefix": "OBI",
+        "iriPrefix": "http://purl.obolibrary.org/obo/OBI_",
+        "url": "http://purl.obolibrary.org/obo/obi.owl",
+    },
+    "mondo": {
+        "id": "mondo",
+        "name": "Mondo Disease Ontology",
+        "nameSpacePrefix": "MONDO",
+        "iriPrefix": "http://purl.obolibrary.org/obo/MONDO_",
+        "url": "http://purl.obolibrary.org/obo/mondo.owl",
+    },
+    "hp": {
+        "id": "hp",
+        "name": "Human Phenotype Ontology",
+        "nameSpacePrefix": "HP",
+        "iriPrefix": "http://purl.obolibrary.org/obo/HP_",
+        "url": "http://purl.obolibrary.org/obo/hp.owl",
+    },
+    "go": {
+        "id": "go",
+        "name": "Gene Ontology",
+        "nameSpacePrefix": "GO",
+        "iriPrefix": "http://purl.obolibrary.org/obo/GO_",
+        "url": "http://purl.obolibrary.org/obo/go.owl",
+    },
+    "ncit": {
+        "id": "ncit",
+        "name": "NCI Thesaurus",
+        "nameSpacePrefix": "NCIT",
+        "iriPrefix": "http://purl.obolibrary.org/obo/NCIT_",
+        "url": "https://evs.nci.nih.gov/ftp1/NCI_Thesaurus",
+    },
+    "uo": {
+        "id": "uo",
+        "name": "Units of Measurement Ontology",
+        "nameSpacePrefix": "UO",
+        "iriPrefix": "http://purl.obolibrary.org/obo/UO_",
+        "url": "http://purl.obolibrary.org/obo/uo.owl",
+    },
 }
+
+
+def _register_ontology_term(
+    terms: Dict[str, Dict[str, Any]],
+    needed_resources: Set[str],
+    *,
+    oid: str,
+    label: Optional[str],
+    scopes: List[str],
+) -> None:
+    pref = _prefix_of(oid)
+    resource_key = pref.lower()
+    if pref == "NCBIGENE":
+        resource_key = "ncbigene"
+    if pref in ("UBERON", "EFO", "OBI", "MONDO", "HP", "GO", "NCIT", "SO"):
+        if resource_key in RESOURCE_DEFS:
+            needed_resources.add(resource_key)
+        _add_term(
+            terms,
+            type_=pref if pref != "NCBIGENE" else "custom",
+            id_=oid,
+            label=label,
+            scopes=scopes,
+        )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -137,17 +234,27 @@ def build_catalog(package: Path) -> Dict[str, Any]:
         bio_path = package / "matrices" / dirname / "biosamples.parquet"
         if not bio_path.is_file():
             continue
+        bio_schema = pq.read_schema(bio_path).names
         want_bio = [
             c
             for c in (
                 "ontology_id",
                 "ontology_label",
                 "ontology_source",
+                "biosample_status_id",
+                "biosample_status_label",
+                "sample_origin_type_id",
+                "sample_origin_type_label",
+                "sample_processing_id",
+                "sample_processing_label",
+                "phenotype_ids",
+                "phenotypic_features",
+                "measurement_assay_ids",
                 "sex",
                 "age_bracket",
                 "condition",
             )
-            if c in pq.read_schema(bio_path).names
+            if c in bio_schema
         ]
         table = pq.read_table(bio_path, columns=want_bio or None)
         rows = table.to_pylist()
@@ -176,16 +283,73 @@ def build_catalog(package: Path) -> Dict[str, Any]:
             if oid_missing:
                 continue
             oid_s = str(oid)
-            pref = _prefix_of(oid_s)
-            if pref in ("UBERON", "EFO"):
-                needed_resources.add(pref.lower())
-                _add_term(
+            _register_ontology_term(
+                terms,
+                needed_resources,
+                oid=oid_s,
+                label=str(olabel) if olabel else None,
+                scopes=["biosample"],
+            )
+            st_id = row.get("biosample_status_id")
+            st_label = row.get("biosample_status_label")
+            if st_id is not None and not (
+                isinstance(st_id, float) and st_id != st_id
+            ):
+                _register_ontology_term(
                     terms,
-                    type_=pref,
-                    id_=oid_s,
-                    label=str(olabel) if olabel else None,
+                    needed_resources,
+                    oid=str(st_id),
+                    label=str(st_label) if st_label else None,
                     scopes=["biosample"],
                 )
+            for col, label_col in (
+                ("sample_origin_type_id", "sample_origin_type_label"),
+                ("sample_processing_id", "sample_processing_label"),
+            ):
+                tid = row.get(col)
+                tlabel = row.get(label_col)
+                if tid is None or (isinstance(tid, float) and tid != tid):
+                    continue
+                _register_ontology_term(
+                    terms,
+                    needed_resources,
+                    oid=str(tid),
+                    label=str(tlabel) if tlabel else None,
+                    scopes=["biosample"],
+                )
+            for pid in row.get("phenotype_ids") or []:
+                if pid:
+                    _register_ontology_term(
+                        terms,
+                        needed_resources,
+                        oid=str(pid),
+                        label=None,
+                        scopes=["biosample"],
+                    )
+            for feat in row.get("phenotypic_features") or []:
+                if not isinstance(feat, dict):
+                    continue
+                for key in ("featureType", "severity"):
+                    block = feat.get(key) or {}
+                    if isinstance(block, dict) and block.get("id"):
+                        _register_ontology_term(
+                            terms,
+                            needed_resources,
+                            oid=str(block["id"]),
+                            label=str(block.get("label"))
+                            if block.get("label")
+                            else None,
+                            scopes=["biosample"],
+                        )
+            for mid in row.get("measurement_assay_ids") or []:
+                if mid:
+                    _register_ontology_term(
+                        terms,
+                        needed_resources,
+                        oid=str(mid),
+                        label=None,
+                        scopes=["biosample"],
+                    )
         del rows
 
     if has_geo:
@@ -262,12 +426,12 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                 if not tid:
                     continue
                 tid_s = str(tid)
-                if _prefix_of(tid_s) == "SO":
-                    needed_resources.add("so")
-                    _add_term(
+                pref = _prefix_of(tid_s)
+                if pref in ("SO", "GO"):
+                    _register_ontology_term(
                         terms,
-                        type_="SO",
-                        id_=tid_s,
+                        needed_resources,
+                        oid=tid_s,
                         label=str(term["label"]) if term.get("label") else None,
                         scopes=["genomicFeature"],
                     )
@@ -341,6 +505,8 @@ def build_catalog(package: Path) -> Dict[str, Any]:
         scopes=["genomicFeature"],
     )
 
+    _append_matrix_scope_terms(terms, needed_resources)
+
     # Drop sex term if no biosamples at all and no values — keep if any bio matrix
     if not any(
         (package / "matrices" / (e.get("dir") or "") / "biosamples.parquet").is_file()
@@ -353,7 +519,20 @@ def build_catalog(package: Path) -> Dict[str, Any]:
 
     resources = [
         RESOURCE_DEFS[key]
-        for key in ("so", "uberon", "efo", "hgnc", "ncbigene", "ensembl")
+        for key in (
+            "so",
+            "go",
+            "obi",
+            "uberon",
+            "efo",
+            "mondo",
+            "hp",
+            "ncit",
+            "uo",
+            "hgnc",
+            "ncbigene",
+            "ensembl",
+        )
         if key in needed_resources and key in RESOURCE_DEFS
     ]
 
@@ -362,7 +541,11 @@ def build_catalog(package: Path) -> Dict[str, Any]:
         if GENE_CURIE_RE.match(t["id"]):
             raise SystemExit(f"Illegal gene CURIE in filteringTerms: {t['id']}")
 
-    by_scope: Dict[str, List[str]] = {"biosample": [], "genomicFeature": []}
+    by_scope: Dict[str, List[str]] = {
+        "biosample": [],
+        "genomicFeature": [],
+        "matrix": [],
+    }
     for t in filtering_terms:
         for scope in t.get("scopes") or []:
             if scope in by_scope:

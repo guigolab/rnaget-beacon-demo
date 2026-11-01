@@ -43,6 +43,9 @@ class BeaconQuery(BaseModel):
     pagination: Optional[Pagination] = None
     # Beacon anyOf OntologyFilter | AlphanumericFilter | CustomFilter
     filters: Optional[List[BeaconFilter]] = None
+    requestParameters: Optional[Dict[str, Any]] = None
+    includeResultsetResponses: Optional[bool] = None
+    testMode: Optional[bool] = None
 
 
 class BeaconRequestMeta(BaseModel):

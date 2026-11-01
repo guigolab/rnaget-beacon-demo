@@ -130,13 +130,18 @@ def build_filtering_terms_response(
 def build_error_response(
     error_code: int,
     error_message: str,
+    *,
+    received: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    meta: Dict[str, Any] = {
+        "apiVersion": config.API_VERSION,
+        "beaconId": config.BEACON_ID,
+        "returnedSchemas": [],
+    }
+    if received:
+        meta["receivedRequestSummary"] = received
     return {
-        "meta": {
-            "apiVersion": config.API_VERSION,
-            "beaconId": config.BEACON_ID,
-            "returnedSchemas": [],
-        },
+        "meta": meta,
         "error": {
             "errorCode": error_code,
             "errorMessage": error_message,

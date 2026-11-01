@@ -345,6 +345,114 @@ def main(argv: List[str] | None = None) -> int:
                 bad = sorted(s for s in ft_ids if not s.startswith("SO:"))[:5]
                 errors.append(f"non-SO feature_type_id values: {bad}")
 
+    # Enriched biosample / matrix metadata (when columns exist)
+    matrices_path = root / "matrices.json"
+    if matrices_path.is_file():
+        with matrices_path.open(encoding="utf-8") as fh:
+            matrix_docs = json.load(fh)
+        obi_labels = set()
+        for doc in matrix_docs if isinstance(matrix_docs, list) else []:
+            assay = doc.get("assayType") or {}
+            if assay.get("id") == "OBI:0003090" and assay.get("label"):
+                obi_labels.add(str(assay["label"]))
+        if obi_labels and len(obi_labels) > 1:
+            errors.append(
+                f"inconsistent OBI:0003090 labels in matrices.json: {sorted(obi_labels)}"
+            )
+
+    for entry in manifest.get("matrices") or []:
+        dirname = entry.get("dir")
+        if not dirname:
+            continue
+        bio_path = root / "matrices" / dirname / "biosamples.parquet"
+        if not bio_path.is_file():
+            continue
+        import pyarrow.parquet as pq
+
+        bio_schema = set(pq.read_schema(bio_path).names)
+        if "biosample_status_id" in bio_schema:
+            sample_rows = pq.read_table(
+                bio_path,
+                columns=[
+                    c
+                    for c in (
+                        "biosample_status_id",
+                        "biosample_status_label",
+                        "phenotype_ids",
+                        "sample_processing_id",
+                        "sample_processing_label",
+                        "measurements",
+                    )
+                    if c in bio_schema
+                ],
+            ).to_pylist()
+            for row in sample_rows:
+                sid = row.get("biosample_status_id")
+                slabel = row.get("biosample_status_label")
+                if sid and not slabel:
+                    errors.append("biosample row missing biosample_status_label")
+                for pid in row.get("phenotype_ids") or []:
+                    if str(pid).startswith("MONDO:") and not slabel:
+                        pass
+                proc = row.get("sample_processing_id")
+                plabel = row.get("sample_processing_label")
+                if proc and not plabel:
+                    errors.append("biosample row missing sample_processing_label")
+            mid = entry.get("matrix_id") or ""
+            if mid == "ENCSR622FSM":
+                enc = [
+                    r
+                    for r in sample_rows
+                    if r.get("sample_processing_id") == "GO:0005829"
+                ]
+                if bio_schema >= {"sample_processing_id"} and not enc:
+                    errors.append(
+                        "ENCBS924XCI expected sample_processing GO:0005829 on ENCSR622FSM"
+                    )
+            if "GSE164073" in mid or mid == "GSE164073":
+                infected = [
+                    r
+                    for r in sample_rows
+                    if r.get("biosample_status_id") == "EFO:0009655"
+                    and r.get("phenotype_ids")
+                    and any(
+                        str(p) == "MONDO:0100096"
+                        for p in (r.get("phenotype_ids") or [])
+                    )
+                ]
+                if "phenotype_ids" in bio_schema and not infected:
+                    errors.append(
+                        "GSE164073 expected MONDO:0100096 abnormal biosample(s)"
+                    )
+        mid_str = str(entry.get("matrix_id") or "")
+        if "measurements" in bio_schema and mid_str.startswith("GTEx"):
+            has_rin = any(
+                r.get("measurements")
+                for r in pq.read_table(bio_path, columns=["measurements"])
+                .to_pylist()[:50]
+            )
+            if not has_rin:
+                errors.append("GTEx biosamples expected NCIT:C63637 RIN measurements")
+
+    if genes_path.is_file():
+        import pyarrow.parquet as pq
+
+        gsample = pq.read_table(genes_path, columns=["xrefs", "feature_id"]).to_pylist()[
+            :2000
+        ]
+        ens_rows = [
+            r
+            for r in gsample
+            if str(r.get("feature_id") or "").upper().startswith("ENSG")
+        ]
+        if ens_rows and not any(
+            any(str(x).startswith("NCBIGene:") for x in (r.get("xrefs") or []))
+            for r in ens_rows[:100]
+        ):
+            errors.append(
+                "genes.parquet: expected NCBIGene xrefs on ENSG rows after enrich_gene_annotations"
+            )
+
     # filtering_terms.json catalog (Beacon facets; no gene CURIE dump)
     ft_path = root / "filtering_terms.json"
     if not ft_path.is_file():

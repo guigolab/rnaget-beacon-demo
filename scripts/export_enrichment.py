@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import gzip
 import io
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -259,6 +260,12 @@ _OBI_SPECIMEN = {"id": "OBI:0001479", "label": "specimen from organism"}
 _OBI_CELL_CULTURE = {"id": "OBI:0001876", "label": "cell culture"}
 
 GEO_ONTOLOGY_MAP_PATH = Path(__file__).resolve().parent / "data" / "geo_biosample_ontology.json"
+GEO_STATUS_MAP_PATH = Path(__file__).resolve().parent / "data" / "geo_biosample_status.json"
+BIOSAMPLE_MEASUREMENTS_PATH = (
+    Path(__file__).resolve().parent / "data" / "biosample_measurements.json"
+)
+
+_REFERENCE_STATUS = {"id": "EFO:0009654", "label": "reference sample"}
 ENCODE_BIOSAMPLE_URL = "https://www.encodeproject.org/biosamples/{accession}/?format=json"
 # NCBI text dump of all GSMs in a series (more reliable than FTP soft.gz here).
 GEO_SOFT_URL = (
@@ -561,6 +568,159 @@ def load_gtex_sample_attributes(
     return out
 
 
+def _load_geo_biosample_status(
+    path: Path = GEO_STATUS_MAP_PATH,
+) -> Dict[str, Any]:
+    if not path.is_file():
+        return {"defaults": {"biosampleStatus": _REFERENCE_STATUS}, "exact": {}, "infection_prefix": {}}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "defaults": raw.get("defaults") or {"biosampleStatus": _REFERENCE_STATUS},
+        "exact": raw.get("exact") or {},
+        "infection_prefix": raw.get("infection_prefix") or {},
+    }
+
+
+def _load_biosample_measurements(
+    path: Path = BIOSAMPLE_MEASUREMENTS_PATH,
+) -> Dict[str, Any]:
+    if not path.is_file():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _normalize_gender(raw: Optional[str]) -> Optional[str]:
+    if raw is None:
+        return None
+    token = str(raw).strip().upper()
+    if token in ("M", "MALE"):
+        return "male"
+    if token in ("F", "FEMALE"):
+        return "female"
+    return None
+
+
+def _merge_phenotypic_features(
+    existing: List[Dict[str, Any]], incoming: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    out = [dict(x) for x in existing]
+    seen: Set[str] = set()
+    for feat in out:
+        ft = feat.get("featureType") or {}
+        if isinstance(ft, dict) and ft.get("id"):
+            seen.add(str(ft["id"]))
+        sev = feat.get("severity") or {}
+        if isinstance(sev, dict) and sev.get("id"):
+            seen.add(f"severity:{sev['id']}")
+    for feat in incoming:
+        copy = dict(feat)
+        ft = copy.get("featureType") or {}
+        sev = copy.get("severity") or {}
+        key = ""
+        if isinstance(ft, dict) and ft.get("id"):
+            key = str(ft["id"])
+        elif isinstance(sev, dict) and sev.get("id"):
+            key = f"severity:{sev['id']}"
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(copy)
+    return out
+
+
+def _apply_geo_status_rules(
+    kv: Dict[str, str],
+    status_cfg: Dict[str, Any],
+) -> Tuple[Dict[str, str], List[Dict[str, Any]]]:
+    """Return (biosampleStatus dict, phenotypicFeatures list)."""
+    default = status_cfg.get("defaults", {}).get("biosampleStatus") or _REFERENCE_STATUS
+    status = dict(default)
+    phenotypes: List[Dict[str, Any]] = []
+    exact: Dict[str, Any] = status_cfg.get("exact") or {}
+    prefixes: Dict[str, Any] = status_cfg.get("infection_prefix") or {}
+
+    for nk, val in kv.items():
+        composite = f"{nk}: {val}".strip().lower()
+        hit = exact.get(composite)
+        if hit:
+            if hit.get("biosampleStatus"):
+                status = dict(hit["biosampleStatus"])
+            if hit.get("phenotypicFeatures"):
+                phenotypes = _merge_phenotypic_features(
+                    phenotypes, list(hit["phenotypicFeatures"])
+                )
+
+    infection = (kv.get("infection") or "").strip()
+    if infection:
+        for prefix, rule in prefixes.items():
+            if infection.startswith(prefix):
+                if rule.get("biosampleStatus"):
+                    status = dict(rule["biosampleStatus"])
+                new_feats = [dict(f) for f in (rule.get("phenotypicFeatures") or [])]
+                if rule.get("append_infection_to_phenotype_notes") and new_feats:
+                    for feat in new_feats:
+                        prev = (feat.get("notes") or "").strip()
+                        feat["notes"] = f"{prev} {infection}".strip() if prev else infection
+                phenotypes = _merge_phenotypic_features(phenotypes, new_feats)
+                break
+
+    return status, phenotypes
+
+
+def encode_biosample_extras(
+    accession: str,
+    cache_dir: Path = CACHE_DIR,
+    *,
+    skip_download: bool = False,
+) -> Dict[str, Any]:
+    """ENCODE JSON fields for sampleProcessing, collectionDate, sex."""
+    data = ensure_encode_biosample_json(
+        accession, cache_dir, skip_download=skip_download
+    )
+    if not data:
+        return {}
+    out: Dict[str, Any] = {}
+    sex_raw = data.get("sex")
+    if sex_raw:
+        g = _normalize_gender(str(sex_raw))
+        if g:
+            out["sex"] = g
+    harvest = data.get("culture_harvest_date")
+    if harvest:
+        out["collection_date"] = str(harvest)[:10]
+    frac_id = data.get("subcellular_fraction_term_id")
+    frac_name = data.get("subcellular_fraction_term_name")
+    if frac_id and frac_name:
+        out["sample_processing_id"] = str(frac_id).strip()
+        out["sample_processing_label"] = str(frac_name).strip()
+    return out
+
+
+def _gtex_measurements_from_rin(
+    rin: Optional[float], measurement_doc: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    gtex = measurement_doc.get("gtex") or {}
+    smrin = gtex.get("SMRIN") or {}
+    if rin is None or not smrin.get("assayCode"):
+        return []
+    assay = smrin["assayCode"]
+    unit = (smrin.get("measurementValue") or {}).get("unit") or {}
+    try:
+        val = float(rin)
+    except (TypeError, ValueError):
+        return []
+    return [
+        {
+            "assayCode": dict(assay),
+            "measurementValue": {
+                "unit": dict(unit),
+                "value": val,
+            },
+        }
+    ]
+
+
 def lookup_geo_ontology(
     characteristics: List[str],
     ontology_map: Dict[str, Dict[str, str]],
@@ -605,9 +765,12 @@ def enrich_biosamples(
     geo_chars: Dict[str, List[str]] = {}
     geo_kv: Dict[str, Dict[str, str]] = {}
     geo_map: Dict[str, Dict[str, str]] = {}
+    geo_status_cfg: Dict[str, Any] = {}
     gtex_attrs: Dict[str, Dict[str, Any]] = {}
+    measurement_doc = _load_biosample_measurements()
     if profile_name == "geo":
         geo_map = _load_geo_ontology_map()
+        geo_status_cfg = _load_geo_biosample_status()
         soft = ensure_geo_soft_path(
             str(matrix_id),
             cache_dir,
@@ -636,9 +799,25 @@ def enrich_biosamples(
         rin = None
         ischemic_time_min = None
         origin_type = _OBI_SPECIMEN
+        biosample_status = dict(_REFERENCE_STATUS)
+        phenotypic_features: List[Dict[str, Any]] = []
+        sample_processing_id = None
+        sample_processing_label = None
+        collection_date = None
+        measurements: List[Dict[str, Any]] = []
 
         if profile_name == "encode":
             origin_type = _OBI_CELL_CULTURE
+            enc_extras = encode_biosample_extras(
+                str(sid or ""),
+                cache_dir,
+                skip_download=skip_download,
+            )
+            if enc_extras.get("sex") and not sex:
+                sex = enc_extras["sex"]
+            collection_date = enc_extras.get("collection_date")
+            sample_processing_id = enc_extras.get("sample_processing_id")
+            sample_processing_label = enc_extras.get("sample_processing_label")
             enc_id, enc_label, enc_src = encode_biosample_ontology(
                 str(sid or ""),
                 cache_dir,
@@ -684,6 +863,7 @@ def enrich_biosamples(
             ischemic_time_min = ga.get("ischemic_time_min")
             if ga.get("tissue_detail") and not summary:
                 summary = str(ga["tissue_detail"])
+            measurements = _gtex_measurements_from_rin(rin, measurement_doc)
         elif profile_name == "geo":
             origin_type = _OBI_SPECIMEN
             ontology_source = "GEO"
@@ -702,11 +882,45 @@ def enrich_biosamples(
             infection = kv.get("infection") or kv.get("treatment") or kv.get("condition")
             if infection:
                 condition = infection.strip()
-            timepoint = kv.get("time point") or kv.get("timepoint")
+            timepoint = (
+                kv.get("time point")
+                or kv.get("timepoint")
+                or kv.get("days_post_symptom_onset")
+            )
             severity = kv.get("disease severity") or kv.get("severity")
             if severity and not condition:
                 condition = severity.strip()
+            if severity and str(severity).strip().upper() == "ICU":
+                condition = severity.strip()
+            gender = _normalize_gender(kv.get("gender"))
+            if gender and not sex:
+                sex = gender
+            biosample_status, phenotypic_features = _apply_geo_status_rules(
+                kv, geo_status_cfg
+            )
             summary = (profile.get("series_design") or "").strip() or summary
+
+        phenotype_ids: List[str] = []
+        phenotype_labels: List[str] = []
+        phenotypic_ontology_ids: List[str] = []
+        for feat in phenotypic_features:
+            ft = feat.get("featureType") or {}
+            if isinstance(ft, dict) and ft.get("id"):
+                pid = str(ft["id"])
+                phenotype_ids.append(pid)
+                phenotypic_ontology_ids.append(pid)
+                if ft.get("label"):
+                    phenotype_labels.append(str(ft["label"]))
+            sev = feat.get("severity") or {}
+            if isinstance(sev, dict) and sev.get("id"):
+                sid = str(sev["id"])
+                if sid not in phenotypic_ontology_ids:
+                    phenotypic_ontology_ids.append(sid)
+        measurement_assay_ids: List[str] = []
+        for meas in measurements:
+            code = meas.get("assayCode") or {}
+            if isinstance(code, dict) and code.get("id"):
+                measurement_assay_ids.append(str(code["id"]))
 
         rows.append(
             {
@@ -717,6 +931,17 @@ def enrich_biosamples(
                 "ontology_source": ontology_source,
                 "sample_origin_type_id": origin_type["id"],
                 "sample_origin_type_label": origin_type["label"],
+                "biosample_status_id": biosample_status.get("id"),
+                "biosample_status_label": biosample_status.get("label"),
+                "phenotype_ids": phenotype_ids,
+                "phenotype_labels": phenotype_labels,
+                "phenotypic_ontology_ids": phenotypic_ontology_ids,
+                "phenotypic_features": phenotypic_features,
+                "sample_processing_id": sample_processing_id,
+                "sample_processing_label": sample_processing_label,
+                "collection_date": collection_date,
+                "measurements": measurements,
+                "measurement_assay_ids": measurement_assay_ids,
                 "sex": sex,
                 "donor": donor,
                 "summary": summary,

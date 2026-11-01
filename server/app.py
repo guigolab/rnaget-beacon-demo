@@ -2,9 +2,11 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
 
 from beacon import config as beacon_config
 from beacon.fixtures import get_store
@@ -32,6 +34,52 @@ app = FastAPI(
 )
 
 register_beacon_routers(app)
+
+
+def _default_received() -> dict:
+    from beacon import config
+
+    return {"apiVersion": config.API_VERSION.lstrip("v")}
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    from beacon.responses import build_error_response
+
+    detail = exc.errors()[0].get("msg", "Invalid request") if exc.errors() else "Invalid request"
+    return JSONResponse(
+        status_code=400,
+        content=build_error_response(400, str(detail), received=_default_received()),
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    from beacon.responses import build_error_response
+
+    code = exc.status_code if exc.status_code in (400, 404, 405, 501) else 400
+    if exc.status_code == 405:
+        code = 405
+    message = exc.detail if isinstance(exc.detail, str) else "Request failed"
+    return JSONResponse(
+        status_code=code,
+        content=build_error_response(code, message, received=_default_received()),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    from beacon.responses import build_error_response
+
+    logger.exception("Unhandled error on %s", request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content=build_error_response(
+            500, "Internal server error", received=_default_received()
+        ),
+    )
 
 
 def custom_openapi():

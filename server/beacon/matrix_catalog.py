@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 from beacon.filters import MATRIX_ALPHANUMERIC_FIELDS, matrix_matches
+from beacon.matrix_catalog_seed import load_matrix_seed_terms, merge_filtering_terms
 
 
 def list_matrices_filtered(
@@ -25,6 +26,7 @@ def build_matrix_filtering_terms(
     versions: Set[str] = set()
     assemblies: Set[str] = set()
     reproducible: Set[str] = set()
+    profile_sources: Set[str] = set()
     assay_terms: Dict[str, str] = {}
     feature_types: Dict[str, str] = {}
 
@@ -43,6 +45,10 @@ def build_matrix_filtering_terms(
         if asm.get("name"):
             assemblies.add(str(asm["name"]))
         reproducible.add("true" if m.get("reproducible") else "false")
+        info = m.get("info") or {}
+        ps = info.get("profileSource") or info.get("catalogSource")
+        if ps:
+            profile_sources.add(str(ps))
         assay = m.get("assayType") or {}
         if isinstance(assay, dict) and assay.get("id"):
             assay_terms[str(assay["id"])] = str(assay.get("label") or assay["id"])
@@ -128,6 +134,18 @@ def build_matrix_filtering_terms(
                 "scopes": ["matrix"],
             }
         )
+    if profile_sources:
+        terms.append(
+            {
+                "type": "alphanumeric",
+                "id": "matrix.profileSource",
+                "label": "Catalog source",
+                "scopes": ["matrix"],
+                "values": sorted(profile_sources),
+            }
+        )
+
+    terms = merge_filtering_terms(terms, load_matrix_seed_terms())
 
     resources = [
         {

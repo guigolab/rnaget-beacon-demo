@@ -295,6 +295,9 @@ def normalize_matrix_document(
         raise ValueError(f"matrix {matrix_id}: featureType must be a non-empty array")
 
     info = dict(doc.get("info") or {})
+    profile_source = profile.get("source")
+    if profile_source:
+        info["profileSource"] = str(profile_source)
     quant_md5 = (profile.get("download") or {}).get("md5")
     if quant_md5:
         info["quantFileMd5"] = quant_md5

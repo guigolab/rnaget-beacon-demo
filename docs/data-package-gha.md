@@ -22,7 +22,7 @@ Example matrices are listed in `scripts/profiles/datasets.yaml`. Each record has
 |--------|--------------------------------------|
 | **encode** | Guigo lab BLaER1 (1 biosample) and Gingeras lab GM12878 (2 biosamples); both GENCODE V24 |
 | **geo** | GSE164073 (~18 samples) and GSE152418 (~34 samples); both NCBI TPM on Annotation Release 109.20190905 |
-| **gtex** | GTEx v8 Adipose – Subcutaneous and Liver gene TPM; both GENCODE v26 (largest matrices) |
+| **gtex** | GTEx v8 gene TPM for six tissues (Adipose, Liver, Whole Blood, Lung, Brain Cortex, Skeletal Muscle); GENCODE v26 |
 
 Each record points at a public download URL and records which **genome annotation** (GTF/GFF) was used to define the gene IDs. That annotation link is used later to attach gene names and coordinates.
 
@@ -50,7 +50,8 @@ A full GTEx-inclusive build can take a long time (the job is allowed up to six h
 
 ```text
 Checkout → Disk check → Python + caches → Build matrices
-       → Hydrate genes → Build expression stats → Verify → Pack archive
+       → Hydrate genes → Enrich gene xrefs/GO → Feature/biosample indexes
+       → Filtering terms catalog → Expression stats → Verify → Pack archive
        → Upload artifact → (optional) GitHub Release
 ```
 
@@ -93,7 +94,19 @@ It also updates each matrix’s local features table with symbols where availabl
 
 For each matrix the log prints how many unique feature IDs matched the annotation (for example `12000/39376 (30.5%)`). That **match rate is informational only**—a low or even zero percentage does not fail the hydrate step. (A completely empty gene catalog can still fail the later **verify** step, which checks that `genes.parquet` is non-empty when expected.)
 
-### 5. Build expression stats
+### 5. Enrich gene annotations
+
+`scripts/enrich_gene_annotations.py` adds **NCBI Gene / HGNC** cross-references via `gene2ensembl` + `gene_info`, and attaches **GO generic slim** terms to `ontology_terms` (alongside existing SO biotype terms).
+
+### 6. Build feature/biosample indexes and filtering terms
+
+`scripts/build_feature_indexes.py` writes package-root indexes for fast global `/features` and `/biosamples` queries.
+
+`scripts/build_filtering_terms.py` emits Beacon-shaped `filtering_terms.json` (SO/GO/UBERON/EFO/MONDO/HP/NCIT facets, alphanumeric fields, matrix assay facets).
+
+Biosample rows are enriched during export with `biosampleStatus`, `phenotypicFeatures`, `sampleProcessing`, `collectionDate`, and GTEx **measurements** (RIN as `NCIT:C63637`) using curated maps under `scripts/data/`.
+
+### 7. Build expression stats
 
 `scripts/build_expression_stats.py` scans each matrix’s expression Parquet and writes:
 
@@ -104,11 +117,11 @@ For each matrix the log prints how many unique feature IDs matched the annotatio
 
 It also sets `expressionValueRange` on each matrix in `matrices.json`. The API uses these tables for `sort=expression.max|expression.min` on nested feature/biosample lists.
 
-### 6. Disk usage log
+### 8. Disk usage log
 
 After stats, the log prints how large the cache and package folders are, so oversized runs are easy to spot.
 
-### 7. Verify
+### 9. Verify
 
 An automatic check confirms, among other things:
 
@@ -117,7 +130,7 @@ An automatic check confirms, among other things:
 - `genes.parquet` and `gene_lookup.parquet` exist, are non-empty, and agree with the manifest counts;
 - lookup entries point at genes that actually exist in the gene catalog.
 
-### 8. Pack and publish
+### 10. Pack and publish
 
 Everything under `dist/data-package` is compressed into `data-package.tar.xz`.
 
@@ -224,6 +237,9 @@ The same steps can be run outside Actions:
 ```bash
 python scripts/export_parquet.py --profiles encode,geo,gtex --out dist/data-package
 python scripts/hydrate_genes.py --package dist/data-package
+python scripts/enrich_gene_annotations.py --package dist/data-package
+python scripts/build_feature_indexes.py --package dist/data-package
+python scripts/build_filtering_terms.py --package dist/data-package
 python scripts/build_expression_stats.py --package dist/data-package
 python scripts/verify_data_package.py --package dist/data-package
 ```
