@@ -132,6 +132,14 @@ paths:
           - type: string
           - type: 'null'
           title: Requestedgranularity
+      - name: filters
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filters
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -199,6 +207,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /biosamples/filtering_terms:
+    get:
+      tags:
+      - Biosamples
+      summary: Biosamples Filtering Terms
+      operationId: biosamples_filtering_terms_biosamples_filtering_terms_get
+      responses:
+        '200':
+          description: Beacon filtering terms response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
+    post:
+      tags:
+      - Biosamples
+      summary: Biosamples Filtering Terms
+      operationId: biosamples_filtering_terms_biosamples_filtering_terms_post
+      responses:
+        '200':
+          description: Beacon filtering terms response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
   /biosamples/{id}:
     get:
       tags:
@@ -436,6 +469,14 @@ paths:
           - type: string
           - type: 'null'
           title: Requestedgranularity
+      - name: filters
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filters
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1351,6 +1392,29 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    AlphanumericFilter:
+      properties:
+        id:
+          title: Id
+          type: string
+        operator:
+          default: '='
+          title: Operator
+          type: string
+        value:
+          title: Value
+          type: string
+        scope:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Scope
+      required:
+      - id
+      - value
+      title: AlphanumericFilter
+      type: object
     AxisOrder:
       type: string
       enum:
@@ -1367,24 +1431,75 @@ components:
     BeaconErrorBody:
       properties:
         errorCode:
-          type: integer
           title: Errorcode
+          type: integer
         errorMessage:
-          type: string
           title: Errormessage
-      type: object
+          type: string
       required:
       - errorCode
       - errorMessage
       title: BeaconErrorBody
+      type: object
     BeaconErrorResponse:
-      $ref: '#/components/schemas/BeaconErrorResponse'
+      properties:
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+        error:
+          $ref: '#/components/schemas/BeaconErrorBody'
+      required:
+      - meta
+      - error
+      title: BeaconErrorResponse
+      type: object
     BeaconFilteringTermsResponse:
-      $ref: '#/components/schemas/BeaconFilteringTermsResponse'
+      properties:
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+        response:
+          $ref: '#/components/schemas/FilteringTermsPayload'
+      required:
+      - meta
+      - response
+      title: BeaconFilteringTermsResponse
+      type: object
     BeaconInformationalResponse:
-      $ref: '#/components/schemas/BeaconInformationalResponse'
+      properties:
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+        response:
+          title: Response
+          type: object
+      required:
+      - meta
+      - response
+      title: BeaconInformationalResponse
+      type: object
     BeaconQuery:
-      $ref: '#/components/schemas/BeaconQuery'
+      properties:
+        requestedGranularity:
+          anyOf:
+          - $ref: '#/components/schemas/Granularity'
+          - type: 'null'
+          default: null
+        pagination:
+          anyOf:
+          - $ref: '#/components/schemas/Pagination'
+          - type: 'null'
+          default: null
+        filters:
+          anyOf:
+          - items:
+              anyOf:
+              - $ref: '#/components/schemas/AlphanumericFilter'
+              - $ref: '#/components/schemas/OntologyFilter'
+              - $ref: '#/components/schemas/CustomFilter'
+            type: array
+          - type: 'null'
+          default: null
+          title: Filters
+      title: BeaconQuery
+      type: object
     BeaconRequestBody:
       properties:
         meta:
@@ -1398,7 +1513,30 @@ components:
       type: object
       title: BeaconRequestBody
     BeaconRequestMeta:
-      $ref: '#/components/schemas/BeaconRequestMeta'
+      properties:
+        apiVersion:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Apiversion
+      title: BeaconRequestMeta
+      type: object
+    CustomFilter:
+      properties:
+        id:
+          title: Id
+          type: string
+        scope:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Scope
+      required:
+      - id
+      title: CustomFilter
+      type: object
     ExpressionValuesRequestBody:
       properties:
         meta:
@@ -1445,25 +1583,23 @@ components:
       properties:
         filteringTerms:
           items:
-            additionalProperties: true
             type: object
-          type: array
           title: Filteringterms
+          type: array
         resources:
           items:
-            additionalProperties: true
             type: object
-          type: array
           title: Resources
-      type: object
+          type: array
       title: FilteringTermsPayload
+      type: object
     Granularity:
-      type: string
       enum:
       - boolean
       - count
       - record
       title: Granularity
+      type: string
     HTTPValidationError:
       properties:
         detail:
@@ -1504,38 +1640,82 @@ components:
       type: object
       title: MatrixAxisRequestBody
       description: POST body for nested matrix features / biosamples listings.
+    OntologyFilter:
+      properties:
+        id:
+          title: Id
+          type: string
+        scope:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Scope
+        includeDescendantTerms:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: true
+          title: Includedescendantterms
+        similarity:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: exact
+          title: Similarity
+      required:
+      - id
+      title: OntologyFilter
+      type: object
     Pagination:
-      $ref: '#/components/schemas/Pagination'
+      properties:
+        skip:
+          anyOf:
+          - minimum: 0
+            type: integer
+          - type: 'null'
+          default: 0
+          title: Skip
+        limit:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: 10
+          title: Limit
+      title: Pagination
+      type: object
     ResponseMeta:
       properties:
         apiVersion:
-          type: string
           title: Apiversion
-        beaconId:
           type: string
+        beaconId:
           title: Beaconid
+          type: string
         returnedGranularity:
           anyOf:
           - $ref: '#/components/schemas/Granularity'
           - type: 'null'
+          default: null
         returnedSchemas:
           items:
             additionalProperties:
               type: string
             type: object
-          type: array
           title: Returnedschemas
+          type: array
         receivedRequestSummary:
           anyOf:
-          - additionalProperties: true
-            type: object
+          - type: object
           - type: 'null'
+          default: null
           title: Receivedrequestsummary
-      type: object
       required:
       - apiVersion
       - beaconId
       title: ResponseMeta
+      type: object
     ValidationError:
       properties:
         loc:
@@ -1558,26 +1738,41 @@ components:
       - type
       title: ValidationError
     BeaconBooleanResponse:
-      $ref: '#/components/schemas/BeaconBooleanResponse'
-    BeaconCountResponse:
-      $ref: '#/components/schemas/BeaconCountResponse'
-    BeaconResultsetsResponse:
-      $ref: '#/components/schemas/BeaconResultsetsResponse'
-    ResultsetInstance:
-      $ref: '#/components/schemas/ResultsetInstance'
       properties:
-        results:
-          type: array
-          nullable: true
-          description: 'Page of entity records. Item schema depends on setType: matrix
-            → Matrix, feature → GenomicFeatureWrapper, biosample → Biosample, expressionValue
-            → ExpressionValue.'
-          items:
-            oneOf:
-            - $ref: '#/components/schemas/Matrix'
-            - $ref: '#/components/schemas/GenomicFeatureWrapper'
-            - $ref: '#/components/schemas/Biosample'
-            - $ref: '#/components/schemas/ExpressionValue'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+        responseSummary:
+          $ref: '#/components/schemas/ResponseSummary'
+      required:
+      - meta
+      - responseSummary
+      title: BeaconBooleanResponse
+      type: object
+    BeaconCountResponse:
+      properties:
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+        responseSummary:
+          $ref: '#/components/schemas/ResponseSummary'
+      required:
+      - meta
+      - responseSummary
+      title: BeaconCountResponse
+      type: object
+    BeaconResultsetsResponse:
+      properties:
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+        responseSummary:
+          $ref: '#/components/schemas/ResponseSummary'
+        response:
+          $ref: '#/components/schemas/ResultsetsPayload'
+      required:
+      - meta
+      - responseSummary
+      - response
+      title: BeaconResultsetsResponse
+      type: object
     ResponseSummary:
       properties:
         exists:
@@ -1592,6 +1787,41 @@ components:
       required:
       - exists
       title: ResponseSummary
+      type: object
+    ResultsetInstance:
+      properties:
+        id:
+          title: Id
+          type: string
+        setType:
+          title: Settype
+          type: string
+        exists:
+          title: Exists
+          type: boolean
+        resultsCount:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Resultscount
+        results:
+          type: array
+          nullable: true
+          description: 'Page of entity records. Item schema depends on setType: matrix
+            → Matrix, feature → GenomicFeatureWrapper, biosample → Biosample, expressionValue
+            → ExpressionValue.'
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/Matrix'
+            - $ref: '#/components/schemas/GenomicFeatureWrapper'
+            - $ref: '#/components/schemas/Biosample'
+            - $ref: '#/components/schemas/ExpressionValue'
+      required:
+      - id
+      - setType
+      - exists
+      title: ResultsetInstance
       type: object
     ResultsetsPayload:
       properties:

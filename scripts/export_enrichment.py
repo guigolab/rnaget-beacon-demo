@@ -5,8 +5,10 @@ from __future__ import annotations
 import csv
 import gzip
 import io
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
 
@@ -24,6 +26,161 @@ def _open_text(path: Path):
     return path.open("r", encoding="utf-8", errors="replace")
 
 
+def ensure_gene_info_path(
+    cache_dir: Path = CACHE_DIR,
+    *,
+    skip_download: bool = False,
+    timeout: int = 600,
+) -> Path:
+    """Download (if needed) and return path to Homo_sapiens.gene_info.gz."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dest = cache_dir / _safe_filename(NCBI_GENE_INFO_URL)
+    if dest.exists():
+        return dest
+    if skip_download:
+        raise FileNotFoundError(
+            f"NCBI gene_info cache miss: {dest}. Run without --skip-download."
+        )
+    with requests.get(NCBI_GENE_INFO_URL, stream=True, timeout=timeout) as resp:
+        resp.raise_for_status()
+        tmp = dest.with_suffix(dest.suffix + ".partial")
+        try:
+            with tmp.open("wb") as out:
+                for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        out.write(chunk)
+            tmp.replace(dest)
+        except Exception:
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
+            raise
+    return dest
+
+
+def _normalize_gene_info_xrefs(raw: str) -> List[str]:
+    """Normalize gene_info dbXrefs (pipe-separated) to CURIE-ish strings."""
+    curies: List[str] = []
+    seen: Set[str] = set()
+    if not raw or raw == "-":
+        return curies
+    for token in raw.split("|"):
+        token = token.strip()
+        if not token or ":" not in token:
+            continue
+        prefix, rest = token.split(":", 1)
+        prefix_l = prefix.lower().replace("_", "")
+        if prefix_l in ("geneid", "ncbigene", "ncbigeneid"):
+            curie = f"NCBIGene:{rest}"
+        elif prefix_l == "hgnc":
+            # HGNC:HGNC:11998 → HGNC:11998
+            if rest.upper().startswith("HGNC:"):
+                curie = f"HGNC:{rest.split(':', 1)[1]}"
+            else:
+                curie = f"HGNC:{rest}"
+        elif prefix_l in ("ensembl", "ensemblgene"):
+            curie = f"ENSEMBL:{rest}"
+        elif prefix_l == "mim":
+            curie = f"MIM:{rest}"
+        elif prefix_l == "mirbase":
+            curie = f"miRBase:{rest}"
+        elif prefix.lower() == "imgt/gene-db":
+            curie = f"IMGT/GENE-DB:{rest}"
+        elif prefix_l == "alliancegenome":
+            # Skip redundant AllianceGenome:HGNC:N mirrors
+            continue
+        else:
+            curie = token
+        if curie not in seen:
+            seen.add(curie)
+            curies.append(curie)
+    return curies
+
+
+@dataclass
+class GeneInfoRow:
+    gene_id: str
+    symbol: str
+    synonyms: List[str] = field(default_factory=list)
+    xrefs: List[str] = field(default_factory=list)
+    type_of_gene: Optional[str] = None
+
+
+@dataclass
+class GeneInfoIndex:
+    by_symbol: Dict[str, GeneInfoRow]
+    by_symbol_upper_unique: Dict[str, GeneInfoRow]
+    ambiguous_symbols: Set[str]
+    ambiguous_upper: Set[str]
+
+
+def load_gene_info_index(
+    cache_dir: Path = CACHE_DIR,
+    *,
+    skip_download: bool = False,
+    timeout: int = 600,
+) -> GeneInfoIndex:
+    """Index gene_info by unique primary Symbol for GENCODE enrichment."""
+    path = ensure_gene_info_path(
+        cache_dir, skip_download=skip_download, timeout=timeout
+    )
+    by_symbol_lists: Dict[str, List[GeneInfoRow]] = {}
+    with _open_text(path) as fh:
+        reader = csv.DictReader(fh, delimiter="\t")
+        for row in reader:
+            gid = (row.get("GeneID") or "").strip()
+            symbol = (row.get("Symbol") or "").strip()
+            if not gid or not symbol:
+                continue
+            syn_raw = (row.get("Synonyms") or "").strip()
+            synonyms: List[str] = []
+            if syn_raw and syn_raw != "-":
+                for part in re.split(r"[|]", syn_raw):
+                    part = part.strip()
+                    if part and part != symbol:
+                        synonyms.append(part)
+            rec = GeneInfoRow(
+                gene_id=gid,
+                symbol=symbol,
+                synonyms=synonyms,
+                xrefs=_normalize_gene_info_xrefs(row.get("dbXrefs") or ""),
+                type_of_gene=(row.get("type_of_gene") or "").strip() or None,
+            )
+            # Always include NCBIGene
+            ncbi = f"NCBIGene:{gid}"
+            if ncbi not in rec.xrefs:
+                rec.xrefs.insert(0, ncbi)
+            by_symbol_lists.setdefault(symbol, []).append(rec)
+
+    by_symbol: Dict[str, GeneInfoRow] = {}
+    ambiguous: Set[str] = set()
+    for sym, rows in by_symbol_lists.items():
+        if len(rows) == 1:
+            by_symbol[sym] = rows[0]
+        else:
+            ambiguous.add(sym)
+
+    # Uppercase fallback only when a single unique row maps to that upper key
+    upper_lists: Dict[str, List[GeneInfoRow]] = {}
+    for sym, rec in by_symbol.items():
+        upper_lists.setdefault(sym.upper(), []).append(rec)
+    by_upper: Dict[str, GeneInfoRow] = {}
+    ambiguous_upper: Set[str] = set(s.upper() for s in ambiguous)
+    for usym, rows in upper_lists.items():
+        if usym in ambiguous_upper:
+            continue
+        if len(rows) == 1:
+            by_upper[usym] = rows[0]
+        else:
+            ambiguous_upper.add(usym)
+
+    return GeneInfoIndex(
+        by_symbol=by_symbol,
+        by_symbol_upper_unique=by_upper,
+        ambiguous_symbols=ambiguous,
+        ambiguous_upper=ambiguous_upper,
+    )
+
+
 def load_geo_gene_symbols(
     cache_dir: Path = CACHE_DIR,
     *,
@@ -31,29 +188,11 @@ def load_geo_gene_symbols(
     timeout: int = 600,
 ) -> Dict[str, str]:
     """Map NCBI GeneID -> Symbol from Homo_sapiens.gene_info.gz."""
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    dest = cache_dir / _safe_filename(NCBI_GENE_INFO_URL)
-    if not dest.exists():
-        if skip_download:
-            raise FileNotFoundError(
-                f"NCBI gene_info cache miss: {dest}. Run without --skip-download."
-            )
-        with requests.get(NCBI_GENE_INFO_URL, stream=True, timeout=timeout) as resp:
-            resp.raise_for_status()
-            tmp = dest.with_suffix(dest.suffix + ".partial")
-            try:
-                with tmp.open("wb") as out:
-                    for chunk in resp.iter_content(chunk_size=1024 * 1024):
-                        if chunk:
-                            out.write(chunk)
-                tmp.replace(dest)
-            except Exception:
-                if tmp.exists():
-                    tmp.unlink(missing_ok=True)
-                raise
-
+    path = ensure_gene_info_path(
+        cache_dir, skip_download=skip_download, timeout=timeout
+    )
     mapping: Dict[str, str] = {}
-    with _open_text(dest) as fh:
+    with _open_text(path) as fh:
         reader = csv.DictReader(fh, delimiter="\t")
         for row in reader:
             gid = (row.get("GeneID") or "").strip()

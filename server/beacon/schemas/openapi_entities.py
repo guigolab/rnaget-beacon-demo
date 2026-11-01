@@ -99,18 +99,40 @@ def _rewrite_defs_refs(node: Any) -> Any:
 
 
 def _inject_envelope_schemas(schemas: Dict[str, Any]) -> None:
-    """Register Beacon envelope Pydantic models (needed for oneOf $refs)."""
-    model_map, extras = models_json_schema(
+    """Register Beacon envelope Pydantic models (needed for oneOf $refs).
+
+    ``models_json_schema`` with ``ref_template`` yields stub ``$ref`` entries in
+    ``model_map``; real bodies live under ``$defs``. Prefer ``$defs`` so we do
+    not leave self-referential stubs like ``BeaconQuery: {$ref: BeaconQuery}``.
+    """
+    _model_map, extras = models_json_schema(
         [(model, "serialization") for model in _ENVELOPE_MODELS],
         ref_template="#/components/schemas/{model}",
     )
-    for key, value in model_map.items():
-        if isinstance(key, tuple):
-            model, _mode = key
-            schemas[model.__name__] = _rewrite_defs_refs(value)
     for name, value in (extras.get("$defs") or {}).items():
         if isinstance(value, dict):
-            schemas.setdefault(name, _rewrite_defs_refs(value))
+            schemas[name] = _rewrite_defs_refs(value)
+    # Ensure every requested model has an entry (fallback if missing from $defs).
+    for model in _ENVELOPE_MODELS:
+        name = model.__name__
+        if name in schemas:
+            continue
+        single_map, single_extras = models_json_schema(
+            [(model, "serialization")],
+            ref_template="#/components/schemas/{model}",
+        )
+        for def_name, def_value in (single_extras.get("$defs") or {}).items():
+            if isinstance(def_value, dict):
+                schemas.setdefault(def_name, _rewrite_defs_refs(def_value))
+        for key, value in single_map.items():
+            if isinstance(key, tuple):
+                rewritten = _rewrite_defs_refs(value)
+                if (
+                    isinstance(rewritten, dict)
+                    and rewritten.get("$ref") == f"#/components/schemas/{name}"
+                ):
+                    continue
+                schemas.setdefault(name, rewritten)
 
 
 def patch_openapi_schema(openapi_schema: Dict[str, Any]) -> Dict[str, Any]:

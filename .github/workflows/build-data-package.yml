@@ -101,6 +101,9 @@ jobs:
       - name: Hydrate genes from GTF/GFF
         run: python scripts/hydrate_genes.py --package dist/data-package
 
+      - name: Build filtering terms catalog
+        run: python scripts/build_filtering_terms.py --package dist/data-package
+
       - name: Build expression stats
         run: python scripts/build_expression_stats.py --package dist/data-package
 

@@ -8,7 +8,7 @@ import os
 import re
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import duckdb
 
@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Cap page size for expression / feature list endpoints (also enforced in deps).
 MAX_PAGE_LIMIT = 1000
+MAX_SKIP = 100_000
 
 AXIS_SORT_VALUES = frozenset({"id", "expression.min", "expression.max"})
 AXIS_ORDER_VALUES = frozenset({"asc", "desc"})
@@ -103,14 +104,18 @@ class DuckDBStore:
         self._feat_stats_views: Dict[str, str] = {}
         self._bio_stats_views: Dict[str, str] = {}
         self._all_features_view: Optional[str] = None
+        self._all_biosamples_view: Optional[str] = None
+        self._has_gene_lookup: bool = False
+        self._has_genes: bool = False
         self._global_feature_count: Optional[int] = None
+        self._global_biosample_count: Optional[int] = None
         self._feature_counts: Dict[str, int] = {}
 
-        self._biosamples_cache: List[Dict[str, Any]] = []
-        self._biosamples_by_id: Dict[str, Dict[str, Any]] = {}
         self._biosample_matrices: Dict[str, List[str]] = {}
+        self._filtering_terms_doc: Optional[Dict[str, Any]] = None
         self._register_views()
         self._load_indexes()
+        self._load_filtering_terms()
 
     def _execute(self, sql: str, params: Optional[List[Any]] = None):
         """Run SQL under the connection lock; caller must finish fetch before unlock.
@@ -144,10 +149,12 @@ class DuckDBStore:
             self._execute(
                 f"CREATE VIEW genes AS SELECT * FROM read_parquet('{_sql_path(genes)}')"
             )
+            self._has_genes = True
         if lookup.is_file():
             self._execute(
                 f"CREATE VIEW gene_lookup AS SELECT * FROM read_parquet('{_sql_path(lookup)}')"
             )
+            self._has_gene_lookup = True
 
         for mid, matrix_dir in self._matrix_dirs.items():
             key = _safe_view(mid)
@@ -209,6 +216,7 @@ class DuckDBStore:
                 f"SELECT CAST(feature_id AS VARCHAR) AS feature_id, "
                 f"CAST(wrapper_id AS VARCHAR) AS wrapper_id, "
                 f"symbol, resource, feature_type_id, feature_type_label, aliases, "
+                f"xrefs, ontology_terms, "
                 f"CAST(matrix_id AS VARCHAR) AS matrix_id "
                 f"FROM {view}"
                 for view in self._feat_views.values()
@@ -218,30 +226,50 @@ class DuckDBStore:
                 f"CREATE VIEW {self._all_features_view} AS " + " UNION ALL ".join(parts)
             )
 
-    def _load_indexes(self) -> None:
-        """Load biosample docs (small) + per-matrix feature counts via SQL COUNT.
+        # Global biosample catalog (SQL-backed; not fully loaded into Python).
+        if self._bio_views:
+            bio_parts = []
+            for mid, view in self._bio_views.items():
+                mid_lit = str(mid).replace("'", "''")
+                bio_parts.append(
+                    f"SELECT CAST(biosample_id AS VARCHAR) AS biosample_id, "
+                    f"ontology_id, ontology_label, ontology_source, sex, donor, "
+                    f"summary, lab, "
+                    f"CAST('{mid_lit}' AS VARCHAR) AS matrix_id "
+                    f"FROM {view}"
+                )
+            self._all_biosamples_view = "all_biosamples"
+            self._execute(
+                f"CREATE VIEW {self._all_biosamples_view} AS "
+                + " UNION ALL ".join(bio_parts)
+            )
 
-        Global feature identity maps are not materialised in Python; use
-        ``all_features`` SQL view for /features paging and lookups.
+    def _load_indexes(self) -> None:
+        """Load per-matrix feature counts + biosample→matrix membership via SQL.
+
+        Global feature/biosample identity maps are not materialised as full docs
+        in Python; use ``all_features`` / ``all_biosamples`` SQL views.
         """
         for mid, view in self._feat_views.items():
             one = self._fetchone(f"SELECT COUNT(*) FROM {view}")
             self._feature_counts[mid] = int(one[0]) if one else 0
 
         bio_matrices: Dict[str, Set[str]] = {}
-        biosamples: List[Dict[str, Any]] = []
-        for mid, view in self._bio_views.items():
-            rows, cols = self._fetchall(f"SELECT * FROM {view}")
-            for tup in rows:
-                row = dict(zip(cols, tup))
-                doc = self._biosample_doc(row)
-                bid = doc["id"]
-                bio_matrices.setdefault(bid, set()).add(mid)
-                if bid not in self._biosamples_by_id:
-                    self._biosamples_by_id[bid] = doc
-                    biosamples.append(doc)
-
-        self._biosamples_cache = biosamples
+        if self._all_biosamples_view:
+            rows, _ = self._fetchall(
+                f"""
+                SELECT DISTINCT biosample_id, matrix_id
+                FROM {self._all_biosamples_view}
+                """
+            )
+            for bid, mid in rows:
+                if bid is None or mid is None:
+                    continue
+                bio_matrices.setdefault(str(bid), set()).add(str(mid))
+            one = self._fetchone(
+                f"SELECT COUNT(DISTINCT biosample_id) FROM {self._all_biosamples_view}"
+            )
+            self._global_biosample_count = int(one[0]) if one else 0
         self._biosample_matrices = {
             bid: sorted(mids) for bid, mids in bio_matrices.items()
         }
@@ -287,13 +315,39 @@ class DuckDBStore:
             ft_id = "SO:0000704"
         if ft_label is not None and _is_nan(ft_label):
             ft_label = "gene"
+        xrefs = [
+            str(x)
+            for x in cls._as_list(row.get("xrefs"))
+            if x is not None and not _is_nan(x)
+        ]
+        ontology_terms: List[Dict[str, Any]] = []
+        for term in cls._as_list(row.get("ontology_terms")):
+            if term is None or _is_nan(term):
+                continue
+            if isinstance(term, dict):
+                tid = term.get("id")
+                if tid is None or _is_nan(tid):
+                    continue
+                entry: Dict[str, Any] = {"id": str(tid)}
+                label = term.get("label")
+                if label is not None and not _is_nan(label):
+                    entry["label"] = str(label)
+                ontology_terms.append(entry)
+            else:
+                # Unexpected scalar — skip
+                continue
+        gf: Dict[str, Any] = {
+            "featureIdentifier": {"id": feature_id, "resource": str(resource)},
+            "featureType": {"id": str(ft_id), "label": str(ft_label)},
+            "aliases": aliases,
+        }
+        if xrefs:
+            gf["xrefs"] = xrefs
+        if ontology_terms:
+            gf["ontologyTerms"] = ontology_terms
         doc: Dict[str, Any] = {
             "id": str(wrapper_id),
-            "genomicFeature": {
-                "featureIdentifier": {"id": feature_id, "resource": str(resource)},
-                "featureType": {"id": str(ft_id), "label": str(ft_label)},
-                "aliases": aliases,
-            },
+            "genomicFeature": gf,
             "matrixIds": list(matrix_ids),
         }
         return cls._with_expression_summary(doc, row, kind="feature")
@@ -398,6 +452,9 @@ class DuckDBStore:
                 "id": ontology_id,
                 "label": ontology_label,
             }
+        ontology_source = row.get("ontology_source")
+        if ontology_source is not None and not _is_nan(ontology_source):
+            doc["ontology_source"] = str(ontology_source)
         for key in ("sex", "donor", "summary", "lab"):
             val = row.get(key)
             if val is not None and not _is_nan(val):
@@ -427,24 +484,427 @@ class DuckDBStore:
         return self._matrices_by_id.get(matrix_id)
 
     def list_features(self) -> List[Dict[str, Any]]:
-        """Legacy full list — prefer list_features_page (loads all wrappers via SQL)."""
+        """Legacy helper — returns at most MAX_PAGE_LIMIT rows; use list_features_page."""
         page, _ = self.list_features_page(skip=0, limit=MAX_PAGE_LIMIT)
         return page
 
+    _FT_RESOURCE_DEFS: Dict[str, Dict[str, str]] = {
+        "so": {
+            "id": "so",
+            "name": "Sequence Ontology",
+            "nameSpacePrefix": "SO",
+            "iriPrefix": "http://purl.obolibrary.org/obo/SO_",
+            "url": "http://purl.obolibrary.org/obo/so.obo",
+        },
+        "uberon": {
+            "id": "uberon",
+            "name": "Uberon",
+            "nameSpacePrefix": "UBERON",
+            "iriPrefix": "http://purl.obolibrary.org/obo/UBERON_",
+            "url": "http://purl.obolibrary.org/obo/uberon.owl",
+        },
+        "efo": {
+            "id": "efo",
+            "name": "Experimental Factor Ontology",
+            "nameSpacePrefix": "EFO",
+            "iriPrefix": "http://www.ebi.ac.uk/efo/EFO_",
+            "url": "https://www.ebi.ac.uk/efo/efo.owl",
+        },
+        "hgnc": {
+            "id": "hgnc",
+            "name": "HUGO Gene Nomenclature Committee",
+            "nameSpacePrefix": "HGNC",
+            "iriPrefix": "https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/",
+            "url": "https://www.genenames.org",
+        },
+        "ncbigene": {
+            "id": "ncbigene",
+            "name": "NCBI Gene",
+            "nameSpacePrefix": "NCBIGene",
+            "iriPrefix": "https://www.ncbi.nlm.nih.gov/gene/",
+            "url": "https://www.ncbi.nlm.nih.gov/gene",
+        },
+        "ensembl": {
+            "id": "ensembl",
+            "name": "Ensembl",
+            "nameSpacePrefix": "ENSEMBL",
+            "iriPrefix": "https://www.ensembl.org/id/",
+            "url": "https://www.ensembl.org",
+        },
+    }
+
+    def _load_filtering_terms(self) -> None:
+        path = self.package_path / "filtering_terms.json"
+        if path.is_file():
+            with path.open(encoding="utf-8") as fh:
+                self._filtering_terms_doc = json.load(fh)
+            return
+        logger.warning(
+            "filtering_terms.json missing under %s; building SQL DISTINCT facets",
+            self.package_path,
+        )
+        self._filtering_terms_doc = self._build_filtering_terms_from_sql()
+
+    def _build_filtering_terms_from_sql(self) -> Dict[str, Any]:
+        """DISTINCT-only facet rebuild for old packages without filtering_terms.json."""
+        terms: Dict[str, Dict[str, Any]] = {}
+        needed_resources: Set[str] = set()
+
+        def add_term(
+            *,
+            type_: str,
+            id_: str,
+            label: Optional[str],
+            scopes: List[str],
+            values: Optional[List[str]] = None,
+        ) -> None:
+            if re.match(r"^(HGNC|NCBIGene|ENSEMBL):", id_, re.I):
+                return
+            existing = terms.get(id_)
+            if existing is None:
+                entry: Dict[str, Any] = {
+                    "type": type_,
+                    "id": id_,
+                    "scopes": list(scopes),
+                }
+                if label:
+                    entry["label"] = label
+                if values:
+                    entry["values"] = list(values)
+                terms[id_] = entry
+                return
+            scope_set = list(dict.fromkeys((existing.get("scopes") or []) + scopes))
+            existing["scopes"] = scope_set
+            if label and not existing.get("label"):
+                existing["label"] = label
+            if values:
+                existing["values"] = list(
+                    dict.fromkeys((existing.get("values") or []) + values)
+                )
+
+        # Biosample facets
+        if self._all_biosamples_view:
+            rows, _ = self._fetchall(
+                f"""
+                SELECT DISTINCT CAST(ontology_id AS VARCHAR),
+                       CAST(ontology_label AS VARCHAR),
+                       CAST(ontology_source AS VARCHAR)
+                FROM {self._all_biosamples_view}
+                WHERE ontology_id IS NOT NULL
+                """
+            )
+            for oid, olabel, osrc in rows:
+                if not oid:
+                    continue
+                pref = str(oid).split(":", 1)[0].upper()
+                if pref not in ("UBERON", "EFO"):
+                    continue
+                needed_resources.add(pref.lower())
+                add_term(
+                    type_=pref,
+                    id_=str(oid),
+                    label=str(olabel) if olabel else None,
+                    scopes=["biosample"],
+                )
+                if osrc and str(osrc).upper() == "GEO":
+                    add_term(
+                        type_="custom",
+                        id_="GEO:sample",
+                        label="GEO sample",
+                        scopes=["biosample"],
+                    )
+            sex_rows, _ = self._fetchall(
+                f"""
+                SELECT DISTINCT CAST(sex AS VARCHAR)
+                FROM {self._all_biosamples_view}
+                WHERE sex IS NOT NULL
+                """
+            )
+            sexes = [str(s[0]) for s in sex_rows if s and s[0] is not None]
+            if sexes:
+                add_term(
+                    type_="alphanumeric",
+                    id_="sex",
+                    label="Sex",
+                    scopes=["biosample"],
+                    values=sorted(sexes),
+                )
+
+        # Feature SO + resource facets
+        feat_src = self._all_features_view
+        if feat_src:
+            needed_resources.add("so")
+            rows, _ = self._fetchall(
+                f"""
+                SELECT DISTINCT CAST(feature_type_id AS VARCHAR),
+                       CAST(feature_type_label AS VARCHAR)
+                FROM {feat_src}
+                WHERE feature_type_id IS NOT NULL
+                """
+            )
+            for tid, tlabel in rows:
+                if tid:
+                    add_term(
+                        type_="SO",
+                        id_=str(tid),
+                        label=str(tlabel) if tlabel else None,
+                        scopes=["genomicFeature"],
+                    )
+            try:
+                rows, _ = self._fetchall(
+                    f"""
+                    SELECT DISTINCT CAST(term.id AS VARCHAR),
+                           CAST(term.label AS VARCHAR)
+                    FROM {feat_src}, UNNEST(ontology_terms) AS _ot(term)
+                    WHERE term.id IS NOT NULL
+                    """
+                )
+                for tid, tlabel in rows:
+                    if tid and str(tid).upper().startswith("SO:"):
+                        add_term(
+                            type_="SO",
+                            id_=str(tid),
+                            label=str(tlabel) if tlabel else None,
+                            scopes=["genomicFeature"],
+                        )
+            except duckdb.Error as exc:
+                logger.warning("ontology_terms facet scan failed: %s", exc)
+            rows, _ = self._fetchall(
+                f"""
+                SELECT DISTINCT CAST(resource AS VARCHAR)
+                FROM {feat_src}
+                WHERE resource IS NOT NULL
+                """
+            )
+            for (resource,) in rows:
+                if not resource:
+                    continue
+                add_term(
+                    type_="custom",
+                    id_=f"resource:{resource}",
+                    label=f"Annotation resource {resource}",
+                    scopes=["genomicFeature"],
+                )
+                if str(resource).lower() in ("gencode", "ensembl"):
+                    needed_resources.add("ensembl")
+                if str(resource).lower() in ("ncbigene", "ncbi"):
+                    needed_resources.add("ncbigene")
+            add_term(
+                type_="alphanumeric",
+                id_="genomicFeature.symbol",
+                label="Gene symbol",
+                scopes=["genomicFeature"],
+            )
+
+        # Gene-id namespaces from lookup prefixes (no value dump)
+        if self._has_gene_lookup:
+            try:
+                rows, _ = self._fetchall(
+                    """
+                    SELECT DISTINCT
+                      upper(split_part(CAST(lookup_key AS VARCHAR), ':', 1))
+                    FROM gene_lookup
+                    WHERE lookup_kind = 'xref'
+                      AND CAST(lookup_key AS VARCHAR) LIKE '%:%'
+                    """
+                )
+                for (pref,) in rows:
+                    p = str(pref or "").upper()
+                    if p == "HGNC":
+                        needed_resources.add("hgnc")
+                    elif p in ("NCBIGENE", "GENEID"):
+                        needed_resources.add("ncbigene")
+                    elif p in ("ENSEMBL", "ENSG"):
+                        needed_resources.add("ensembl")
+            except duckdb.Error as exc:
+                logger.warning("gene_lookup prefix scan failed: %s", exc)
+
+        filtering_terms = sorted(terms.values(), key=lambda t: (t["id"], t["type"]))
+        by_scope: Dict[str, List[str]] = {"biosample": [], "genomicFeature": []}
+        for t in filtering_terms:
+            for scope in t.get("scopes") or []:
+                by_scope.setdefault(scope, []).append(t["id"])
+        resources = [
+            dict(self._FT_RESOURCE_DEFS[rid])
+            for rid in ("so", "uberon", "efo", "hgnc", "ncbigene", "ensembl")
+            if rid in needed_resources and rid in self._FT_RESOURCE_DEFS
+        ]
+        return {
+            "schemaVersion": 1,
+            "resources": resources,
+            "filteringTerms": filtering_terms,
+            "byScope": by_scope,
+        }
+
+    def filtering_terms(
+        self, *, scopes: Optional[Sequence[str]] = None
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        doc = self._filtering_terms_doc or {}
+        terms = list(doc.get("filteringTerms") or [])
+        resources = list(doc.get("resources") or [])
+        if scopes:
+            want = set(scopes)
+            terms = [
+                t
+                for t in terms
+                if want.intersection(t.get("scopes") or [])
+            ]
+            keep_ids = set()
+            for t in terms:
+                tid = str(t.get("id") or "")
+                if ":" in tid:
+                    keep_ids.add(tid.split(":", 1)[0].lower())
+                typ = str(t.get("type") or "").lower()
+                if typ in ("so", "uberon", "efo"):
+                    keep_ids.add(typ)
+            if "genomicFeature" in want:
+                keep_ids.update({"hgnc", "ncbigene", "ensembl", "so"})
+            if "biosample" in want:
+                keep_ids.update({"uberon", "efo"})
+            resources = [
+                r
+                for r in resources
+                if str(r.get("id") or "").lower() in keep_ids
+                or str(r.get("nameSpacePrefix") or "").lower() in keep_ids
+            ]
+        return terms, resources
+
+    def _gene_lookup_exists_sql(
+        self, keys: Sequence[str]
+    ) -> Tuple[str, List[Any]]:
+        """SQL fragment: feature_id IN (SELECT … FROM gene_lookup WHERE keys)."""
+        tokens = [str(k) for k in keys if k]
+        if not tokens or not self._has_gene_lookup:
+            return "FALSE", []
+        placeholders = ", ".join(["?"] * len(tokens))
+        upper_tokens = [t.upper() for t in tokens]
+        upper_ph = ", ".join(["?"] * len(upper_tokens))
+        sql = (
+            "CAST(feature_id AS VARCHAR) IN ("
+            "SELECT DISTINCT CAST(feature_id AS VARCHAR) FROM gene_lookup "
+            f"WHERE lookup_key IN ({placeholders}) "
+            f"OR upper(CAST(lookup_key AS VARCHAR)) IN ({upper_ph})"
+            ")"
+        )
+        return sql, list(tokens) + upper_tokens
+
+    def _gene_lookup_has_any(self, keys: Sequence[str]) -> bool:
+        """Existence check only — does not materialize feature id sets."""
+        if not keys or not self._has_gene_lookup:
+            return False
+        tokens = [str(k) for k in keys if k]
+        if not tokens:
+            return False
+        placeholders = ", ".join(["?"] * len(tokens))
+        upper_tokens = [t.upper() for t in tokens]
+        upper_ph = ", ".join(["?"] * len(upper_tokens))
+        try:
+            one = self._fetchone(
+                f"""
+                SELECT 1 FROM gene_lookup
+                WHERE lookup_key IN ({placeholders})
+                   OR upper(CAST(lookup_key AS VARCHAR)) IN ({upper_ph})
+                LIMIT 1
+                """,
+                list(tokens) + upper_tokens,
+            )
+            return one is not None
+        except duckdb.Error as exc:
+            logger.warning("gene_lookup existence check failed: %s", exc)
+            return False
+
+    def _feature_filter_sql(
+        self, filters: Sequence[Any]
+    ) -> Tuple[str, List[Any], bool]:
+        """Return (AND sql fragment without leading AND, params, empty_forced)."""
+        from beacon.filters import (
+            is_gene_public_id_filter,
+            is_so_filter,
+        )
+
+        clauses: List[str] = []
+        params: List[Any] = []
+        for f in filters:
+            if is_so_filter(f):
+                clauses.append(
+                    "(CAST(feature_type_id AS VARCHAR) = ? OR "
+                    "EXISTS ("
+                    "SELECT 1 FROM UNNEST(ontology_terms) AS _ot(term) "
+                    "WHERE CAST(term.id AS VARCHAR) = ?"
+                    "))"
+                )
+                params.extend([f.id, f.id])
+            elif is_gene_public_id_filter(f):
+                from beacon.filters import gene_public_id_lookup_keys
+
+                keys = gene_public_id_lookup_keys(f.id)
+                if not self._gene_lookup_has_any(keys):
+                    return "FALSE", [], True
+                frag, fparams = self._gene_lookup_exists_sql(keys)
+                clauses.append(frag)
+                params.extend(fparams)
+            elif f.kind == "alphanumeric" and f.id == "genomicFeature.symbol":
+                keys = [f.value or ""]
+                if f.operator == "!":
+                    if not self._gene_lookup_has_any(keys):
+                        continue  # nothing to exclude
+                    frag, fparams = self._gene_lookup_exists_sql(keys)
+                    # NOT IN (subquery)
+                    clauses.append(frag.replace(
+                        "CAST(feature_id AS VARCHAR) IN (",
+                        "CAST(feature_id AS VARCHAR) NOT IN (",
+                        1,
+                    ))
+                    params.extend(fparams)
+                else:
+                    if not self._gene_lookup_has_any(keys):
+                        return "FALSE", [], True
+                    frag, fparams = self._gene_lookup_exists_sql(keys)
+                    clauses.append(frag)
+                    params.extend(fparams)
+            elif f.kind == "custom" and f.id.startswith("resource:"):
+                resource = f.id.split(":", 1)[1]
+                clauses.append("CAST(resource AS VARCHAR) = ?")
+                params.append(resource)
+            else:
+                raise ValueError(f"unhandled feature filter: {f.id}")
+        if not clauses:
+            return "", [], False
+        return " AND ".join(clauses), params, False
+
     def list_features_page(
-        self, *, skip: int = 0, limit: int = 10
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 10,
+        filters: Optional[Sequence[Any]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         view = self._all_features_view
         if not view:
             return [], 0
-        if self._global_feature_count is None:
-            one = self._fetchone(
-                f"SELECT COUNT(DISTINCT wrapper_id) FROM {view}"
-            )
-            self._global_feature_count = int(one[0]) if one else 0
-        total = self._global_feature_count
         limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
-        skip = max(0, int(skip))
+        skip = max(0, min(int(skip), MAX_SKIP))
+        where_sql = ""
+        params: List[Any] = []
+        if filters:
+            frag, fparams, empty = self._feature_filter_sql(filters)
+            if empty:
+                return [], 0
+            if frag:
+                where_sql = f"WHERE {frag}"
+                params.extend(fparams)
+            one = self._fetchone(
+                f"SELECT COUNT(DISTINCT wrapper_id) FROM {view} {where_sql}",
+                params if params else None,
+            )
+            total = int(one[0]) if one else 0
+        else:
+            if self._global_feature_count is None:
+                one = self._fetchone(
+                    f"SELECT COUNT(DISTINCT wrapper_id) FROM {view}"
+                )
+                self._global_feature_count = int(one[0]) if one else 0
+            total = self._global_feature_count
         rows, cols = self._fetchall(
             f"""
             SELECT
@@ -455,13 +915,16 @@ class DuckDBStore:
               arbitrary(feature_type_id) AS feature_type_id,
               arbitrary(feature_type_label) AS feature_type_label,
               arbitrary(aliases) AS aliases,
+              arbitrary(xrefs) AS xrefs,
+              arbitrary(ontology_terms) AS ontology_terms,
               list(DISTINCT matrix_id) AS matrix_ids
             FROM {view}
+            {where_sql}
             GROUP BY wrapper_id
             ORDER BY wrapper_id
             LIMIT ? OFFSET ?
             """,
-            [limit, skip],
+            params + [limit, skip],
         )
         out: List[Dict[str, Any]] = []
         for tup in rows:
@@ -483,10 +946,13 @@ class DuckDBStore:
               arbitrary(feature_type_id) AS feature_type_id,
               arbitrary(feature_type_label) AS feature_type_label,
               arbitrary(aliases) AS aliases,
+              arbitrary(xrefs) AS xrefs,
+              arbitrary(ontology_terms) AS ontology_terms,
               list(DISTINCT matrix_id) AS matrix_ids
             FROM {view}
             WHERE wrapper_id = ? OR feature_id = ?
             GROUP BY wrapper_id
+            ORDER BY wrapper_id
             LIMIT 1
             """,
             [feature_id, feature_id],
@@ -495,11 +961,153 @@ class DuckDBStore:
             return None
         return self._hydrate_feature_row(dict(zip(cols, rows[0])))
 
+    def _biosample_filter_sql(
+        self, filters: Sequence[Any]
+    ) -> Tuple[str, List[Any], bool]:
+        """Return (AND sql without leading AND, params, empty_forced) for biosamples."""
+        clauses: List[str] = []
+        params: List[Any] = []
+        for f in filters:
+            if f.kind == "custom" and f.id == "GEO:sample":
+                clauses.append(
+                    "(upper(CAST(ontology_source AS VARCHAR)) = 'GEO' OR "
+                    "(CAST(ontology_label AS VARCHAR) = 'GEO sample' AND "
+                    "(ontology_id IS NULL OR CAST(ontology_id AS VARCHAR) = '')))"
+                )
+            elif f.kind == "alphanumeric" and f.id == "sex":
+                if f.operator == "=":
+                    clauses.append("CAST(sex AS VARCHAR) = ?")
+                    params.append(f.value)
+                elif f.operator == "!":
+                    clauses.append(
+                        "(sex IS NULL OR CAST(sex AS VARCHAR) != ?)"
+                    )
+                    params.append(f.value)
+                else:
+                    raise ValueError(f"unsupported sex operator: {f.operator}")
+            elif f.kind == "ontology":
+                clauses.append(
+                    "(CAST(ontology_id AS VARCHAR) = ?)"
+                )
+                params.append(f.id)
+            else:
+                raise ValueError(f"unhandled biosample filter: {f.id}")
+        if not clauses:
+            return "", [], False
+        return " AND ".join(clauses), params, False
+
+    def _hydrate_biosample_row(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        doc = self._biosample_doc(row)
+        bid = doc["id"]
+        doc["matrixIds"] = self._biosample_matrices.get(bid) or []
+        if not doc["matrixIds"] and row.get("matrix_id"):
+            doc["matrixIds"] = [str(row["matrix_id"])]
+        return self._with_expression_summary(doc, row, kind="biosample")
+
     def list_biosamples(self) -> List[Dict[str, Any]]:
-        return list(self._biosamples_cache)
+        page, _ = self.list_biosamples_page(skip=0, limit=MAX_PAGE_LIMIT)
+        return page
+
+    def list_biosamples_page(
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 10,
+        filters: Optional[Sequence[Any]] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        view = self._all_biosamples_view
+        if not view:
+            return [], 0
+        limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
+        skip = max(0, min(int(skip), MAX_SKIP))
+        where_sql = ""
+        params: List[Any] = []
+        if filters:
+            frag, fparams, empty = self._biosample_filter_sql(filters)
+            if empty:
+                return [], 0
+            if frag:
+                where_sql = f"WHERE {frag}"
+                params.extend(fparams)
+        # Deduplicate by biosample_id across matrices.
+        count_sql = f"""
+            SELECT COUNT(*) FROM (
+              SELECT biosample_id
+              FROM {view}
+              {where_sql}
+              GROUP BY biosample_id
+            ) AS _b
+        """
+        one = self._fetchone(count_sql, params if params else None)
+        total = int(one[0]) if one else 0
+        rows, cols = self._fetchall(
+            f"""
+            SELECT
+              biosample_id,
+              arbitrary(ontology_id) AS ontology_id,
+              arbitrary(ontology_label) AS ontology_label,
+              arbitrary(ontology_source) AS ontology_source,
+              arbitrary(sex) AS sex,
+              arbitrary(donor) AS donor,
+              arbitrary(summary) AS summary,
+              arbitrary(lab) AS lab,
+              list(DISTINCT matrix_id) AS matrix_ids
+            FROM {view}
+            {where_sql}
+            GROUP BY biosample_id
+            ORDER BY biosample_id
+            LIMIT ? OFFSET ?
+            """,
+            params + [limit, skip],
+        )
+        out: List[Dict[str, Any]] = []
+        for tup in rows:
+            row = dict(zip(cols, tup))
+            # Prefer aggregated matrix_ids from SQL when present
+            raw_mids = row.get("matrix_ids")
+            if raw_mids is not None and not _is_nan(raw_mids):
+                try:
+                    mids = [str(x) for x in list(raw_mids)]
+                except TypeError:
+                    mids = [str(raw_mids)]
+                self._biosample_matrices.setdefault(str(row["biosample_id"]), mids)
+            out.append(self._hydrate_biosample_row(row))
+        return out, total
 
     def get_biosample(self, biosample_id: str) -> Optional[Dict[str, Any]]:
-        return self._biosamples_by_id.get(biosample_id)
+        view = self._all_biosamples_view
+        if not view:
+            return None
+        rows, cols = self._fetchall(
+            f"""
+            SELECT
+              biosample_id,
+              arbitrary(ontology_id) AS ontology_id,
+              arbitrary(ontology_label) AS ontology_label,
+              arbitrary(ontology_source) AS ontology_source,
+              arbitrary(sex) AS sex,
+              arbitrary(donor) AS donor,
+              arbitrary(summary) AS summary,
+              arbitrary(lab) AS lab,
+              list(DISTINCT matrix_id) AS matrix_ids
+            FROM {view}
+            WHERE biosample_id = ?
+            GROUP BY biosample_id
+            LIMIT 1
+            """,
+            [biosample_id],
+        )
+        if not rows:
+            return None
+        row = dict(zip(cols, rows[0]))
+        raw_mids = row.get("matrix_ids")
+        if raw_mids is not None and not _is_nan(raw_mids):
+            try:
+                mids = [str(x) for x in list(raw_mids)]
+            except TypeError:
+                mids = [str(raw_mids)]
+            self._biosample_matrices[str(row["biosample_id"])] = mids
+        return self._hydrate_biosample_row(row)
 
     def matrices_for_feature(self, feature_id: str) -> List[Dict[str, Any]]:
         feature = self.get_feature(feature_id)
@@ -559,7 +1167,7 @@ class DuckDBStore:
             total = int(one[0]) if one else 0
             self._feature_counts[matrix_id] = total
         limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
-        skip = max(0, int(skip))
+        skip = max(0, min(int(skip), MAX_SKIP))
         sort_key, order_key = self.effective_axis_sort(
             matrix_id, axis="features", sort=sort, order=order
         )
@@ -611,11 +1219,10 @@ class DuckDBStore:
         return out, int(total)
 
     def biosamples_for_matrix(self, matrix_id: str) -> List[Dict[str, Any]]:
-        return [
-            self._biosamples_by_id[bid]
-            for bid, mids in self._biosample_matrices.items()
-            if matrix_id in mids and bid in self._biosamples_by_id
-        ]
+        page, _ = self.biosamples_for_matrix_page(
+            matrix_id, skip=0, limit=MAX_PAGE_LIMIT
+        )
+        return page
 
     def biosamples_for_matrix_page(
         self,
@@ -638,13 +1245,13 @@ class DuckDBStore:
             reverse = order_key == "desc"
             items = sorted(items, key=lambda d: d.get("id") or "", reverse=reverse)
             limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
-            skip = max(0, int(skip))
+            skip = max(0, min(int(skip), MAX_SKIP))
             return items[skip : skip + limit], total
 
         one = self._fetchone(f"SELECT COUNT(*) FROM {bio_view}")
         total = int(one[0]) if one else 0
         limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
-        skip = max(0, int(skip))
+        skip = max(0, min(int(skip), MAX_SKIP))
         stats = self._bio_stats_views.get(matrix_id)
         order_sql = "ASC" if order_key == "asc" else "DESC"
         if sort_key == "expression.max" and stats:
@@ -726,37 +1333,38 @@ class DuckDBStore:
             except duckdb.Error as exc:
                 logger.warning("all_features id resolve failed: %s", exc)
 
-        try:
-            placeholders = ", ".join(["?"] * len(tokens))
-            upper_tokens = [t.upper() for t in tokens]
-            q = f"""
-            SELECT DISTINCT feature_id
-            FROM gene_lookup
-            WHERE lookup_key IN ({placeholders})
-               OR upper(lookup_key) IN ({", ".join(["?"] * len(upper_tokens))})
-            """
-            params = list(tokens) + upper_tokens
-            if matrix_id:
-                mat = self._matrices_by_id.get(matrix_id) or {}
-                ann = mat.get("annotation") or {}
-                src = ann.get("source")
-                ver = str(ann.get("version") or "")
-                if src and ver:
-                    q = f"""
-                    SELECT DISTINCT feature_id
-                    FROM gene_lookup
-                    WHERE (lookup_key IN ({placeholders})
-                       OR upper(lookup_key) IN ({", ".join(["?"] * len(upper_tokens))}))
-                      AND annotation_source = ?
-                      AND annotation_version = ?
-                    """
-                    params = list(tokens) + upper_tokens + [src, ver]
-            rows, _ = self._fetchall(q, params)
-            for (fid,) in rows:
-                if fid:
-                    resolved.add(str(fid))
-        except duckdb.Error as exc:
-            logger.warning("gene_lookup resolve failed: %s", exc)
+        if self._has_gene_lookup:
+            try:
+                placeholders = ", ".join(["?"] * len(tokens))
+                upper_tokens = [t.upper() for t in tokens]
+                q = f"""
+                SELECT DISTINCT feature_id
+                FROM gene_lookup
+                WHERE lookup_key IN ({placeholders})
+                   OR upper(lookup_key) IN ({", ".join(["?"] * len(upper_tokens))})
+                """
+                params = list(tokens) + upper_tokens
+                if matrix_id:
+                    mat = self._matrices_by_id.get(matrix_id) or {}
+                    ann = mat.get("annotation") or {}
+                    src = ann.get("source")
+                    ver = str(ann.get("version") or "")
+                    if src and ver:
+                        q = f"""
+                        SELECT DISTINCT feature_id
+                        FROM gene_lookup
+                        WHERE (lookup_key IN ({placeholders})
+                           OR upper(lookup_key) IN ({", ".join(["?"] * len(upper_tokens))}))
+                          AND annotation_source = ?
+                          AND annotation_version = ?
+                        """
+                        params = list(tokens) + upper_tokens + [src, ver]
+                rows, _ = self._fetchall(q, params)
+                for (fid,) in rows:
+                    if fid:
+                        resolved.add(str(fid))
+            except duckdb.Error as exc:
+                logger.warning("gene_lookup resolve failed: %s", exc)
 
         return resolved
 
@@ -816,7 +1424,7 @@ class DuckDBStore:
             limit = min(int(total), MAX_PAGE_LIMIT)
         else:
             limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
-        skip = max(0, int(skip))
+        skip = max(0, min(int(skip), MAX_SKIP))
 
         # Unfiltered pages use storage order (avoids full-table ORDER BY).
         order_sql = "ORDER BY feature_id, biosample_id" if filtered else ""
@@ -845,9 +1453,3 @@ class DuckDBStore:
             )
         return out, int(total)
 
-
-def open_duckdb_store(path: Optional[str] = None) -> DuckDBStore:
-    raw = path or os.environ.get("DATA_PACKAGE_PATH", "").strip()
-    if not raw:
-        raise ValueError("DATA_PACKAGE_PATH is not set")
-    return DuckDBStore(Path(raw))

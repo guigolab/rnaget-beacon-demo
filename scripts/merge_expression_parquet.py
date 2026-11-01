@@ -61,26 +61,6 @@ def _merge_with_duckdb(parts: List[Path], out_path: Path) -> int:
     return _parquet_num_rows(out_path)
 
 
-def _merge_with_pyarrow_stream(parts: List[Path], out_path: Path) -> int:
-    """Append one part at a time so peak RAM ≈ largest single shard."""
-    import pyarrow.parquet as pq
-
-    writer = None
-    total = 0
-    try:
-        for part in parts:
-            table = pq.read_table(part)
-            if writer is None:
-                writer = pq.ParquetWriter(out_path, table.schema, compression="zstd")
-            writer.write_table(table)
-            total += table.num_rows
-            del table
-    finally:
-        if writer is not None:
-            writer.close()
-    return total
-
-
 def _merge_matrix_expression(matrix_dir: Path, *, keep_shards: bool) -> Dict[str, Any]:
     expr_dir = matrix_dir / "expression"
     out_path = matrix_dir / "expression.parquet"
@@ -104,15 +84,17 @@ def _merge_matrix_expression(matrix_dir: Path, *, keep_shards: bool) -> Dict[str
         tmp_out.unlink()
 
     try:
+        # DuckDB only — a full-shard PyArrow fallback would blow RAM on large parts.
         try:
             rows = _merge_with_duckdb(parts, tmp_out)
-            method = "duckdb"
         except Exception as exc:
-            print(f"    duckdb merge failed ({exc}); streaming with pyarrow…")
             if tmp_out.exists():
-                tmp_out.unlink()
-            rows = _merge_with_pyarrow_stream(parts, tmp_out)
-            method = "pyarrow-stream"
+                tmp_out.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"DuckDB merge failed for {matrix_dir.name}: {exc}. "
+                "Install/fix duckdb, or raise DUCKDB_MEMORY_LIMIT / set "
+                "DUCKDB_TEMP_DIR; refusing high-RAM PyArrow fallback."
+            ) from exc
         tmp_out.replace(out_path)
     except Exception:
         if tmp_out.exists():
@@ -135,7 +117,7 @@ def _merge_matrix_expression(matrix_dir: Path, *, keep_shards: bool) -> Dict[str
         "rows": rows,
         "merged": True,
         "parts_removed": removed,
-        "method": method,
+        "method": "duckdb",
     }
 
 

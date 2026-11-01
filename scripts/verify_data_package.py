@@ -182,6 +182,155 @@ def main(argv: List[str] | None = None) -> int:
                     f"!= gene_lookup.parquet rows={lookup_table.num_rows}"
                 )
 
+        gene_cols = set(genes_table.column_names)
+        for required in (
+            "feature_type_id",
+            "feature_type_label",
+            "xrefs",
+            "ontology_terms",
+            "annotation_source",
+            "symbol",
+        ):
+            if required not in gene_cols:
+                errors.append(f"genes.parquet missing column {required}")
+
+        if "annotation_source" in gene_cols and "xrefs" in gene_cols:
+            rows = genes_table.select(
+                ["annotation_source", "symbol", "xrefs", "ontology_terms", "feature_type_id"]
+            ).to_pylist()
+
+            def _xref_has_gene_or_hgnc(xrefs: object) -> bool:
+                if not xrefs:
+                    return False
+                for x in xrefs:
+                    s = str(x)
+                    if s.startswith("NCBIGene:") or s.startswith("HGNC:"):
+                        return True
+                return False
+
+            gencode_with_symbol = [
+                r
+                for r in rows
+                if (r.get("annotation_source") or "").lower() == "gencode" and r.get("symbol")
+            ]
+            if gencode_with_symbol:
+                hits = sum(1 for r in gencode_with_symbol if _xref_has_gene_or_hgnc(r.get("xrefs")))
+                frac = hits / len(gencode_with_symbol)
+                if frac < 0.5:
+                    errors.append(
+                        f"gencode symbol-bearing genes with NCBIGene/HGNC xref "
+                        f"fraction={frac:.1%} < 50% ({hits}/{len(gencode_with_symbol)})"
+                    )
+
+            ncbigene_rows = [
+                r for r in rows if (r.get("annotation_source") or "").lower() == "ncbigene"
+            ]
+            if ncbigene_rows:
+                missing_ncbi = [
+                    r
+                    for r in ncbigene_rows
+                    if not any(
+                        str(x).startswith("NCBIGene:") for x in (r.get("xrefs") or [])
+                    )
+                ]
+                if missing_ncbi:
+                    errors.append(
+                        f"ncbigene genes missing NCBIGene xref: {len(missing_ncbi)} "
+                        f"(e.g. feature_id={missing_ncbi[0].get('feature_id')})"
+                    )
+
+            # Ontology terms should diversify when biotypes vary across the package.
+            ont_ids = set()
+            nonempty_ont = 0
+            for r in rows:
+                terms = r.get("ontology_terms") or []
+                if terms:
+                    nonempty_ont += 1
+                    for t in terms:
+                        if isinstance(t, dict) and t.get("id"):
+                            ont_ids.add(str(t["id"]))
+            if nonempty_ont > 0 and len(ont_ids) < 2 and genes_table.num_rows > 100:
+                errors.append(
+                    f"ontology_terms has only {len(ont_ids)} distinct SO id(s) "
+                    f"across {nonempty_ont} annotated gene(s); expected biotype diversity"
+                )
+
+            ft_ids = {
+                str(r.get("feature_type_id"))
+                for r in rows
+                if r.get("feature_type_id")
+            }
+            if not ft_ids:
+                errors.append("genes.parquet has no feature_type_id values")
+            elif any(not s.startswith("SO:") for s in ft_ids):
+                bad = sorted(s for s in ft_ids if not s.startswith("SO:"))[:5]
+                errors.append(f"non-SO feature_type_id values: {bad}")
+
+    # filtering_terms.json catalog (Beacon facets; no gene CURIE dump)
+    ft_path = root / "filtering_terms.json"
+    if not ft_path.is_file():
+        errors.append("missing filtering_terms.json")
+    elif manifest.get("filteringTermsPath") != "filtering_terms.json":
+        errors.append("manifest.filteringTermsPath missing or not filtering_terms.json")
+    elif ft_path.is_file():
+        with ft_path.open(encoding="utf-8") as fh:
+            ft_doc = json.load(fh)
+        ft_terms = ft_doc.get("filteringTerms") or []
+        ft_resources = ft_doc.get("resources") or []
+        if not ft_terms:
+            errors.append("filtering_terms.json has empty filteringTerms")
+        if not ft_resources:
+            errors.append("filtering_terms.json has empty resources")
+        for term in ft_terms:
+            if not isinstance(term, dict):
+                errors.append("filteringTerms entry is not an object")
+                continue
+            for req in ("type", "id", "scopes"):
+                if req not in term:
+                    errors.append(f"filteringTerm {term.get('id')!r} missing {req}")
+                    break
+            tid = str(term.get("id") or "")
+            if tid.startswith(("HGNC:", "NCBIGene:", "ENSEMBL:", "Ensembl:")):
+                errors.append(
+                    f"filteringTerms must not enumerate gene CURIEs (found {tid})"
+                )
+        res_ids = {
+            str(r.get("id") or "").lower()
+            for r in ft_resources
+            if isinstance(r, dict)
+        }
+        if "so" not in res_ids and any(
+            isinstance(t, dict) and "genomicFeature" in (t.get("scopes") or [])
+            for t in ft_terms
+        ):
+            errors.append("filtering_terms resources missing so")
+        # When genes carry HGNC/NCBIGene xrefs, those namespaces must be declared
+        if genes_path.is_file():
+            import pyarrow.parquet as pq
+
+            sample = pq.read_table(genes_path, columns=["xrefs"]).to_pylist()[:5000]
+            has_hgnc = any(
+                any(str(x).startswith("HGNC:") for x in (r.get("xrefs") or []))
+                for r in sample
+            )
+            has_ncbi = any(
+                any(str(x).startswith("NCBIGene:") for x in (r.get("xrefs") or []))
+                for r in sample
+            )
+            if has_hgnc and "hgnc" not in res_ids:
+                errors.append("filtering_terms resources missing hgnc (xrefs present)")
+            if has_ncbi and "ncbigene" not in res_ids:
+                errors.append(
+                    "filtering_terms resources missing ncbigene (xrefs present)"
+                )
+        meta_ft = manifest.get("filteringTerms")
+        if isinstance(meta_ft, dict) and "termCount" in meta_ft:
+            if meta_ft.get("termCount") != len(ft_terms):
+                errors.append(
+                    f"manifest.filteringTerms.termCount={meta_ft.get('termCount')} "
+                    f"!= filteringTerms length={len(ft_terms)}"
+                )
+
     if errors:
         print("Package verify failed:", file=sys.stderr)
         for e in errors[:40]:

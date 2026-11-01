@@ -10,7 +10,14 @@
         "id": "SO:0000704",
         "label": "gene"
       },
-      "aliases": ["TP53"]
+      "ontologyTerms": [
+        {
+          "id": "SO:0001217",
+          "label": "protein_coding_gene"
+        }
+      ],
+      "aliases": ["TP53"],
+      "xrefs": ["HGNC:11998", "NCBIGene:7157"]
     },
     "matrixIds": ["matrix-gene-expression-001", "GSE88557"]
   },
@@ -25,6 +32,7 @@
         "id": "SO:0000234",
         "label": "mRNA"
       },
+      "xrefs": ["ENSEMBL:ENST00000269305"],
       "relationship": {
         "parent": "ENSG00000141510.18"
       }

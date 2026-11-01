@@ -15,9 +15,34 @@ class Pagination(BaseModel):
     limit: Optional[int] = Field(10, ge=1)
 
 
+class OntologyFilter(BaseModel):
+    id: str
+    scope: Optional[str] = None
+    includeDescendantTerms: Optional[bool] = True
+    similarity: Optional[str] = "exact"
+
+
+class AlphanumericFilter(BaseModel):
+    id: str
+    operator: str = "="
+    value: str
+    scope: Optional[str] = None
+
+
+class CustomFilter(BaseModel):
+    id: str
+    scope: Optional[str] = None
+
+
+# Alphanumeric first so operator+value requests don't collapse to OntologyFilter.
+BeaconFilter = Union[AlphanumericFilter, OntologyFilter, CustomFilter]
+
+
 class BeaconQuery(BaseModel):
     requestedGranularity: Optional[Granularity] = None
     pagination: Optional[Pagination] = None
+    # Beacon anyOf OntologyFilter | AlphanumericFilter | CustomFilter
+    filters: Optional[List[BeaconFilter]] = None
 
 
 class BeaconRequestMeta(BaseModel):

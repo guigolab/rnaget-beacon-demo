@@ -116,12 +116,13 @@ def build_informational_response(
 
 def build_filtering_terms_response(
     terms: Optional[List[Dict[str, Any]]] = None,
+    resources: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     return {
         "meta": _meta("filteringTerm", config.SCHEMA_IDS["filteringTerms"]),
         "response": {
             "filteringTerms": terms or [],
-            "resources": [],
+            "resources": resources or [],
         },
     }
 

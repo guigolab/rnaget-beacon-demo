@@ -2,7 +2,7 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .loader import load_all, strip_schema
 
@@ -10,6 +10,111 @@ logger = logging.getLogger(__name__)
 
 _STORE: Optional[Any] = None
 _STORE_LOCK = threading.Lock()
+
+_FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
+    "schemaVersion": 1,
+    "resources": [
+        {
+            "id": "so",
+            "name": "Sequence Ontology",
+            "nameSpacePrefix": "SO",
+            "iriPrefix": "http://purl.obolibrary.org/obo/SO_",
+            "url": "http://purl.obolibrary.org/obo/so.obo",
+        },
+        {
+            "id": "uberon",
+            "name": "Uberon",
+            "nameSpacePrefix": "UBERON",
+            "iriPrefix": "http://purl.obolibrary.org/obo/UBERON_",
+            "url": "http://purl.obolibrary.org/obo/uberon.owl",
+        },
+        {
+            "id": "efo",
+            "name": "Experimental Factor Ontology",
+            "nameSpacePrefix": "EFO",
+            "iriPrefix": "http://www.ebi.ac.uk/efo/EFO_",
+            "url": "https://www.ebi.ac.uk/efo/efo.owl",
+        },
+        {
+            "id": "hgnc",
+            "name": "HUGO Gene Nomenclature Committee",
+            "nameSpacePrefix": "HGNC",
+            "iriPrefix": "https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/",
+            "url": "https://www.genenames.org",
+        },
+        {
+            "id": "ncbigene",
+            "name": "NCBI Gene",
+            "nameSpacePrefix": "NCBIGene",
+            "iriPrefix": "https://www.ncbi.nlm.nih.gov/gene/",
+            "url": "https://www.ncbi.nlm.nih.gov/gene",
+        },
+        {
+            "id": "ensembl",
+            "name": "Ensembl",
+            "nameSpacePrefix": "ENSEMBL",
+            "iriPrefix": "https://www.ensembl.org/id/",
+            "url": "https://www.ensembl.org",
+        },
+    ],
+    "filteringTerms": [
+        {
+            "type": "SO",
+            "id": "SO:0000704",
+            "label": "gene",
+            "scopes": ["genomicFeature"],
+        },
+        {
+            "type": "SO",
+            "id": "SO:0000234",
+            "label": "mRNA",
+            "scopes": ["genomicFeature"],
+        },
+        {
+            "type": "SO",
+            "id": "SO:0001217",
+            "label": "protein_coding_gene",
+            "scopes": ["genomicFeature"],
+        },
+        {
+            "type": "UBERON",
+            "id": "UBERON:0000474",
+            "label": "female reproductive system",
+            "scopes": ["biosample"],
+        },
+        {
+            "type": "UBERON",
+            "id": "UBERON:0002107",
+            "label": "liver",
+            "scopes": ["biosample"],
+        },
+        {
+            "type": "alphanumeric",
+            "id": "genomicFeature.symbol",
+            "label": "Gene symbol",
+            "scopes": ["genomicFeature"],
+        },
+        {
+            "type": "alphanumeric",
+            "id": "sex",
+            "label": "Sex",
+            "scopes": ["biosample"],
+            "values": ["female", "male"],
+        },
+        {
+            "type": "custom",
+            "id": "GEO:sample",
+            "label": "GEO sample",
+            "scopes": ["biosample"],
+        },
+        {
+            "type": "custom",
+            "id": "resource:ensembl",
+            "label": "Annotation resource ensembl",
+            "scopes": ["genomicFeature"],
+        },
+    ],
+}
 
 
 class FixtureStore:
@@ -26,6 +131,7 @@ class FixtureStore:
         self._matrices_by_id = {m["matrixId"]: m for m in self.matrices}
         self._features_by_id = {f["id"]: f for f in self.features}
         self._biosamples_by_id = {b["id"]: b for b in self.biosamples}
+        self._filtering_terms_doc = dict(_FIXTURE_FILTERING_TERMS)
 
     def list_matrices(self) -> List[Dict[str, Any]]:
         return list(self.matrices)
@@ -36,17 +142,120 @@ class FixtureStore:
     def list_features(self) -> List[Dict[str, Any]]:
         return list(self.features)
 
+    def filtering_terms(
+        self, *, scopes: Optional[Sequence[str]] = None
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        doc = self._filtering_terms_doc
+        terms = list(doc.get("filteringTerms") or [])
+        resources = list(doc.get("resources") or [])
+        if scopes:
+            want = set(scopes)
+            terms = [t for t in terms if want.intersection(t.get("scopes") or [])]
+            keep = set()
+            if "genomicFeature" in want:
+                keep.update({"so", "hgnc", "ncbigene", "ensembl"})
+            if "biosample" in want:
+                keep.update({"uberon", "efo"})
+            resources = [
+                r for r in resources if str(r.get("id") or "").lower() in keep
+            ]
+        return terms, resources
+
+    def _feature_ids_for_symbol_or_xref(self, key: str) -> Set[str]:
+        from beacon.filters import gene_public_id_lookup_keys
+
+        candidates = {k.upper() for k in gene_public_id_lookup_keys(key)}
+        candidates.add(key.upper())
+        hits: Set[str] = set()
+        for f in self.features:
+            gf = f.get("genomicFeature") or {}
+            aliases = [str(a).upper() for a in (gf.get("aliases") or [])]
+            native = str((gf.get("featureIdentifier") or {}).get("id") or "")
+            native_u = native.upper()
+            native_bare = native_u.rsplit(".", 1)[0] if "." in native_u else native_u
+            xrefs = {str(x).upper() for x in (gf.get("xrefs") or [])}
+            wid = str(f.get("id") or "")
+            if (
+                candidates & set(aliases)
+                or native_u in candidates
+                or native_bare in candidates
+                or candidates & xrefs
+            ):
+                hits.add(wid)
+                if native:
+                    hits.add(native)
+        return hits
+
     def list_features_page(
-        self, *, skip: int = 0, limit: int = 10
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 10,
+        filters: Optional[Sequence[Any]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
-        total = len(self.features)
-        return self.features[skip : skip + limit], total
+        from beacon.filters import (
+            feature_doc_matches,
+            is_gene_public_id_filter,
+        )
+
+        items = list(self.features)
+        if filters:
+            # Pre-resolve gene CURIE / symbol to wrapper ids
+            allow: Optional[Set[str]] = None
+            for f in filters:
+                if is_gene_public_id_filter(f):
+                    ids = self._feature_ids_for_symbol_or_xref(f.id)
+                    allow = ids if allow is None else (allow & ids)
+                elif f.kind == "alphanumeric" and f.id == "genomicFeature.symbol":
+                    ids = self._feature_ids_for_symbol_or_xref(f.value or "")
+                    if f.operator == "!":
+                        items = [
+                            feat
+                            for feat in items
+                            if feat.get("id") not in ids
+                            and (feat.get("genomicFeature") or {})
+                            .get("featureIdentifier", {})
+                            .get("id")
+                            not in ids
+                        ]
+                    else:
+                        allow = ids if allow is None else (allow & ids)
+            if allow is not None:
+                if not allow:
+                    return [], 0
+                items = [
+                    feat
+                    for feat in items
+                    if feat.get("id") in allow
+                    or (feat.get("genomicFeature") or {})
+                    .get("featureIdentifier", {})
+                    .get("id")
+                    in allow
+                ]
+            items = [feat for feat in items if feature_doc_matches(feat, filters)]
+        total = len(items)
+        return items[skip : skip + limit], total
 
     def get_feature(self, feature_id: str) -> Optional[Dict[str, Any]]:
         return self._features_by_id.get(feature_id)
 
     def list_biosamples(self) -> List[Dict[str, Any]]:
         return list(self.biosamples)
+
+    def list_biosamples_page(
+        self,
+        *,
+        skip: int = 0,
+        limit: int = 10,
+        filters: Optional[Sequence[Any]] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        from beacon.filters import biosample_matches
+
+        items = list(self.biosamples)
+        if filters:
+            items = [b for b in items if biosample_matches(b, filters)]
+        total = len(items)
+        return items[skip : skip + limit], total
 
     def get_biosample(self, biosample_id: str) -> Optional[Dict[str, Any]]:
         return self._biosamples_by_id.get(biosample_id)

@@ -85,4 +85,7 @@ def get_entry_types():
 @router.get("/filtering_terms", responses=OPENAPI_FILTERING_TERMS_RESPONSES)
 @router.post("/filtering_terms", responses=OPENAPI_FILTERING_TERMS_RESPONSES)
 def filtering_terms():
-    return build_filtering_terms_response([])
+    from beacon.fixtures import get_store
+
+    terms, resources = get_store().filtering_terms()
+    return build_filtering_terms_response(terms, resources)

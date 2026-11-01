@@ -3,6 +3,12 @@ from typing import Any, Dict, Optional, Union
 from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse
 
+from beacon.filters import (
+    filters_to_summary,
+    normalize_filters,
+    parse_get_filters_csv,
+    validate_filters_for_entity,
+)
 from beacon.fixtures import get_store
 from beacon.responses import (
     build_filtering_terms_response,
@@ -43,23 +49,50 @@ def _list_response(
     )
 
 
+def _resolve_feature_filters(
+    *,
+    filters_csv: Optional[str] = None,
+    body: Optional[Dict[str, Any]] = None,
+):
+    try:
+        if body is not None:
+            query = body.get("query") or {}
+            raw = query.get("filters") if isinstance(query, dict) else None
+            filters = normalize_filters(raw)
+        else:
+            filters = parse_get_filters_csv(filters_csv)
+        err = validate_filters_for_entity(filters, entity="feature")
+        if err:
+            return None, error_json(400, err)
+        return filters, None
+    except ValueError as exc:
+        return None, error_json(400, str(exc))
+
+
 @router.get("/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
 def get_features(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1),
     requestedGranularity: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
+    filt, ferr = _resolve_feature_filters(filters_csv=filters)
+    if ferr:
+        return ferr
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
         requested_granularity=requestedGranularity,
         cap_limit=True,
+        extra_summary={"filters": filters_to_summary(filt)} if filt else None,
     )
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
     page_limit = limit_v if gran.value == "record" else 0
-    results, total = get_store().list_features_page(skip=skip_v, limit=page_limit)
+    results, total = get_store().list_features_page(
+        skip=skip_v, limit=page_limit, filters=filt or None
+    )
     return _list_response(
         results,
         "feature",
@@ -77,12 +110,22 @@ def get_features(
 def post_features(
     body: BeaconRequestBody = Body(...),
 ) -> Union[Dict[str, Any], JSONResponse]:
-    resolved, err = resolve_or_error(body=model_to_dict(body), cap_limit=True)
+    body_dict = model_to_dict(body)
+    filt, ferr = _resolve_feature_filters(body=body_dict)
+    if ferr:
+        return ferr
+    resolved, err = resolve_or_error(
+        body=body_dict,
+        cap_limit=True,
+        extra_summary={"filters": filters_to_summary(filt)} if filt else None,
+    )
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
     page_limit = limit_v if gran.value == "record" else 0
-    results, total = get_store().list_features_page(skip=skip_v, limit=page_limit)
+    results, total = get_store().list_features_page(
+        skip=skip_v, limit=page_limit, filters=filt or None
+    )
     return _list_response(
         results,
         "feature",
@@ -107,7 +150,8 @@ def post_features(
     responses=OPENAPI_FILTERING_TERMS_RESPONSES,
 )
 def features_filtering_terms():
-    return build_filtering_terms_response([])
+    terms, resources = get_store().filtering_terms(scopes=["genomicFeature"])
+    return build_filtering_terms_response(terms, resources)
 
 
 @router.get("/features/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES)

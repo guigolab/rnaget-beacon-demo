@@ -1,6 +1,6 @@
 # Local prod simulation: build images from this tree.
-# Prepare data first:
-#   pipenv run python scripts/fetch_data_package.py --out data/rnaget-demo
+# Prepare data first (data/ is gitignored; empty mount → API fail-fast):
+#   pipenv run python scripts/fetch_data_package.py --out data/rnaget-demo --force
 # Then:
 #   docker compose -f docker-compose-dev.yml up --build
 #
