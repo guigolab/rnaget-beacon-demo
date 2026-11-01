@@ -254,16 +254,257 @@ def enrich_features(
     return rows
 
 
+# Beacon biosample.sampleOriginType — OBI material-entity categories.
+_OBI_SPECIMEN = {"id": "OBI:0001479", "label": "specimen from organism"}
+_OBI_CELL_CULTURE = {"id": "OBI:0001876", "label": "cell culture"}
+
+GEO_ONTOLOGY_MAP_PATH = Path(__file__).resolve().parent / "data" / "geo_biosample_ontology.json"
+ENCODE_BIOSAMPLE_URL = "https://www.encodeproject.org/biosamples/{accession}/?format=json"
+# NCBI text dump of all GSMs in a series (more reliable than FTP soft.gz here).
+GEO_SOFT_URL = (
+    "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi"
+    "?acc={accession}&targ=gsm&form=text&view=full"
+)
+
+
+def _pair_or_none(
+    oid: Any,
+    label: Any,
+    *,
+    context: str,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Return (id, label) only when both are non-empty; else (None, None) + warn."""
+    oid_s = str(oid).strip() if oid is not None else ""
+    label_s = str(label).strip() if label is not None else ""
+    if oid_s and label_s:
+        return oid_s, label_s
+    if oid_s and not label_s:
+        print(
+            f"WARNING: skipping ontology id without label ({context}): {oid_s}",
+            flush=True,
+        )
+    return None, None
+
+
+def _ontology_source_for_id(oid: Optional[str], fallback: Optional[str] = None) -> Optional[str]:
+    if not oid:
+        return fallback
+    if oid.startswith("EFO:"):
+        return "EFO"
+    if oid.startswith("UBERON:"):
+        return "UBERON"
+    return fallback
+
+
+def _load_geo_ontology_map(path: Path = GEO_ONTOLOGY_MAP_PATH) -> Dict[str, Dict[str, str]]:
+    if not path.is_file():
+        print(f"WARNING: GEO ontology map missing: {path}", flush=True)
+        return {}
+    import json
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    out: Dict[str, Dict[str, str]] = {}
+    for key, entry in raw.items():
+        if key.startswith("_") or not isinstance(entry, dict):
+            continue
+        oid = (entry.get("id") or "").strip()
+        label = (entry.get("label") or "").strip()
+        source = (entry.get("source") or "").strip()
+        if not oid or not label:
+            print(
+                f"WARNING: GEO map entry {key!r} missing required id/label; skipped",
+                flush=True,
+            )
+            continue
+        out[key.strip().lower()] = {
+            "id": oid,
+            "label": label,
+            "source": source or (_ontology_source_for_id(oid) or ""),
+        }
+    return out
+
+
+def ensure_encode_biosample_json(
+    accession: str,
+    cache_dir: Path = CACHE_DIR,
+    *,
+    skip_download: bool = False,
+    timeout: int = 60,
+) -> Optional[Dict[str, Any]]:
+    """Fetch/cache ENCODE ENCBS JSON; return parsed dict or None on failure."""
+    acc = (accession or "").strip()
+    if not acc:
+        return None
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dest = cache_dir / f"encode_biosample_{acc}.json"
+    if not dest.exists():
+        if skip_download:
+            print(
+                f"WARNING: ENCODE biosample cache miss for {acc} ({dest})",
+                flush=True,
+            )
+            return None
+        url = ENCODE_BIOSAMPLE_URL.format(accession=acc)
+        try:
+            resp = requests.get(
+                url,
+                timeout=timeout,
+                headers={"Accept": "application/json"},
+            )
+            resp.raise_for_status()
+            dest.write_bytes(resp.content)
+        except Exception as exc:
+            print(f"WARNING: ENCODE biosample fetch failed for {acc}: {exc}", flush=True)
+            return None
+    try:
+        import json
+
+        return json.loads(dest.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"WARNING: ENCODE biosample JSON parse failed for {acc}: {exc}", flush=True)
+        return None
+
+
+def encode_biosample_ontology(
+    accession: str,
+    cache_dir: Path = CACHE_DIR,
+    *,
+    skip_download: bool = False,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Return (term_id, term_name, ontology_source) from ENCBS biosample_ontology."""
+    data = ensure_encode_biosample_json(
+        accession, cache_dir, skip_download=skip_download
+    )
+    if not data:
+        return None, None, None
+    ont = data.get("biosample_ontology") or {}
+    if not isinstance(ont, dict):
+        return None, None, None
+    oid, label = _pair_or_none(
+        ont.get("term_id"),
+        ont.get("term_name"),
+        context=f"ENCODE {accession} biosample_ontology",
+    )
+    if not oid:
+        return None, None, None
+    return oid, label, _ontology_source_for_id(oid, "EFO")
+
+
+def ensure_geo_soft_path(
+    accession: str,
+    cache_dir: Path = CACHE_DIR,
+    *,
+    skip_download: bool = False,
+    timeout: int = 120,
+) -> Optional[Path]:
+    """Download/cache GEO series SOFT-like text (all GSMs) for ``accession``."""
+    acc = (accession or "").strip().upper()
+    if not acc:
+        return None
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dest = cache_dir / f"{acc}_family.soft"
+    if dest.exists() and dest.stat().st_size > 0:
+        return dest
+    # Accept previously cached .soft.gz if present.
+    dest_gz = cache_dir / f"{acc}_family.soft.gz"
+    if dest_gz.exists() and dest_gz.stat().st_size > 0:
+        return dest_gz
+    if skip_download:
+        print(f"WARNING: GEO SOFT cache miss for {acc}", flush=True)
+        return None
+    url = GEO_SOFT_URL.format(accession=acc)
+    try:
+        with requests.get(url, stream=True, timeout=timeout) as resp:
+            resp.raise_for_status()
+            tmp = dest.with_suffix(dest.suffix + ".partial")
+            try:
+                with tmp.open("wb") as out:
+                    for chunk in resp.iter_content(chunk_size=256 * 1024):
+                        if chunk:
+                            out.write(chunk)
+                if tmp.stat().st_size == 0:
+                    tmp.unlink(missing_ok=True)
+                    print(f"WARNING: empty GEO SOFT download for {acc}", flush=True)
+                    return None
+                tmp.replace(dest)
+            except Exception:
+                if tmp.exists():
+                    tmp.unlink(missing_ok=True)
+                raise
+        return dest
+    except Exception as exc:
+        print(f"WARNING: GEO SOFT fetch failed for {acc}: {exc}", flush=True)
+        return None
+
+
+def parse_geo_soft_characteristics(path: Path) -> Dict[str, List[str]]:
+    """Map GSM accession → list of ``!Sample_characteristics_ch1`` values."""
+    out: Dict[str, List[str]] = {}
+    gsm: Optional[str] = None
+    with _open_text(path) as fh:
+        for line in fh:
+            if line.startswith("^SAMPLE"):
+                gsm = line.split("=", 1)[-1].strip()
+                out.setdefault(gsm, [])
+            elif line.startswith("!Sample_characteristics_ch1") and gsm:
+                val = line.split("=", 1)[-1].strip()
+                if val:
+                    out.setdefault(gsm, []).append(val)
+    return out
+
+
+def lookup_geo_ontology(
+    characteristics: List[str],
+    ontology_map: Dict[str, Dict[str, str]],
+) -> Optional[Dict[str, str]]:
+    """Prefer UBERON tissue hits over EFO when both map for a GSM."""
+    uberon: Optional[Dict[str, str]] = None
+    efo: Optional[Dict[str, str]] = None
+    for raw in characteristics:
+        key = raw.strip().lower()
+        entry = ontology_map.get(key)
+        if not entry:
+            continue
+        src = (entry.get("source") or "").upper()
+        if src == "UBERON" and uberon is None:
+            uberon = entry
+        elif src == "EFO" and efo is None:
+            efo = entry
+        elif uberon is None and efo is None:
+            # Unknown source but valid id+label — keep as last resort.
+            efo = entry
+    return uberon or efo
+
+
 def enrich_biosamples(
     biosamples: List[Dict[str, Any]],
     *,
     matrix_id: str,
     profile: Dict[str, Any],
     profile_name: str,
+    cache_dir: Path = CACHE_DIR,
+    skip_download: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Build biosample rows with v1 ontology enrichment."""
+    """Build biosample rows with Beacon-shaped origin type/detail columns.
+
+    Ontology-only enrichment: ``ontology_id`` / ``ontology_label`` hold
+    sampleOriginDetail (tissue / cell line); ``sample_origin_type_*`` holds the
+    OBI material category. Never emits an id without a label.
+    """
     tissue = profile.get("tissue") or {}
     rows: List[Dict[str, Any]] = []
+
+    geo_chars: Dict[str, List[str]] = {}
+    geo_map: Dict[str, Dict[str, str]] = {}
+    if profile_name == "geo":
+        geo_map = _load_geo_ontology_map()
+        soft = ensure_geo_soft_path(
+            str(matrix_id),
+            cache_dir,
+            skip_download=skip_download,
+        )
+        if soft is not None:
+            geo_chars = parse_geo_soft_characteristics(soft)
 
     for sample in biosamples:
         sid = sample.get("id") or sample.get("biosampleId")
@@ -274,30 +515,59 @@ def enrich_biosamples(
         donor = sample.get("donor")
         summary = sample.get("summary")
         lab = sample.get("lab")
+        origin_type = _OBI_SPECIMEN
 
         if profile_name == "encode":
-            st = sample.get("sampleType") or {}
-            if isinstance(st, dict):
-                ontology_id = st.get("id")
-                ontology_label = st.get("label")
-                ontology_source = "EFO" if ontology_id and str(ontology_id).startswith("EFO") else None
-            sex = sex or sample.get("sex")
-            donor = donor or sample.get("donor")
-            summary = summary or sample.get("summary")
-            lab = lab or sample.get("lab")
+            origin_type = _OBI_CELL_CULTURE
+            enc_id, enc_label, enc_src = encode_biosample_ontology(
+                str(sid or ""),
+                cache_dir,
+                skip_download=skip_download,
+            )
+            if enc_id:
+                ontology_id, ontology_label, ontology_source = enc_id, enc_label, enc_src
+            else:
+                st = sample.get("sampleType") or {}
+                if isinstance(st, dict):
+                    oid, olabel = _pair_or_none(
+                        st.get("id"),
+                        st.get("label"),
+                        context=f"encode catalog sampleType for {sid}",
+                    )
+                    if oid:
+                        ontology_id, ontology_label = oid, olabel
+                        ontology_source = _ontology_source_for_id(oid)
         elif profile_name == "gtex":
+            origin_type = _OBI_SPECIMEN
             t = sample.get("tissue") or sample.get("sampleType") or tissue
             if isinstance(t, dict):
-                ontology_id = t.get("id")
-                ontology_label = t.get("label")
-                ontology_source = (
-                    "UBERON" if ontology_id and str(ontology_id).startswith("UBERON") else None
+                oid, olabel = _pair_or_none(
+                    t.get("id"),
+                    t.get("label"),
+                    context=f"gtex tissue for {sid}",
+                )
+                if oid:
+                    ontology_id, ontology_label = oid, olabel
+                    ontology_source = _ontology_source_for_id(oid, "UBERON")
+            else:
+                print(
+                    f"WARNING: gtex profile missing tissue id+label for {sid}",
+                    flush=True,
                 )
         elif profile_name == "geo":
-            # Series-level tag only in v1 (no per-GSM SOFT parse)
-            ontology_id = None
-            ontology_label = "GEO sample"
+            origin_type = _OBI_SPECIMEN
             ontology_source = "GEO"
+            chars = geo_chars.get(str(sid), [])
+            hit = lookup_geo_ontology(chars, geo_map) if chars else None
+            if hit:
+                oid, olabel = _pair_or_none(
+                    hit.get("id"),
+                    hit.get("label"),
+                    context=f"geo map for {sid}",
+                )
+                if oid:
+                    ontology_id, ontology_label = oid, olabel
+                    ontology_source = hit.get("source") or _ontology_source_for_id(oid)
             summary = (profile.get("series_design") or "").strip() or summary
 
         rows.append(
@@ -307,6 +577,8 @@ def enrich_biosamples(
                 "ontology_id": ontology_id,
                 "ontology_label": ontology_label,
                 "ontology_source": ontology_source,
+                "sample_origin_type_id": origin_type["id"],
+                "sample_origin_type_label": origin_type["label"],
                 "sex": sex,
                 "donor": donor,
                 "summary": summary,

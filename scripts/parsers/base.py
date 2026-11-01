@@ -17,6 +17,7 @@ import yaml
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 PROFILES_DIR = SCRIPTS_DIR / "profiles"
+DATASETS_PATH = PROFILES_DIR / "datasets.yaml"
 CACHE_DIR = SCRIPTS_DIR / ".cache"
 
 _PARSERS: Dict[str, Callable[[Dict[str, Any], Path, int, int], "NormalizedMatrix"]] = {}
@@ -32,23 +33,147 @@ def register_parser(name: str):
 
 def get_parser(name: str):
     if name not in _PARSERS:
-        raise KeyError(f"Unknown parser profile '{name}'. Known: {sorted(_PARSERS)}")
+        raise KeyError(f"Unknown parser source '{name}'. Known: {sorted(_PARSERS)}")
     return _PARSERS[name]
 
 
-def load_profile(name: Optional[str] = None, config_path: Optional[Path] = None) -> Dict[str, Any]:
-    if config_path:
-        path = Path(config_path)
-    elif name:
-        path = PROFILES_DIR / f"{name}.yaml"
-    else:
-        raise ValueError("Provide --profile or --config")
-    if not path.exists():
-        raise FileNotFoundError(f"Profile not found: {path}")
-    with path.open(encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
+def profile_source(profile: Dict[str, Any]) -> Optional[str]:
+    """Return the parser/source id for a catalog record (`source`, legacy `profile`)."""
+    value = profile.get("source") or profile.get("profile")
+    return str(value) if value else None
+
+
+def _annotate_record(record: Dict[str, Any], path: Path) -> Dict[str, Any]:
+    data = dict(record)
     data["_profile_path"] = str(path)
     return data
+
+
+def _records_from_yaml(data: Any, path: Path) -> List[Dict[str, Any]]:
+    if isinstance(data, dict) and isinstance(data.get("profiles"), list):
+        records = data["profiles"]
+    elif isinstance(data, list):
+        records = data
+    elif isinstance(data, dict):
+        return [_annotate_record(data, path)]
+    else:
+        return []
+    out: List[Dict[str, Any]] = []
+    for item in records:
+        if isinstance(item, dict):
+            out.append(_annotate_record(item, path))
+    return out
+
+
+def load_datasets(path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Load all matrix records from the profiles catalog."""
+    catalog = Path(path) if path else DATASETS_PATH
+    if not catalog.exists():
+        raise FileNotFoundError(f"Datasets catalog not found: {catalog}")
+    with catalog.open(encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    records = _records_from_yaml(data, catalog)
+    if not records:
+        raise ValueError(f"No profile records in catalog: {catalog}")
+    seen_ids: Dict[str, str] = {}
+    for record in records:
+        mid = record.get("matrix_id")
+        if not mid:
+            continue
+        mid_s = str(mid)
+        src = profile_source(record) or "?"
+        if mid_s in seen_ids:
+            raise ValueError(
+                f"Duplicate matrix_id {mid_s!r} in {catalog} "
+                f"(sources {seen_ids[mid_s]!r} and {src!r})"
+            )
+        seen_ids[mid_s] = src
+    return records
+
+
+def list_sources(path: Optional[Path] = None) -> List[str]:
+    """Unique `source` values from the catalog, in first-seen order."""
+    seen: Dict[str, None] = {}
+    for record in load_datasets(path):
+        src = profile_source(record)
+        if src and src not in seen:
+            seen[src] = None
+    return list(seen.keys())
+
+
+def load_profiles_for_sources(
+    sources: List[str],
+    *,
+    path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """Return every catalog record whose source is in ``sources`` (catalog order)."""
+    wanted = {s.strip() for s in sources if s and s.strip()}
+    if not wanted:
+        return []
+    return [r for r in load_datasets(path) if profile_source(r) in wanted]
+
+
+def load_profile(
+    name: Optional[str] = None,
+    config_path: Optional[Path] = None,
+    *,
+    matrix_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Load one matrix profile.
+
+    - ``config_path`` pointing at a single-record YAML returns that record.
+    - ``config_path`` pointing at a catalog (top-level ``profiles:``) filters by
+      ``name`` / ``matrix_id`` like the built-in catalog.
+    - ``name`` alone selects the first catalog record with that ``source``.
+    """
+    if config_path:
+        path = Path(config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Profile not found: {path}")
+        with path.open(encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+        records = _records_from_yaml(data, path)
+        if isinstance(data, dict) and isinstance(data.get("profiles"), list):
+            if not name and not matrix_id:
+                raise ValueError(
+                    f"Catalog {path} requires a source name and/or matrix_id "
+                    "to select a record"
+                )
+            if name:
+                records = [r for r in records if profile_source(r) == name]
+            if matrix_id:
+                records = [r for r in records if r.get("matrix_id") == matrix_id]
+            if not records:
+                raise ValueError(
+                    f"No profile matched in {path}"
+                    + (f" source={name!r}" if name else "")
+                    + (f" matrix_id={matrix_id!r}" if matrix_id else "")
+                )
+            if len(records) > 1:
+                ids = [r.get("matrix_id") for r in records]
+                raise ValueError(
+                    f"Ambiguous catalog match in {path}: {ids}. "
+                    "Pass matrix_id to select one."
+                )
+            return records[0]
+        if not records:
+            raise ValueError(f"Empty profile YAML: {path}")
+        return records[0]
+
+    if not name:
+        raise ValueError("Provide --profile or --config")
+
+    matches = load_profiles_for_sources([name])
+    if matrix_id:
+        matches = [r for r in matches if r.get("matrix_id") == matrix_id]
+    if not matches:
+        known = list_sources()
+        raise FileNotFoundError(
+            f"No catalog profile for source {name!r}"
+            + (f" matrix_id={matrix_id!r}" if matrix_id else "")
+            + f". Known sources: {known}"
+        )
+    return matches[0]
 
 
 @dataclass
@@ -313,7 +438,7 @@ def parse_wide_matrix(
             "biosamples": len(biosamples),
         },
         "info": {
-            "profile": profile.get("profile"),
+            "source": profile_source(profile),
             "sourceFile": str(path.name),
             "sliced": bool(
                 (max_genes and max_genes > 0) or (max_samples and max_samples > 0)

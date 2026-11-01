@@ -17,7 +17,19 @@
         }
       ],
       "aliases": ["TP53"],
-      "xrefs": ["HGNC:11998", "NCBIGene:7157"]
+      "xrefs": ["HGNC:11998", "NCBIGene:7157"],
+      "genomicInterval": {
+        "location": {
+          "type": "SequenceLocation",
+          "sequence_id": "refseq:NC_000017.11",
+          "interval": {
+            "type": "SequenceInterval",
+            "start": {"type": "Number", "value": 7661778},
+            "end": {"type": "Number", "value": 7687538}
+          }
+        },
+        "strand": "negative"
+      }
     },
     "matrixIds": ["matrix-gene-expression-001", "GSE88557"]
   },

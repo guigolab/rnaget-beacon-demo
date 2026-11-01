@@ -135,18 +135,35 @@ def build_catalog(package: Path) -> Dict[str, Any]:
         bio_path = package / "matrices" / dirname / "biosamples.parquet"
         if not bio_path.is_file():
             continue
-        table = pq.read_table(bio_path)
+        want_bio = [
+            c
+            for c in (
+                "ontology_id",
+                "ontology_label",
+                "ontology_source",
+                "sex",
+            )
+            if c in pq.read_schema(bio_path).names
+        ]
+        table = pq.read_table(bio_path, columns=want_bio or None)
         rows = table.to_pylist()
+        del table
         for row in rows:
             oid = row.get("ontology_id")
             olabel = row.get("ontology_label")
             osource = row.get("ontology_source")
-            if osource and str(osource).upper() == "GEO":
-                has_geo = True
             sex = row.get("sex")
             if sex is not None and str(sex).strip():
                 sex_values.add(str(sex).strip())
-            if oid is None or (isinstance(oid, float) and oid != oid):
+            oid_missing = oid is None or (isinstance(oid, float) and oid != oid)
+            # Keep GEO:sample facet only while some samples still lack detail.
+            if (
+                oid_missing
+                and osource
+                and str(osource).upper() == "GEO"
+            ):
+                has_geo = True
+            if oid_missing:
                 continue
             oid_s = str(oid)
             pref = _prefix_of(oid_s)
@@ -159,6 +176,7 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                     label=str(olabel) if olabel else None,
                     scopes=["biosample"],
                 )
+        del rows
 
     if has_geo:
         _add_term(
@@ -181,7 +199,20 @@ def build_catalog(package: Path) -> Dict[str, Any]:
     # --- Genes / features ---
     genes_path = package / "genes.parquet"
     if genes_path.is_file():
-        genes = pq.read_table(genes_path).to_pylist()
+        gene_cols = set(pq.read_schema(genes_path).names)
+        want_gene = [
+            c
+            for c in (
+                "feature_type_id",
+                "feature_type_label",
+                "ontology_terms",
+                "resource",
+                "annotation_source",
+                "xrefs",
+            )
+            if c in gene_cols
+        ]
+        genes = pq.read_table(genes_path, columns=want_gene or None).to_pylist()
         for g in genes:
             ft_id = g.get("feature_type_id")
             ft_label = g.get("feature_type_label")
@@ -233,6 +264,7 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                 pref = _prefix_of(str(x))
                 if pref:
                     xref_prefixes.add(pref.upper())
+        del genes
     else:
         # Fallback: scan per-matrix features
         for entry in manifest.get("matrices") or []:

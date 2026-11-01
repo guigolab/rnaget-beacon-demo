@@ -13,8 +13,6 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-KNOWN_PROFILES = ("geo", "encode", "gtex")
-
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -25,15 +23,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--profile",
-        choices=list(KNOWN_PROFILES),
-        help="Built-in profile name under scripts/profiles/",
+        help=(
+            "Catalog source name (encode|geo|gtex|…). "
+            "When a source has multiple matrices, pass --matrix-id."
+        ),
     )
     p.add_argument(
         "--config",
         type=Path,
-        help="Path to a custom profile YAML (overrides --profile path)",
+        help="Path to a custom profile YAML or datasets catalog (overrides default catalog)",
     )
-    p.add_argument("--matrix-id", help="Override profile matrix_id")
+    p.add_argument(
+        "--matrix-id",
+        help="Select / override matrix_id (required when a source has multiple matrices)",
+    )
     p.add_argument(
         "--max-genes",
         type=int,
@@ -44,7 +47,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--max-samples",
         type=int,
         default=None,
-        help="Slice: max biosample columns (0 = no cap; unused for encode)",
+        help="Slice: max biosample columns / encode biosamples (0 = no cap)",
     )
     p.add_argument(
         "--skip-download",
@@ -75,19 +78,108 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _validate_profile(profile: dict, profile_name: str | None) -> str:
-    if not profile_name:
+def _resolve_profile(args: argparse.Namespace) -> tuple[dict, str]:
+    from parsers import (
+        get_parser,
+        list_sources,
+        load_profile,
+        load_profiles_for_sources,
+        profile_source,
+    )
+    from parsers.base import DATASETS_PATH
+
+    # Ensure parsers are registered
+    import parsers.encode  # noqa: F401
+    import parsers.geo  # noqa: F401
+    import parsers.gtex  # noqa: F401
+
+    known = list_sources() if not args.config else None
+
+    if args.config:
+        path = Path(args.config)
+        import yaml
+
+        with path.open(encoding="utf-8") as fh:
+            raw = yaml.safe_load(fh) or {}
+        is_catalog = isinstance(raw, dict) and isinstance(raw.get("profiles"), list)
+        if is_catalog:
+            if not args.profile and not args.matrix_id:
+                raise SystemExit(
+                    "Catalog config requires --profile <source> "
+                    "(and --matrix-id when that source has multiple matrices)."
+                )
+            try:
+                if args.profile:
+                    matches = load_profiles_for_sources([args.profile], path=path)
+                    if args.matrix_id:
+                        matches = [
+                            m for m in matches if m.get("matrix_id") == args.matrix_id
+                        ]
+                    if not matches:
+                        raise SystemExit(
+                            f"No catalog record for source={args.profile!r}"
+                            + (
+                                f" matrix_id={args.matrix_id!r}"
+                                if args.matrix_id
+                                else ""
+                            )
+                            + f" in {path}"
+                        )
+                    if len(matches) > 1:
+                        ids = [m.get("matrix_id") for m in matches]
+                        raise SystemExit(
+                            f"Source {args.profile!r} has multiple matrices {ids}; "
+                            "pass --matrix-id to select one."
+                        )
+                    profile = matches[0]
+                else:
+                    profile = load_profile(
+                        None, path, matrix_id=args.matrix_id
+                    )
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
+        else:
+            profile = load_profile(args.profile, args.config, matrix_id=None)
+    else:
+        if not args.profile:
+            raise SystemExit("Provide --profile or --config")
+        if known is not None and args.profile not in known:
+            raise SystemExit(
+                f"Unknown source {args.profile!r}. Known: {', '.join(known)}"
+            )
+        matches = load_profiles_for_sources([args.profile])
+        if args.matrix_id:
+            by_id = [m for m in matches if m.get("matrix_id") == args.matrix_id]
+            if not by_id:
+                raise SystemExit(
+                    f"No catalog record for source={args.profile!r} "
+                    f"matrix_id={args.matrix_id!r} in {DATASETS_PATH}"
+                )
+            profile = by_id[0]
+        elif len(matches) > 1:
+            ids = [m.get("matrix_id") for m in matches]
+            raise SystemExit(
+                f"Source {args.profile!r} has multiple matrices {ids}; "
+                "pass --matrix-id to select one."
+            )
+        elif not matches:
+            raise SystemExit(f"No catalog record for source={args.profile!r}")
+        else:
+            profile = matches[0]
+
+    source = profile_source(profile) or args.profile
+    if not source:
         raise SystemExit(
-            "Profile YAML must set 'profile: geo|encode|gtex' "
-            "(or pass --profile with a built-in name)."
+            "Profile YAML must set 'source: geo|encode|gtex' "
+            "(or pass --profile with a catalog source)."
         )
-    if profile_name not in KNOWN_PROFILES:
-        raise SystemExit(
-            f"Unknown profile {profile_name!r}. Known: {', '.join(KNOWN_PROFILES)}"
-        )
-    if not profile.get("matrix_id"):
+    try:
+        get_parser(source)
+    except KeyError as exc:
+        raise SystemExit(str(exc)) from exc
+    if not profile.get("matrix_id") and not args.matrix_id:
         raise SystemExit("Profile YAML must set 'matrix_id'.")
-    return profile_name
+    return profile, source
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -111,25 +203,21 @@ def main(argv: list[str] | None = None) -> int:
 def _run(args: argparse.Namespace) -> int:
     # Lazy imports so --help works before deps are installed
     from db import postgres as pg_db
-    from parsers import get_parser, load_profile
+    from parsers import get_parser
     from parsers.base import CACHE_DIR, resolve_slice
-    import parsers.encode  # noqa: F401
-    import parsers.geo  # noqa: F401
-    import parsers.gtex  # noqa: F401
 
-    profile = load_profile(args.profile, args.config)
-    profile_name = _validate_profile(
-        profile, profile.get("profile") or args.profile
-    )
-    if args.matrix_id:
+    profile, source = _resolve_profile(args)
+    # Allow forcing matrix_id on a custom single-record --config.
+    if args.matrix_id and profile.get("matrix_id") != args.matrix_id:
+        profile = dict(profile)
         profile["matrix_id"] = args.matrix_id
 
     max_genes, max_samples = resolve_slice(profile, args.max_genes, args.max_samples)
-    parser = get_parser(profile_name)
+    parser = get_parser(source)
     cache_dir = args.cache_dir or CACHE_DIR
 
     print(
-        f"Parsing profile={profile_name} matrix_id={profile['matrix_id']} "
+        f"Parsing source={source} matrix_id={profile['matrix_id']} "
         f"max_genes={max_genes} max_samples={max_samples}"
     )
     normalized = parser(

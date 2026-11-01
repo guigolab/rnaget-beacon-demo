@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       profiles:
-        description: "Comma-separated profiles (encode,geo,gtex)"
+        description: "Comma-separated catalog sources (encode,geo,gtex); builds every matrix for each source"
         required: true
         default: "encode,geo,gtex"
       max_genes:
@@ -59,13 +59,13 @@ jobs:
           cache: pip
           cache-dependency-path: scripts/requirements-export.txt
 
-      # Cache keys cannot contain commas. Profile URLs live in the YAMLs, so
+      # Cache keys cannot contain commas. Profile URLs live in the catalog, so
       # hashFiles alone is enough — subset runs (encode-only) still restore.
       - name: Cache download cache
         uses: actions/cache@v4
         with:
           path: scripts/.cache
-          key: export-cache-${{ hashFiles('scripts/profiles/*.yaml', 'scripts/requirements-export.txt') }}
+          key: export-cache-${{ hashFiles('scripts/profiles/datasets.yaml', 'scripts/requirements-export.txt', 'scripts/data/geo_biosample_ontology.json') }}
           restore-keys: |
             export-cache-
 
@@ -100,6 +100,9 @@ jobs:
 
       - name: Hydrate genes from GTF/GFF
         run: python scripts/hydrate_genes.py --package dist/data-package
+
+      - name: Build feature/biosample indexes
+        run: python scripts/build_feature_indexes.py --package dist/data-package
 
       - name: Build filtering terms catalog
         run: python scripts/build_filtering_terms.py --package dist/data-package
@@ -144,5 +147,5 @@ jobs:
           else
             gh release create "$TAG" "$FILE" \
               --title "$TAG" \
-              --notes "Parquet data package (encode/geo/gtex)."
+              --notes "Parquet data package from scripts/profiles/datasets.yaml."
           fi

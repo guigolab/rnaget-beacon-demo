@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "1",
+  "createdAt": "2026-11-01T11:33:16Z",
+  "profiles": [
+    "encode",
+    "geo",
+    "gtex"
+  ],
+  "shardCellsTarget": 5000000,
+  "matrices": [
+    {
+      "matrix_id": "ENCSR622FSM",
+      "source": "encode",
+      "dir": "ENCSR622FSM",
+      "shards": {
+        "n_shards": 1,
+        "rows": 50,
+        "parts": [
+          {
+            "file": "part-00000.parquet",
+            "rows": 50
+          }
+        ],
+        "shard_by": "md5(feature_id) % n_shards"
+      }
+    },
+    {
+      "matrix_id": "ENCSR000AED",
+      "source": "encode",
+      "dir": "ENCSR000AED",
+      "shards": {
+        "n_shards": 1,
+        "rows": 100,
+        "parts": [
+          {
+            "file": "part-00000.parquet",
+            "rows": 100
+          }
+        ],
+        "shard_by": "md5(feature_id) % n_shards"
+      }
+    },
+    {
+      "matrix_id": "GSE164073",
+      "source": "geo",
+      "dir": "GSE164073",
+      "shards": {
+        "n_shards": 1,
+        "rows": 500,
+        "parts": [
+          {
+            "file": "part-00000.parquet",
+            "rows": 500
+          }
+        ],
+        "shard_by": "md5(feature_id) % n_shards"
+      }
+    },
+    {
+      "matrix_id": "GSE152418",
+      "source": "geo",
+      "dir": "GSE152418",
+      "shards": {
+        "n_shards": 1,
+        "rows": 500,
+        "parts": [
+          {
+            "file": "part-00000.parquet",
+            "rows": 500
+          }
+        ],
+        "shard_by": "md5(feature_id) % n_shards"
+      }
+    },
+    {
+      "matrix_id": "GTEx-v8-Adipose-Subcutaneous",
+      "source": "gtex",
+      "dir": "GTEx-v8-Adipose-Subcutaneous",
+      "shards": {
+        "n_shards": 1,
+        "rows": 500,
+        "parts": [
+          {
+            "file": "part-00000.parquet",
+            "rows": 500
+          }
+        ],
+        "shard_by": "md5(feature_id) % n_shards"
+      }
+    },
+    {
+      "matrix_id": "GTEx-v8-Liver",
+      "source": "gtex",
+      "dir": "GTEx-v8-Liver",
+      "shards": {
+        "n_shards": 1,
+        "rows": 500,
+        "parts": [
+          {
+            "file": "part-00000.parquet",
+            "rows": 500
+          }
+        ],
+        "shard_by": "md5(feature_id) % n_shards"
+      }
+    }
+  ],
+  "filteringTermsPath": "filtering_terms.json",
+  "filteringTerms": {
+    "termCount": 12,
+    "resourceCount": 3
+  }
+}

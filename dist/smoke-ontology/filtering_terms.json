@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "resources": [
+    {
+      "id": "so",
+      "name": "Sequence Ontology",
+      "nameSpacePrefix": "SO",
+      "iriPrefix": "http://purl.obolibrary.org/obo/SO_",
+      "url": "http://purl.obolibrary.org/obo/so.obo"
+    },
+    {
+      "id": "uberon",
+      "name": "Uberon",
+      "nameSpacePrefix": "UBERON",
+      "iriPrefix": "http://purl.obolibrary.org/obo/UBERON_",
+      "url": "http://purl.obolibrary.org/obo/uberon.owl"
+    },
+    {
+      "id": "efo",
+      "name": "Experimental Factor Ontology",
+      "nameSpacePrefix": "EFO",
+      "iriPrefix": "http://www.ebi.ac.uk/efo/EFO_",
+      "url": "https://www.ebi.ac.uk/efo/efo.owl"
+    }
+  ],
+  "filteringTerms": [
+    {
+      "type": "EFO",
+      "id": "EFO:0002784",
+      "scopes": [
+        "biosample"
+      ],
+      "label": "GM12878"
+    },
+    {
+      "type": "EFO",
+      "id": "EFO:0004167",
+      "scopes": [
+        "biosample"
+      ],
+      "label": "peripheral blood mononuclear cell"
+    },
+    {
+      "type": "EFO",
+      "id": "EFO:0030018",
+      "scopes": [
+        "biosample"
+      ],
+      "label": "BLaER1"
+    },
+    {
+      "type": "SO",
+      "id": "SO:0000704",
+      "scopes": [
+        "genomicFeature"
+      ],
+      "label": "gene"
+    },
+    {
+      "type": "UBERON",
+      "id": "UBERON:0000964",
+      "scopes": [
+        "biosample"
+      ],
+      "label": "cornea"
+    },
+    {
+      "type": "UBERON",
+      "id": "UBERON:0002107",
+      "scopes": [
+        "biosample"
+      ],
+      "label": "Liver"
+    },
+    {
+      "type": "UBERON",
+      "id": "UBERON:0002190",
+      "scopes": [
+        "biosample"
+      ],
+      "label": "Adipose - Subcutaneous"
+    },
+    {
+      "type": "UBERON",
+      "id": "UBERON:0006761",
+      "scopes": [
+        "biosample"
+      ],
+      "label": "corneal limbus"
+    },
+    {
+      "type": "alphanumeric",
+      "id": "genomicFeature.symbol",
+      "scopes": [
+        "genomicFeature"
+      ],
+      "label": "Gene symbol"
+    },
+    {
+      "type": "custom",
+      "id": "resource:gencode",
+      "scopes": [
+        "genomicFeature"
+      ],
+      "label": "Annotation resource gencode"
+    },
+    {
+      "type": "custom",
+      "id": "resource:ncbigene",
+      "scopes": [
+        "genomicFeature"
+      ],
+      "label": "Annotation resource ncbigene"
+    },
+    {
+      "type": "alphanumeric",
+      "id": "sex",
+      "scopes": [
+        "biosample"
+      ],
+      "label": "Sex",
+      "values": [
+        "female"
+      ]
+    }
+  ],
+  "byScope": {
+    "biosample": [
+      "EFO:0002784",
+      "EFO:0004167",
+      "EFO:0030018",
+      "UBERON:0000964",
+      "UBERON:0002107",
+      "UBERON:0002190",
+      "UBERON:0006761",
+      "sex"
+    ],
+    "genomicFeature": [
+      "SO:0000704",
+      "genomicFeature.symbol",
+      "resource:gencode",
+      "resource:ncbigene"
+    ]
+  }
+}

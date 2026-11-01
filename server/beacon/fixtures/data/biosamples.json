@@ -6,9 +6,14 @@
       "label": "abnormal sample"
     },
     "sampleOriginType": {
+      "id": "OBI:0001479",
+      "label": "specimen from organism"
+    },
+    "sampleOriginDetail": {
       "id": "UBERON:0000474",
       "label": "female reproductive system"
-    }
+    },
+    "sex": "female"
   },
   {
     "id": "sample-example-0001",
@@ -17,8 +22,15 @@
       "label": "reference sample"
     },
     "sampleOriginType": {
+      "id": "OBI:0001479",
+      "label": "specimen from organism"
+    },
+    "sampleOriginDetail": {
       "id": "UBERON:0002107",
       "label": "liver"
-    }
+    },
+    "individualId": "donor-example-0001",
+    "notes": "Reference liver biosample for demo matrices",
+    "sex": "female"
   }
 ]

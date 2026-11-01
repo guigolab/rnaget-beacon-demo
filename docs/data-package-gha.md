@@ -16,15 +16,15 @@ Downloading those matrices and annotation catalogs on a laptop is slow and easy 
 
 ## What datasets are included
 
-Three profiles are supported (you can run any subset):
+Example matrices are listed in `scripts/profiles/datasets.yaml`. Each record has a **source** (`encode`, `geo`, or `gtex`) that picks the parser. The workflow **profiles** input is a comma-separated list of sources; every catalog matrix for those sources is built. Add another example later by appending a record to the catalog.
 
-| Profile | Roughly what it is |
-|---------|-------------------|
-| **encode** | One ENCODE gene quantification file (Guigo lab experiment), genes × one sample |
-| **geo** | GEO series GSE164073, NCBI-standardized TPM, genes × 18 samples |
-| **gtex** | GTEx v8 Adipose – Subcutaneous gene TPM, many genes × hundreds of samples (by far the largest) |
+| Source | Roughly what it is (current catalog) |
+|--------|--------------------------------------|
+| **encode** | Guigo lab BLaER1 (1 biosample) and Gingeras lab GM12878 (2 biosamples); both GENCODE V24 |
+| **geo** | GSE164073 (~18 samples) and GSE152418 (~34 samples); both NCBI TPM on Annotation Release 109.20190905 |
+| **gtex** | GTEx v8 Adipose – Subcutaneous and Liver gene TPM; both GENCODE v26 (largest matrices) |
 
-Each profile points at a public download URL and records which **genome annotation** (GTF/GFF) was used to define the gene IDs. That annotation link is used later to attach gene names and coordinates.
+Each record points at a public download URL and records which **genome annotation** (GTF/GFF) was used to define the gene IDs. That annotation link is used later to attach gene names and coordinates.
 
 ---
 
@@ -34,7 +34,7 @@ When you click **Run workflow**, you set:
 
 | Input | Meaning |
 |-------|---------|
-| **profiles** | Which datasets to build, comma-separated (default: all three) |
+| **profiles** | Which catalog **sources** to build, comma-separated (default: `encode,geo,gtex`) |
 | **max_genes** / **max_samples** | Optional caps so you only import a slice of each matrix |
 | **smoke** | If enabled, and you left the caps empty, uses a small default slice (500 genes, 20 samples) for a fast end-to-end check |
 | **create_release** | If enabled, also attaches the finished archive to a GitHub Release |
@@ -66,7 +66,7 @@ Downloaded matrix files and annotation files are stored under `scripts/.cache`. 
 
 ### 3. Build the expression package
 
-For each selected profile the builder:
+For each selected catalog matrix (by source) the builder:
 
 1. Downloads (or reuses) the quantification matrix.
 2. Reads genes and samples (respecting any smoke/slice limits).
@@ -228,6 +228,6 @@ python scripts/build_expression_stats.py --package dist/data-package
 python scripts/verify_data_package.py --package dist/data-package
 ```
 
-Profile URLs and annotation pins live under `scripts/profiles/`. Export dependencies are listed in `scripts/requirements-export.txt`.
+Matrix URLs and annotation pins live in `scripts/profiles/datasets.yaml`. Export dependencies are listed in `scripts/requirements-export.txt`.
 
 For the Beacon HTTP contract (envelopes, paths, regenerating `rnaget-beacon-schema.yaml`), see [api.md](api.md).

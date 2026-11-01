@@ -21,7 +21,6 @@ if str(SCRIPTS_DIR) not in sys.path:
 SCHEMA_VERSION = "1"
 CELLS_PER_SHARD = 5_000_000
 EXPR_BATCH_ROWS = 50_000
-KNOWN_PROFILES = ("encode", "geo", "gtex")
 MATRIX_SCHEMA_PATH = SCRIPTS_DIR / "schemas" / "matrix.beacon-v2.json"
 
 
@@ -32,7 +31,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--profiles",
         default="encode,geo,gtex",
-        help="Comma-separated profile names (default: encode,geo,gtex)",
+        help=(
+            "Comma-separated catalog sources (default: encode,geo,gtex). "
+            "Exports every matrix record matching those sources."
+        ),
     )
     p.add_argument(
         "--out",
@@ -159,7 +161,7 @@ def _stream_expression_shards(
 
 
 def export_profile(
-    profile_name: str,
+    profile: Dict[str, Any],
     *,
     out_root: Path,
     max_genes: Optional[int],
@@ -168,20 +170,22 @@ def export_profile(
     cache_dir: Path,
     gene_symbols: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    from parsers import get_parser, load_profile
+    from parsers import get_parser, profile_source
     from parsers.base import resolve_slice
     import parsers.encode  # noqa: F401
     import parsers.geo  # noqa: F401
     import parsers.gtex  # noqa: F401
     from export_enrichment import enrich_biosamples, enrich_features
 
-    profile = load_profile(profile_name)
+    source = profile_source(profile)
+    if not source:
+        raise SystemExit("Catalog record missing source")
     if not profile.get("matrix_id"):
-        raise SystemExit(f"Profile {profile_name} missing matrix_id")
+        raise SystemExit(f"Profile source={source} missing matrix_id")
     mg, ms = resolve_slice(profile, max_genes, max_samples)
-    parser = get_parser(profile_name)
+    parser = get_parser(source)
     print(
-        f"Exporting profile={profile_name} matrix_id={profile['matrix_id']} "
+        f"Exporting source={source} matrix_id={profile['matrix_id']} "
         f"max_genes={mg} max_samples={ms}"
     )
     normalized = parser(
@@ -198,14 +202,16 @@ def export_profile(
     feat_rows = enrich_features(
         normalized.features,
         matrix_id=matrix_id,
-        profile_name=profile_name,
+        profile_name=source,
         gene_symbols=gene_symbols,
     )
     sample_rows = enrich_biosamples(
         normalized.biosamples,
         matrix_id=matrix_id,
         profile=profile,
-        profile_name=profile_name,
+        profile_name=source,
+        cache_dir=cache_dir,
+        skip_download=skip_download,
     )
     _write_table(matrix_dir / "features.parquet", feat_rows)
     _write_table(matrix_dir / "biosamples.parquet", sample_rows)
@@ -234,7 +240,7 @@ def export_profile(
     return {
         "matrix": matrix_doc,
         "matrix_id": matrix_id,
-        "profile": profile_name,
+        "source": source,
         "shards": shard_info,
         "dir": _safe_matrix_dirname(matrix_id),
     }
@@ -344,20 +350,42 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    from parsers.base import CACHE_DIR
+    from parsers import get_parser
+    from parsers.base import CACHE_DIR, list_sources, load_profiles_for_sources, profile_source
     from export_enrichment import load_geo_gene_symbols
+    import parsers.encode  # noqa: F401
+    import parsers.geo  # noqa: F401
+    import parsers.gtex  # noqa: F401
 
     names = [p.strip() for p in args.profiles.split(",") if p.strip()]
+    if not names:
+        raise SystemExit("Provide at least one catalog source via --profiles")
+    known = list_sources()
     for name in names:
-        if name not in KNOWN_PROFILES:
-            raise SystemExit(f"Unknown profile {name!r}. Known: {KNOWN_PROFILES}")
+        if name not in known:
+            raise SystemExit(f"Unknown source {name!r}. Known: {known}")
+
+    profiles = load_profiles_for_sources(names)
+    if not profiles:
+        raise SystemExit(f"No catalog matrices for sources: {names}")
+    # Fail early if a catalog source has no registered parser.
+    for profile in profiles:
+        source = profile_source(profile)
+        if not source:
+            raise SystemExit(
+                f"Catalog record {profile.get('matrix_id')!r} missing source"
+            )
+        try:
+            get_parser(source)
+        except KeyError as exc:
+            raise SystemExit(str(exc)) from exc
 
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     cache_dir = args.cache_dir or CACHE_DIR
 
     gene_symbols = None
-    if "geo" in names:
+    if any(profile_source(p) == "geo" for p in profiles):
         print("Loading GEO GeneID→Symbol annotation…")
         gene_symbols = load_geo_gene_symbols(
             cache_dir, skip_download=args.skip_download
@@ -367,21 +395,22 @@ def _run(args: argparse.Namespace) -> int:
     matrices: List[Dict[str, Any]] = []
     manifest_matrices: List[Dict[str, Any]] = []
 
-    for name in names:
+    for profile in profiles:
+        source = profile_source(profile)
         info = export_profile(
-            name,
+            profile,
             out_root=out,
             max_genes=args.max_genes,
             max_samples=args.max_samples,
             skip_download=args.skip_download,
             cache_dir=cache_dir,
-            gene_symbols=gene_symbols if name == "geo" else None,
+            gene_symbols=gene_symbols if source == "geo" else None,
         )
         matrices.append(info["matrix"])
         manifest_matrices.append(
             {
                 "matrix_id": info["matrix_id"],
-                "profile": info["profile"],
+                "source": info["source"],
                 "dir": info["dir"],
                 "shards": info["shards"],
             }

@@ -11,6 +11,7 @@ from .base import (
     NormalizedMatrix,
     _open_text,
     _slug,
+    profile_source,
     register_parser,
     resolve_source_file,
 )
@@ -225,7 +226,7 @@ def parse_gtex_gct(
             "biosamples": n_biosamples,
         },
         "info": {
-            "profile": profile.get("profile"),
+            "source": profile_source(profile),
             "sourceFile": str(path.name),
             "format": "gtex_gct",
             "tissue": tissue,

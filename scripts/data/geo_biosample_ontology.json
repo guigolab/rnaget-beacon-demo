@@ -1,0 +1,23 @@
+{
+  "_comment": "Curated SOFT Sample_characteristics_ch1 → sampleOriginDetail (id+label required). Prefer UBERON tissue over EFO when both match a GSM.",
+  "tissue: cornea": {
+    "id": "UBERON:0000964",
+    "label": "cornea",
+    "source": "UBERON"
+  },
+  "tissue: limbus": {
+    "id": "UBERON:0006761",
+    "label": "corneal limbus",
+    "source": "UBERON"
+  },
+  "tissue: sclera": {
+    "id": "UBERON:0001773",
+    "label": "sclera",
+    "source": "UBERON"
+  },
+  "cell type: PBMC": {
+    "id": "EFO:0004167",
+    "label": "peripheral blood mononuclear cell",
+    "source": "EFO"
+  }
+}

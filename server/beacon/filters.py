@@ -201,14 +201,13 @@ def biosample_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) 
     for f in filters:
         if f.kind == "custom" and f.id == "GEO:sample":
             src = doc.get("ontology_source") or doc.get("_ontology_source")
-            label = ((doc.get("sampleType") or {}) or {}).get("label")
             if str(src).upper() == "GEO":
-                continue
-            if label == "GEO sample" and not (doc.get("sampleType") or {}).get("id"):
                 continue
             return False
         if f.kind == "alphanumeric" and f.id == "sex":
             actual = doc.get("sex")
+            if actual is None:
+                actual = ((doc.get("info") or {}) or {}).get("sex")
             actual_s = None if actual is None else str(actual)
             if f.operator == "=":
                 if actual_s != f.value:
@@ -219,7 +218,7 @@ def biosample_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) 
             continue
         if f.kind == "ontology":
             ids = set()
-            for key in ("sampleType", "sampleOriginType"):
+            for key in ("sampleOriginDetail", "sampleType"):
                 block = doc.get(key) or {}
                 if isinstance(block, dict) and block.get("id"):
                     ids.add(str(block["id"]))

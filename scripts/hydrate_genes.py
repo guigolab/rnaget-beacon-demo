@@ -20,7 +20,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from export_enrichment import load_gene_info_index  # noqa: E402
-from parsers.base import CACHE_DIR, download_file  # noqa: E402
+from parsers.base import CACHE_DIR, _file_md5, download_file  # noqa: E402
 from so_map import (  # noqa: E402
     init_so_maps,
     label_for_so_id,
@@ -493,6 +493,7 @@ def hydrate_package(
 
     genes: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
     hits_per_matrix: Dict[str, Set[str]] = defaultdict(set)
+    ann_cache_paths: Dict[str, Path] = {}
 
     for (url, source, version), members in groups.items():
         print(f"Hydrating annotation source={source} version={version}")
@@ -503,6 +504,7 @@ def hydrate_package(
             skip_download=skip_download,
             timeout=(30, 1200),
         )
+        ann_cache_paths[url] = path
         print(f"  cached={path.name} ({path.stat().st_size / 1e6:.1f} MB)")
 
         needed_exact: Set[str] = set()
@@ -704,7 +706,9 @@ def hydrate_package(
     for mid, meta in matrix_meta.items():
         feat_path = meta["features_path"]
         table = pq.read_table(feat_path)
+        orig_schema = table.schema
         rows = table.to_pylist()
+        del table
         catalog = by_matrix_gene.get(mid) or {}
         updated = 0
         for row in rows:
@@ -732,9 +736,51 @@ def hydrate_package(
                 for t in (g.get("ontology_terms") or [])
                 if t.get("id")
             ]
+            if g.get("chrom") is not None:
+                row["chrom"] = g["chrom"]
+            if g.get("start") is not None:
+                row["start"] = g["start"]
+            if g.get("end") is not None:
+                row["end"] = g["end"]
+            if g.get("strand") is not None:
+                row["strand"] = g["strand"]
             updated += 1
-        pq.write_table(pa.Table.from_pylist(rows), feat_path, compression="zstd")
+        out_table = pa.Table.from_pylist(rows)
+        del rows
+        # Preserve original column types where cast is possible.
+        for field in orig_schema:
+            if field.name not in out_table.column_names:
+                continue
+            idx = out_table.schema.get_field_index(field.name)
+            try:
+                cast_col = out_table.column(idx).cast(field.type, safe=False)
+                out_table = out_table.set_column(idx, field, cast_col)
+            except (pa.ArrowInvalid, pa.ArrowNotImplementedError, TypeError):
+                pass
+        pq.write_table(out_table, feat_path, compression="zstd")
+        del out_table
+        # Drop per-matrix catalog slice to limit peak RSS across matrices.
+        by_matrix_gene.pop(mid, None)
+        meta.pop("feature_ids", None)
         print(f"  enriched features.parquet for {mid}: {updated} rows")
+
+    # Stamp annotation.md5Checksum from paths already resolved in the hydrate loop.
+    ann_md5_by_url: Dict[str, str] = {}
+    for url, path in ann_cache_paths.items():
+        digest = _file_md5(path)
+        ann_md5_by_url[url] = digest
+        print(f"  annotation md5 {path.name}={digest}")
+    for m in matrices:
+        ann = m.get("annotation") or {}
+        url = ann.get("file")
+        if url and url in ann_md5_by_url:
+            ann = dict(ann)
+            ann["md5Checksum"] = ann_md5_by_url[url]
+            m["annotation"] = ann
+    with matrices_path.open("w", encoding="utf-8") as fh:
+        json.dump(matrices, fh, indent=2)
+        fh.write("\n")
+    print(f"Updated matrices.json annotation.md5Checksum ({len(ann_md5_by_url)} files)")
 
     manifest["genesPath"] = "genes.parquet"
     manifest["geneLookupPath"] = "gene_lookup.parquet"

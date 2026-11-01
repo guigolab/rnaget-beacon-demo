@@ -5,5 +5,5 @@ venv
 .env
 scripts/.venv/
 scripts/.cache/
-data/
-!scripts/data/
+# Repo-root demo/local packages only (keep scripts/data/ maps tracked).
+/data/
