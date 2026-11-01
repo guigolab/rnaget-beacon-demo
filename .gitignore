@@ -6,3 +6,4 @@ venv
 scripts/.venv/
 scripts/.cache/
 data/
+!scripts/data/

@@ -1,0 +1,18 @@
+{
+  "gene": {"id": "SO:0000704", "label": "gene"},
+  "pseudogene": {"id": "SO:0000336", "label": "pseudogene"},
+  "mirna": {"id": "SO:0001265", "label": "miRNA_gene"},
+  "ncrna_gene": {"id": "SO:0001263", "label": "ncRNA_gene"},
+  "protein_coding_gene": {"id": "SO:0001217", "label": "protein_coding_gene"},
+  "lncrna_gene": {"id": "SO:0002127", "label": "lncRNA_gene"},
+  "snrna_gene": {"id": "SO:0001268", "label": "snRNA_gene"},
+  "snorna_gene": {"id": "SO:0001267", "label": "snoRNA_gene"},
+  "rrna_gene": {"id": "SO:0001637", "label": "rRNA_gene"},
+  "trna_gene": {"id": "SO:0001272", "label": "tRNA_gene"},
+  "scrna_gene": {"id": "SO:0001266", "label": "scRNA_gene"},
+  "v_gene_segment": {"id": "SO:0000466", "label": "V_gene_segment"},
+  "j_gene_segment": {"id": "SO:0000470", "label": "J_gene_segment"},
+  "c_gene_segment": {"id": "SO:0000478", "label": "C_gene_segment"},
+  "d_gene_segment": {"id": "SO:0000458", "label": "D_gene_segment"},
+  "biological_region": {"id": "SO:0001411", "label": "biological_region"}
+}
