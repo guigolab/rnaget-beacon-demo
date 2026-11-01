@@ -36,9 +36,27 @@ export function mergeGeneLensFilters(current: UiFilter[], added: UiFilter): UiFi
   return dedupeFilters([...current, added])
 }
 
+/** Ensembl / RefSeq accessions and bare numeric gene ids are not symbols. */
+const ACCESSION_ALIAS = /^(ENS(?:G|T|P|MUSG|MUST)\d|NM_|NR_|NP_|XM_|XR_|XP_)/i
+
+export function isAccessionAlias(value: string): boolean {
+  const text = value.trim()
+  if (!text || /^\d+$/.test(text)) return true
+  return ACCESSION_ALIAS.test(text)
+}
+
+/** First human-readable alias, skipping accessions that are stored ahead of the symbol. */
+export function featureSymbol(feature: Feature): string | undefined {
+  for (const alias of feature.genomicFeature?.aliases ?? []) {
+    const text = alias.trim()
+    if (text && !isAccessionAlias(text)) return text
+  }
+  return undefined
+}
+
 export function featureDisplayLabel(feature: Feature): string {
   return (
-    feature.genomicFeature?.aliases?.[0] ??
+    featureSymbol(feature) ??
     feature.genomicFeature?.featureIdentifier?.id ??
     feature.id
   )
@@ -61,9 +79,7 @@ export function matrixViewHref(matrixId: string, feature?: Feature | null): stri
   const params = new URLSearchParams()
   if (feature) {
     params.set('featureIds', feature.id)
-    const gene =
-      feature.genomicFeature?.aliases?.[0] ??
-      feature.genomicFeature?.featureIdentifier?.id
+    const gene = featureSymbol(feature)
     if (gene) params.set('genes', gene)
   }
   const enc = encodeURIComponent(matrixId)

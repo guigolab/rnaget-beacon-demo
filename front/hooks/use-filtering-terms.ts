@@ -21,6 +21,8 @@ export function useFilteringTerms(path: string) {
       return
     }
     let cancelled = false
+    setTerms([])
+    setResources([])
     setLoading(true)
     setError('')
     getFilteringTerms(path)

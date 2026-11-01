@@ -9,6 +9,7 @@ import { useMatrixAxis } from '@/hooks/use-matrix-axis'
 import { useMatrixCellValues } from '@/hooks/use-matrix-cell-values'
 import { useMatrixFeatureSummaries } from '@/hooks/use-matrix-feature-summaries'
 import { useMatrixQueryState } from '@/hooks/use-matrix-query-state'
+import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import { scopeOf, type Matrix, type UiFilter } from '@/lib/beacon'
 import type { Biosample, Feature } from '@/lib/beacon/types'
 import { mergeGeneLensFilters } from '@/lib/gene-lens'
@@ -52,7 +53,8 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
   const matrixId = matrix.matrixId
   const popoverHandle = useMemo(() => Popover.createHandle(), [])
   const openedRef = useRef(false)
-  const { query, queryKey, patch, clearFilters } = useMatrixQueryState(matrixId)
+  const scopeIndex = useMergedFilterScopeIndex()
+  const { query, queryKey, patch, clearFilters } = useMatrixQueryState(matrixId, scopeIndex)
   const [mode, setMode] = useState<MatrixHeatmapViewMode>('heatmap')
   const [inspect, setInspect] = useState<MatrixInspect | null>(null)
   const [visibleIds, setVisibleIds] = useState<string[]>([])
@@ -230,6 +232,14 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
             query={query}
             onPatch={patch}
             onClear={clearFilters}
+            featureCount={{
+              loading: features.status !== 'ready' && !features.stale && !features.error,
+              total: features.status === 'ready' || features.stale ? features.total : null,
+            }}
+            biosampleCount={{
+              loading: biosamples.status !== 'ready' && !biosamples.stale && !biosamples.error,
+              total: biosamples.status === 'ready' || biosamples.stale ? biosamples.total : null,
+            }}
           />
         </div>
       </div>

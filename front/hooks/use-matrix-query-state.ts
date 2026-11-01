@@ -1,7 +1,8 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { FilterScopeIndex } from '@/lib/beacon/filters'
 import {
   emptyMatrixWorkspaceQuery,
   matrixWorkspaceQueryKey,
@@ -24,14 +25,28 @@ export type MatrixQueryUpdate =
   | Partial<MatrixWorkspaceQuery>
   | ((current: MatrixWorkspaceQuery) => Partial<MatrixWorkspaceQuery>)
 
-export function useMatrixQueryState(matrixId: string) {
+function scopeIndexKey(index: FilterScopeIndex | undefined): string {
+  if (!index || index.size === 0) return ''
+  const parts: string[] = []
+  for (const [key, scope] of index) parts.push(`${key}=${scope}`)
+  parts.sort()
+  return parts.join('|')
+}
+
+export function useMatrixQueryState(matrixId: string, scopeIndex?: FilterScopeIndex) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const indexRef = useRef(scopeIndex)
+  indexRef.current = scopeIndex
+  const indexKey = useMemo(() => scopeIndexKey(scopeIndex), [scopeIndex])
   const fromNext = searchParams.toString()
   const writtenRef = useRef(fromNext)
   const adoptedRef = useRef(false)
   const [query, setQuery] = useState<MatrixWorkspaceQuery>(() =>
-    parseMatrixWorkspaceQuery(new URLSearchParams(fromNext || readLocationQuery()))
+    parseMatrixWorkspaceQuery(
+      new URLSearchParams(fromNext || readLocationQuery()),
+      scopeIndex
+    )
   )
   const queryRef = useRef(query)
   queryRef.current = query
@@ -42,14 +57,21 @@ export function useMatrixQueryState(matrixId: string) {
       const initial = fromNext || readLocationQuery()
       writtenRef.current = initial
       if (initial !== fromNext) {
-        setQuery(parseMatrixWorkspaceQuery(new URLSearchParams(initial)))
+        setQuery(parseMatrixWorkspaceQuery(new URLSearchParams(initial), indexRef.current))
       }
       return
     }
     if (fromNext === writtenRef.current) return
     writtenRef.current = fromNext
-    setQuery(parseMatrixWorkspaceQuery(new URLSearchParams(fromNext)))
+    setQuery(parseMatrixWorkspaceQuery(new URLSearchParams(fromNext), indexRef.current))
   }, [fromNext])
+
+  useEffect(() => {
+    if (!adoptedRef.current) return
+    setQuery(
+      parseMatrixWorkspaceQuery(new URLSearchParams(writtenRef.current), indexRef.current)
+    )
+  }, [indexKey])
 
   const queryKey = matrixWorkspaceQueryKey(query)
 

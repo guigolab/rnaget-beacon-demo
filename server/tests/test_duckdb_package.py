@@ -743,6 +743,26 @@ class DuckDBPackageTest(unittest.TestCase):
             self.fail(f"beaconResultsetsResponse: {exc.message}")
 
 
+class FeatureAliasOrderTest(unittest.TestCase):
+    def test_symbol_is_first_alias(self) -> None:
+        from beacon.duckdb_store import DuckDBStore
+
+        doc = DuckDBStore._feature_doc_from_row(
+            {
+                "feature_id": "ENSG00000198886.2",
+                "wrapper_id": "feature-ENSG00000198886.2",
+                "resource": "gencode",
+                "symbol": "MT-ND4",
+                "aliases": ["ENSG00000198886", "MT-ND4"],
+            },
+            ["GTEx-v8-Liver"],
+        )
+        self.assertEqual(
+            doc["genomicFeature"]["aliases"],
+            ["MT-ND4", "ENSG00000198886"],
+        )
+
+
 class FeatureIndexMergeTest(unittest.TestCase):
     def test_newer_blank_symbol_keeps_the_older_symbol(self) -> None:
         scripts = str(REPO_ROOT / "scripts")

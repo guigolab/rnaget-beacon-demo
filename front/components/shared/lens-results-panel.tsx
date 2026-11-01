@@ -1,7 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { LoadingNote } from '@/components/status'
+import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui-kit'
 import { LensResultsHeader } from '@/components/shared/lens-results-header'
 import type { LensProbe } from '@/lib/lens-preview-note'
@@ -21,9 +21,21 @@ type LensResultsPanelProps = {
   hasMatches: boolean
   refreshingLabel: string
   canLoadMore: boolean
+  loadingMore?: boolean
   pageSize: number
   onLoadMore: () => void
+  onClearFilters?: () => void
   children: ReactNode
+}
+
+function ResultsSkeleton() {
+  return (
+    <div className="space-y-3" aria-hidden>
+      <div className="h-16 animate-pulse rounded-xl bg-muted" />
+      <div className="h-16 animate-pulse rounded-xl bg-muted" />
+      <div className="h-16 animate-pulse rounded-xl bg-muted" />
+    </div>
+  )
 }
 
 export function LensResultsPanel({
@@ -41,10 +53,15 @@ export function LensResultsPanel({
   hasMatches,
   refreshingLabel,
   canLoadMore,
+  loadingMore = false,
   pageSize,
   onLoadMore,
+  onClearFilters,
   children,
 }: LensResultsPanelProps) {
+  const remaining =
+    probe.total != null ? Math.max(probe.total - previewCount, 0) : null
+
   return (
     <div className="space-y-4">
       <LensResultsHeader
@@ -57,21 +74,24 @@ export function LensResultsPanel({
         previewWhenShowing={previewWhenShowing}
       />
 
-      {probe.exists === false && !probe.loading && (
-        <p className="text-sm text-muted-foreground">{noMatchesMessage}</p>
-      )}
+      {searchLoading && !hasMatches && <ResultsSkeleton />}
 
-      {probe.exists === true && searchLoading && !hasMatches && (
-        <div className="py-6">
-          <LoadingNote />
+      {!searchLoading && probe.exists === false && (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">{noMatchesMessage}</p>
+          {onClearFilters && (
+            <Button type="button" variant="outline" size="sm" onClick={onClearFilters}>
+              Clear filters
+            </Button>
+          )}
         </div>
       )}
 
-      {probe.exists === true && searchError && !hasMatches && (
+      {!searchLoading && searchError && !hasMatches && probe.exists !== false && (
         <EmptyState title={loadErrorTitle} description={searchError} />
       )}
 
-      {probe.exists === true && hasMatches && (
+      {hasMatches && (
         <>
           {searchLoading && (
             <p className="text-[11px] text-muted-foreground" aria-live="polite">
@@ -83,13 +103,20 @@ export function LensResultsPanel({
           )}
           {children}
           {canLoadMore && (
-            <button
+            <Button
               type="button"
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-muted"
+              variant="outline"
+              size="sm"
+              disabled={loadingMore}
               onClick={onLoadMore}
             >
               Load {pageSize} more
-            </button>
+              {remaining != null && (
+                <span className="font-normal text-muted-foreground">
+                  · {remaining.toLocaleString()} left
+                </span>
+              )}
+            </Button>
           )}
         </>
       )}

@@ -180,13 +180,14 @@ export async function getFilteringTerms(path = '/filtering_terms'): Promise<Filt
 export function listMatrices(
   skip = 0,
   limit = 20,
-  opts?: { filters?: UiFilter[]; granularity?: Granularity }
+  opts?: { filters?: UiFilter[]; granularity?: Granularity; signal?: AbortSignal }
 ) {
   return queryCollection<Matrix>('/matrices', {
     skip,
     limit,
     filters: opts?.filters,
     granularity: opts?.granularity ?? 'record',
+    signal: opts?.signal,
   })
 }
 
@@ -242,13 +243,14 @@ export async function getMatrix(id: string, signal?: AbortSignal): Promise<Matri
 export function listFeatures(
   skip = 0,
   limit = 20,
-  opts?: { filters?: UiFilter[]; granularity?: Granularity }
+  opts?: { filters?: UiFilter[]; granularity?: Granularity; signal?: AbortSignal }
 ) {
   return queryCollection<Feature>('/features', {
     skip,
     limit,
     filters: opts?.filters,
     granularity: opts?.granularity ?? 'record',
+    signal: opts?.signal,
   })
 }
 
@@ -266,13 +268,14 @@ export async function getFeature(
 export function listBiosamples(
   skip = 0,
   limit = 20,
-  opts?: { filters?: UiFilter[]; granularity?: Granularity }
+  opts?: { filters?: UiFilter[]; granularity?: Granularity; signal?: AbortSignal }
 ) {
   return queryCollection<Biosample>('/biosamples', {
     skip,
     limit,
     filters: opts?.filters,
     granularity: opts?.granularity ?? 'record',
+    signal: opts?.signal,
   })
 }
 

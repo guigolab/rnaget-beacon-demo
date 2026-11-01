@@ -132,7 +132,7 @@ jobs:
           RNAGET_BUILT_PACKAGE: ${{ github.workspace }}/dist/data-package
         run: |
           set -euo pipefail
-          pip install -r requirements.txt pytest httpx
+          pip install -r requirements.txt pytest
           python -m pytest -q
 
       - name: Pack tarball

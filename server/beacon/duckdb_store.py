@@ -565,8 +565,8 @@ class DuckDBStore:
             for a in cls._as_list(row.get("aliases"))
             if a is not None and not _is_nan(a)
         ]
-        if symbol and symbol not in aliases:
-            aliases = [symbol] + aliases
+        if symbol:
+            aliases = [symbol] + [alias for alias in aliases if alias != symbol]
         ft_id = row.get("feature_type_id") or "SO:0000704"
         ft_label = row.get("feature_type_label") or "gene"
         if ft_id is not None and _is_nan(ft_id):

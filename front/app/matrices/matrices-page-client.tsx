@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { MatrixFilterSidebar } from '@/components/matrices/matrix-filter-sidebar'
 import { MatrixQueryBar } from '@/components/matrices/matrix-query-bar'
@@ -9,7 +9,8 @@ import { LensChrome } from '@/components/shared/lens-chrome'
 import { LensPageShell } from '@/components/shared/lens-page-shell'
 import { LensResultsPanel } from '@/components/shared/lens-results-panel'
 import { PageFrame, PageHeader } from '@/components/ui-kit'
-import { useMatrixFilterProbe } from '@/hooks/use-matrix-filter-probe'
+import { useLensList } from '@/hooks/use-lens-list'
+import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import {
   dedupeFilters,
   filterKey,
@@ -20,11 +21,7 @@ import {
   type Matrix,
   type UiFilter,
 } from '@/lib/beacon'
-import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
-import {
-  MATRIX_LENS_PAGE_SIZE,
-  mergeMatrixLensFilters,
-} from '@/lib/matrix-lens'
+import { MATRIX_LENS_PAGE_SIZE, mergeMatrixLensFilters } from '@/lib/matrix-lens'
 
 function MatricesContent() {
   const search = useSearchParams()
@@ -37,86 +34,50 @@ function MatricesContent() {
   const { matrixFilters } = lens
 
   const filterKeyLine = useMemo(
-    () => matrixFilters.map((f) => filterKey(f)).join('|'),
+    () => matrixFilters.map((filter) => filterKey(filter)).join('|'),
     [matrixFilters]
   )
-  const querySummary = useMemo(
-    () => filtersQuerySummary(matrixFilters),
-    [matrixFilters]
-  )
+  const querySummary = useMemo(() => filtersQuerySummary(matrixFilters), [matrixFilters])
 
-  const [matches, setMatches] = useState<Matrix[]>([])
-  const [displayLimit, setDisplayLimit] = useState(MATRIX_LENS_PAGE_SIZE)
-  const [searchError, setSearchError] = useState('')
-  const [searchLoading, setSearchLoading] = useState(false)
-  const probe = useMatrixFilterProbe(matrixFilters)
+  const filtersRef = useRef(matrixFilters)
+  filtersRef.current = matrixFilters
 
-  useEffect(() => {
-    setDisplayLimit(MATRIX_LENS_PAGE_SIZE)
-  }, [filterKeyLine])
+  const list = useLensList<Matrix>({
+    queryKey: filterKeyLine,
+    pageSize: MATRIX_LENS_PAGE_SIZE,
+    enabled: matrixFilters.length > 0,
+    itemKey: (item) => item.matrixId,
+    fetchPage: (skip, limit, signal) =>
+      listMatrices(skip, limit, {
+        filters: filtersRef.current,
+        granularity: 'record',
+        signal,
+      }),
+  })
 
   const writeFilters = useCallback(
     (next: UiFilter[]) => {
       const params = matrixLensSearchParams({
         filters: dedupeFilters(next),
         matrix: null,
+        index: scopeIndex,
       })
       router.replace(`/matrices/?${params.toString()}`)
     },
-    [router]
+    [router, scopeIndex]
   )
 
-  useEffect(() => {
-    if (matrixFilters.length === 0) {
-      setMatches([])
-      setSearchError('')
-      setSearchLoading(false)
-      return
-    }
-    if (probe.loading || probe.exists !== true) {
-      setMatches([])
-      setSearchError('')
-      setSearchLoading(false)
-      return
-    }
-
-    let cancelled = false
-    async function loadMatches() {
-      const showBlockingLoad = matches.length === 0
-      if (showBlockingLoad) setSearchLoading(true)
-      setSearchError('')
-      try {
-        const page = await listMatrices(0, displayLimit, {
-          filters: matrixFilters,
-          granularity: 'record',
-        })
-        if (cancelled) return
-        setMatches(page.results)
-      } catch (err: unknown) {
-        if (!cancelled) {
-          setSearchError(err instanceof Error ? err.message : 'Cannot reach the beacon.')
-          setMatches([])
-        }
-      } finally {
-        if (!cancelled) setSearchLoading(false)
-      }
-    }
-    loadMatches()
-    return () => {
-      cancelled = true
-    }
-  }, [filterKeyLine, matrixFilters, probe.loading, probe.exists, displayLimit])
-
   const canLoadMore =
-    probe.exists === true &&
-    probe.total != null &&
-    matches.length < probe.total &&
-    !searchLoading
+    list.exists === true &&
+    list.total != null &&
+    list.items.length < list.total &&
+    !list.loading &&
+    !list.loadingMore
 
   return (
     <PageFrame>
       <PageHeader
-        title="Matrix lens"
+        title="Matrices"
         description="Find expression matrices by assay, feature type, unit, annotation, or assembly."
       />
 
@@ -124,16 +85,15 @@ function MatricesContent() {
         sidebar={
           <MatrixFilterSidebar
             activeFilters={matrixFilters}
-            onAddFilter={(added) =>
-              writeFilters(mergeMatrixLensFilters(matrixFilters, added))
-            }
+            onAddFilter={(added) => writeFilters(mergeMatrixLensFilters(matrixFilters, added))}
           />
         }
         queryBar={
           <MatrixQueryBar
             filters={matrixFilters}
             onChange={writeFilters}
-            probe={probe}
+            probe={list}
+            scopeIndex={scopeIndex}
           />
         }
         endpointLines={['GET or POST /matrices']}
@@ -145,22 +105,24 @@ function MatricesContent() {
         }}
         resultsPanel={
           <LensResultsPanel
-            probe={probe}
+            probe={list}
             querySummary={querySummary}
-            previewLimit={displayLimit}
-            previewCount={matches.length}
+            previewLimit={list.items.length}
+            previewCount={list.items.length}
             previewHint="GET or POST /matrices"
-            noMatchesMessage="No matrices match these filters at boolean granularity."
+            noMatchesMessage="No matrices match these filters."
             loadErrorTitle="Could not load matrices"
-            searchError={searchError}
-            searchLoading={searchLoading}
-            hasMatches={matches.length > 0}
+            searchError={list.error}
+            searchLoading={list.loading}
+            hasMatches={list.items.length > 0}
             refreshingLabel="Refreshing matrix list…"
             canLoadMore={canLoadMore}
+            loadingMore={list.loadingMore}
             pageSize={MATRIX_LENS_PAGE_SIZE}
-            onLoadMore={() => setDisplayLimit((n) => n + MATRIX_LENS_PAGE_SIZE)}
+            onLoadMore={list.loadMore}
+            onClearFilters={() => writeFilters([])}
           >
-            <MatrixResultsCards matrices={matches} />
+            <MatrixResultsCards matrices={list.items} />
           </LensResultsPanel>
         }
       />

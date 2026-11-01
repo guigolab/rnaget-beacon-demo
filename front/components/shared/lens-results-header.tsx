@@ -29,9 +29,11 @@ export function LensResultsHeader({
   previewWhenShowing,
 }: LensResultsHeaderProps) {
   let countLine: string
-  if (probe.loading) {
-    countLine = 'Checking…'
-  } else if (probe.error) {
+  if (probe.loading && probe.total == null) {
+    countLine = 'Loading…'
+  } else if (probe.loading && probe.total != null) {
+    countLine = `Refreshing… · ${probe.total.toLocaleString()} match${probe.total === 1 ? '' : 'es'}`
+  } else if (probe.error && probe.total == null) {
     countLine = '—'
   } else if (probe.exists === false) {
     countLine = '0 matches'

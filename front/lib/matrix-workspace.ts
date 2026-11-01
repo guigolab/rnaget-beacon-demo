@@ -1,6 +1,8 @@
-import { geneLensQueryExamples } from '@/lib/gene-lens'
-import { sampleLensQueryExamples } from '@/lib/sample-lens'
+import { featureSymbol } from '@/lib/gene-lens'
 import type { Feature, FilteringTerm, UiFilter } from '@/lib/beacon/types'
+
+const PREFERRED_FEATURE_TYPES = ['SO:0001217', 'SO:0002127']
+const SAMPLE_STATUS_IDS = new Set(['EFO:0009654', 'EFO:0009655'])
 
 export function matrixHeatmapFilteringTermsPath(
   matrixId: string,
@@ -12,12 +14,20 @@ export function matrixHeatmapFilteringTermsPath(
     : `/matrices/${enc}/biosamples/filtering_terms`
 }
 
-export function matrixHeatmapFilteringTermsFallbackPath(
-  axis: 'features' | 'biosamples'
-): string {
-  return axis === 'features' ? '/features/filtering_terms' : '/biosamples/filtering_terms'
+function pushOntology(
+  examples: Array<{ label: string; filter: UiFilter }>,
+  term: FilteringTerm
+) {
+  if (examples.some((example) => example.filter.kind === 'ontology' && example.filter.id === term.id)) {
+    return
+  }
+  examples.push({
+    label: term.label ?? term.id,
+    filter: { kind: 'ontology', id: term.id, label: term.label },
+  })
 }
 
+/** Example chips drawn only from this matrix: two symbols and up to two biotypes. */
 export function matrixHeatmapFeatureExamples(
   terms: FilteringTerm[],
   previewFeatures: Feature[]
@@ -26,10 +36,8 @@ export function matrixHeatmapFeatureExamples(
   const seen = new Set<string>()
 
   for (const feature of previewFeatures) {
-    if (examples.length >= 4) break
-    const symbol =
-      feature.genomicFeature?.aliases?.[0] ??
-      feature.genomicFeature?.featureIdentifier?.id
+    if (examples.length >= 2) break
+    const symbol = featureSymbol(feature)
     if (!symbol) continue
     const key = symbol.toUpperCase()
     if (seen.has(key)) continue
@@ -37,42 +45,64 @@ export function matrixHeatmapFeatureExamples(
     examples.push({ label: symbol, filter: { kind: 'symbol', value: symbol } })
   }
 
-  const termIds = new Set(terms.map((term) => term.id.toLowerCase()))
-  for (const term of terms) {
-    if (examples.length >= 7) break
-    if (term.type !== 'SO' && term.type !== 'GO') continue
-    if (!termIds.has(term.id.toLowerCase())) continue
-    if (examples.some((e) => e.filter.kind === 'ontology' && e.filter.id === term.id)) {
-      continue
-    }
-    examples.push({
-      label: term.label ?? term.id,
-      filter: { kind: 'ontology', id: term.id, label: term.label },
-    })
+  const biotypes = terms.filter(
+    (term) =>
+      term.type === 'SO' &&
+      term.id !== 'SO:0000704' &&
+      (term.scopes?.includes('genomicFeature') ?? true)
+  )
+  const preferred = PREFERRED_FEATURE_TYPES.flatMap((id) => {
+    const term = biotypes.find((item) => item.id === id)
+    return term ? [term] : []
+  })
+  const rest = biotypes.filter((term) => !PREFERRED_FEATURE_TYPES.includes(term.id))
+  let biotypeCount = 0
+  for (const term of [...preferred, ...rest]) {
+    if (biotypeCount >= 2) break
+    pushOntology(examples, term)
+    biotypeCount += 1
   }
 
-  for (const example of geneLensQueryExamples(terms)) {
-    if (examples.length >= 7) break
-    const { filter } = example
-    if (filter.kind === 'symbol') {
-      if (seen.has(filter.value.toUpperCase())) continue
-      seen.add(filter.value.toUpperCase())
-      examples.push(example)
-      continue
-    }
-    if (filter.kind === 'ontology' && termIds.has(filter.id.toLowerCase())) {
-      if (examples.some((e) => e.filter.kind === 'ontology' && e.filter.id === filter.id)) {
-        continue
-      }
-      examples.push(example)
-    }
-  }
-
-  return examples.slice(0, 7)
+  return examples
 }
 
+function isTissueOrCellType(term: FilteringTerm): boolean {
+  if (term.type !== 'UBERON' && term.type !== 'EFO') return false
+  if (SAMPLE_STATUS_IDS.has(term.id)) return false
+  return term.scopes?.includes('biosample') ?? false
+}
+
+/** Example chips drawn only from this matrix's biosample terms. */
 export function matrixHeatmapBiosampleExamples(
   terms: FilteringTerm[]
 ): Array<{ label: string; filter: UiFilter }> {
-  return sampleLensQueryExamples(terms)
+  const examples: Array<{ label: string; filter: UiFilter }> = []
+  const biosample = (term: FilteringTerm) => term.scopes?.includes('biosample') ?? false
+
+  const tissues = terms
+    .filter(isTissueOrCellType)
+    .sort((a, b) => (a.label ?? a.id).localeCompare(b.label ?? b.id))
+  for (const term of tissues.slice(0, 2)) pushOntology(examples, term)
+
+  const sexTerm = terms.find((term) => term.id === 'sex' && biosample(term))
+  const sexValue = sexTerm?.values?.[0]
+  if (sexValue) {
+    examples.push({ label: sexValue, filter: { kind: 'sex', value: sexValue } })
+  }
+
+  const condition = terms.find((term) => term.id === 'condition' && biosample(term))
+  const conditionValue = condition?.values?.[0]
+  if (conditionValue) {
+    examples.push({
+      label: conditionValue,
+      filter: {
+        kind: 'alphanumeric',
+        id: 'condition',
+        value: conditionValue,
+        label: `${condition?.label ?? 'condition'} = ${conditionValue}`,
+      },
+    })
+  }
+
+  return examples.slice(0, 4)
 }

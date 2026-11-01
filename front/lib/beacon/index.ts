@@ -47,6 +47,7 @@ export {
   parseMatrixLensSearch,
   parseMatrixQuery,
   matrixLensSearchParams,
+  isFeatureLensFilter,
   isMatrixLensFilter,
   buildFilterScopeIndex,
   mergeFilterScopeIndexes,

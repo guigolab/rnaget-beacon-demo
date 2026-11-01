@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { buildFilterScopeIndex } from '@/lib/beacon/filters'
 import {
   featureIdListCsv,
   interpretBiosampleQueryToken,
@@ -60,5 +61,18 @@ const wrong = interpretBiosampleQueryToken('SO:0000704', terms, undefined)
 assert.equal(wrong.ok, false)
 
 assert.equal(featureIdListCsv({ genes: ['TP53'], featureIds: ['ENSG00000141510'] }), 'TP53,ENSG00000141510')
+
+const cytosolIndex = buildFilterScopeIndex([
+  { id: 'GO:0005829', type: 'GO', label: 'cytosol', scopes: ['biosample'] },
+  { id: 'SO:0000704', type: 'SO', label: 'gene', scopes: ['genomicFeature', 'matrix'] },
+])
+const scoped = parseMatrixWorkspaceQuery(
+  new URLSearchParams('filters=GO:0005829,SO:0000704'),
+  cytosolIndex
+)
+assert.equal(scoped.biosampleFilters.length, 1)
+assert.equal(scoped.biosampleFilters[0].kind === 'ontology' && scoped.biosampleFilters[0].id, 'GO:0005829')
+assert.equal(scoped.featureFilters.length, 1)
+assert.equal(scoped.featureFilters[0].kind === 'ontology' && scoped.featureFilters[0].id, 'SO:0000704')
 
 console.log('matrix-workspace-query.test.ts ok')

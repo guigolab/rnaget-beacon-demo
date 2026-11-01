@@ -4,6 +4,7 @@ import {
   dedupeFilters,
   filterKey,
   isCustomId,
+  isFeatureLensFilter,
   isOntologyId,
   parseCatalogSearch,
   scopeOf,
@@ -65,7 +66,10 @@ export function emptyMatrixWorkspaceQuery(): MatrixWorkspaceQuery {
 }
 
 /** Parse the matrix workspace URL. Record-sheet params are ignored. */
-export function parseMatrixWorkspaceQuery(params: URLSearchParams): MatrixWorkspaceQuery {
+export function parseMatrixWorkspaceQuery(
+  params: URLSearchParams,
+  index?: FilterScopeIndex
+): MatrixWorkspaceQuery {
   const { filters } = parseCatalogSearch(params)
   const featureFilters: UiFilter[] = []
   const biosampleFilters: UiFilter[] = []
@@ -77,9 +81,11 @@ export function parseMatrixWorkspaceQuery(params: URLSearchParams): MatrixWorksp
       pushUnique(genes, seenGenes, filter.value, TOKEN_CAP)
       continue
     }
-    const scope = scopeOf(filter)
-    if (scope === 'biosample') biosampleFilters.push(filter)
-    else if (scope === 'feature') featureFilters.push(filter)
+    if (scopeOf(filter, index) === 'biosample') {
+      biosampleFilters.push(filter)
+      continue
+    }
+    if (isFeatureLensFilter(filter, index)) featureFilters.push(filter)
   }
 
   for (const gene of csv(params.get('genes'))) {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { BiosampleFilterSidebar } from '@/components/samples/biosample-filter-sidebar'
 import { BiosampleQueryBar } from '@/components/samples/biosample-query-bar'
@@ -10,18 +10,20 @@ import { LensMatrixScopeBanner } from '@/components/shared/lens-matrix-scope-ban
 import { LensPageShell } from '@/components/shared/lens-page-shell'
 import { LensResultsPanel } from '@/components/shared/lens-results-panel'
 import { PageFrame, PageHeader } from '@/components/ui-kit'
-import { useBiosampleFilterProbe } from '@/hooks/use-biosample-filter-probe'
+import { useLensList } from '@/hooks/use-lens-list'
+import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import {
   dedupeFilters,
   filterKey,
   filtersQuerySummary,
   listBiosamples,
+  listMatrixBiosamples,
   parseSampleLensSearch,
   sampleLensSearchParams,
   type Biosample,
   type UiFilter,
 } from '@/lib/beacon'
-import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
+import { matrixHeatmapFilteringTermsPath } from '@/lib/matrix-workspace'
 import { mergeSampleLensFilters, SAMPLE_LENS_PAGE_SIZE } from '@/lib/sample-lens'
 
 function BiosamplesLensContent() {
@@ -35,23 +37,36 @@ function BiosamplesLensContent() {
   const { biosampleFilters, matrix: focusMatrix } = lens
 
   const filterKeyLine = useMemo(
-    () => biosampleFilters.map((f) => filterKey(f)).join('|'),
+    () => biosampleFilters.map((filter) => filterKey(filter)).join('|'),
     [biosampleFilters]
   )
   const querySummary = useMemo(
     () => filtersQuerySummary(biosampleFilters),
     [biosampleFilters]
   )
+  const termsPath = focusMatrix
+    ? matrixHeatmapFilteringTermsPath(focusMatrix, 'biosamples')
+    : '/biosamples/filtering_terms'
 
-  const [matches, setMatches] = useState<Biosample[]>([])
-  const [displayLimit, setDisplayLimit] = useState(SAMPLE_LENS_PAGE_SIZE)
-  const [searchError, setSearchError] = useState('')
-  const [searchLoading, setSearchLoading] = useState(false)
-  const probe = useBiosampleFilterProbe(biosampleFilters)
+  const filtersRef = useRef(biosampleFilters)
+  filtersRef.current = biosampleFilters
+  const focusRef = useRef(focusMatrix)
+  focusRef.current = focusMatrix
 
-  useEffect(() => {
-    setDisplayLimit(SAMPLE_LENS_PAGE_SIZE)
-  }, [filterKeyLine])
+  const list = useLensList<Biosample>({
+    queryKey: `${filterKeyLine}|${focusMatrix ?? ''}`,
+    pageSize: SAMPLE_LENS_PAGE_SIZE,
+    enabled: biosampleFilters.length > 0,
+    itemKey: (item) => item.id,
+    fetchPage: (skip, limit, signal) => {
+      const filters = filtersRef.current
+      const matrixId = focusRef.current
+      if (matrixId) {
+        return listMatrixBiosamples(matrixId, skip, limit, { filters, signal })
+      }
+      return listBiosamples(skip, limit, { filters, granularity: 'record', signal })
+    },
+  })
 
   const writeFilters = useCallback(
     (next: UiFilter[]) => {
@@ -59,80 +74,56 @@ function BiosamplesLensContent() {
         filters: dedupeFilters(next),
         matrix: focusMatrix,
         sample: null,
+        index: scopeIndex,
       })
       router.replace(`/biosamples/?${params.toString()}`)
     },
-    [router, focusMatrix]
+    [router, focusMatrix, scopeIndex]
   )
 
-  useEffect(() => {
-    if (biosampleFilters.length === 0) {
-      setMatches([])
-      setSearchError('')
-      setSearchLoading(false)
-      return
-    }
-    if (probe.loading || probe.exists !== true) {
-      setMatches([])
-      setSearchError('')
-      setSearchLoading(false)
-      return
-    }
-
-    let cancelled = false
-    async function loadMatches() {
-      const showBlockingLoad = matches.length === 0
-      if (showBlockingLoad) setSearchLoading(true)
-      setSearchError('')
-      try {
-        const page = await listBiosamples(0, displayLimit, {
-          filters: biosampleFilters,
-          granularity: 'record',
-        })
-        if (cancelled) return
-        setMatches(page.results)
-      } catch (err: unknown) {
-        if (!cancelled) {
-          setSearchError(err instanceof Error ? err.message : 'Cannot reach the beacon.')
-          setMatches([])
-        }
-      } finally {
-        if (!cancelled) setSearchLoading(false)
-      }
-    }
-    loadMatches()
-    return () => {
-      cancelled = true
-    }
-  }, [filterKeyLine, biosampleFilters, probe.loading, probe.exists, displayLimit])
-
   const canLoadMore =
-    probe.exists === true &&
-    probe.total != null &&
-    matches.length < probe.total &&
-    !searchLoading
+    list.exists === true &&
+    list.total != null &&
+    list.items.length < list.total &&
+    !list.loading &&
+    !list.loadingMore
 
   const clearMatrixHref = useMemo(() => {
     const params = sampleLensSearchParams({
       filters: biosampleFilters,
+      index: scopeIndex,
     })
     return `/biosamples/?${params.toString()}`
-  }, [biosampleFilters])
+  }, [biosampleFilters, scopeIndex])
+
+  const endpoint = focusMatrix
+    ? `GET or POST /matrices/${focusMatrix}/biosamples`
+    : 'GET or POST /biosamples'
 
   return (
     <PageFrame>
       <PageHeader
         title="Biosamples"
-        description="Query biosamples by tissue, ontology, or sample metadata, then open matrices."
+        description="Query biosamples by tissue, ontology, or sample metadata, then open a matrix."
       />
 
       {focusMatrix && (
-        <LensMatrixScopeBanner matrixId={focusMatrix} clearHref={clearMatrixHref} />
+        <LensMatrixScopeBanner
+          matrixId={focusMatrix}
+          clearHref={clearMatrixHref}
+          noun="biosamples"
+        />
       )}
 
       <LensChrome
         sidebar={
           <BiosampleFilterSidebar
+            termsPath={termsPath}
+            source={
+              focusMatrix
+                ? `GET /matrices/${focusMatrix}/biosamples/filtering_terms`
+                : 'GET /biosamples/filtering_terms'
+            }
             activeFilters={biosampleFilters}
             onAddFilter={(added) =>
               writeFilters(mergeSampleLensFilters(biosampleFilters, added))
@@ -143,10 +134,12 @@ function BiosamplesLensContent() {
           <BiosampleQueryBar
             filters={biosampleFilters}
             onChange={writeFilters}
-            probe={probe}
+            probe={list}
+            scopeIndex={scopeIndex}
+            termsPath={termsPath}
           />
         }
-        endpointLines={['GET or POST /biosamples']}
+        endpointLines={[endpoint]}
         hasFilters={biosampleFilters.length > 0}
         emptyState={{
           title: 'Start with a filter',
@@ -155,22 +148,24 @@ function BiosamplesLensContent() {
         }}
         resultsPanel={
           <LensResultsPanel
-            probe={probe}
+            probe={list}
             querySummary={querySummary}
-            previewLimit={displayLimit}
-            previewCount={matches.length}
+            previewLimit={list.items.length}
+            previewCount={list.items.length}
             previewHint="GET or POST /biosamples"
-            noMatchesMessage="No biosamples match these filters at boolean granularity."
+            noMatchesMessage="No biosamples match these filters."
             loadErrorTitle="Could not load biosamples"
-            searchError={searchError}
-            searchLoading={searchLoading}
-            hasMatches={matches.length > 0}
+            searchError={list.error}
+            searchLoading={list.loading}
+            hasMatches={list.items.length > 0}
             refreshingLabel="Refreshing biosample list…"
             canLoadMore={canLoadMore}
+            loadingMore={list.loadingMore}
             pageSize={SAMPLE_LENS_PAGE_SIZE}
-            onLoadMore={() => setDisplayLimit((n) => n + SAMPLE_LENS_PAGE_SIZE)}
+            onLoadMore={list.loadMore}
+            onClearFilters={() => writeFilters([])}
           >
-            <BiosampleResultsCards samples={matches} focusMatrix={focusMatrix} />
+            <BiosampleResultsCards samples={list.items} focusMatrix={focusMatrix} />
           </LensResultsPanel>
         }
       />

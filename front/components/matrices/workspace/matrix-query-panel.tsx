@@ -1,17 +1,25 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { FilteringTermBrowser } from '@/components/shared/filtering-term-browser'
 import { Button } from '@/components/ui/button'
-import { useMatrixAxisFilteringTerms } from '@/hooks/use-matrix-axis-filtering-terms'
+import { useFilteringTerms } from '@/hooks/use-filtering-terms'
 import type { MatrixQueryUpdate } from '@/hooks/use-matrix-query-state'
-import { dedupeFilters, filterKey, buildFilterScopeIndex, mergeFilterScopeIndexes } from '@/lib/beacon'
+import {
+  dedupeFilters,
+  filterKey,
+  buildFilterScopeIndex,
+  mergeFilterScopeIndexes,
+} from '@/lib/beacon'
 import { listMatrixFeatures } from '@/lib/beacon/client'
 import type { Matrix, UiFilter } from '@/lib/beacon'
 import type { Feature } from '@/lib/beacon/types'
 import { catalogLabelById, filterChipDisplay } from '@/lib/gene-filter-labels'
+import { browsableTerms, lensQueryPlaceholder } from '@/lib/lens-catalog'
 import {
   matrixHeatmapBiosampleExamples,
   matrixHeatmapFeatureExamples,
+  matrixHeatmapFilteringTermsPath,
 } from '@/lib/matrix-workspace'
 import {
   biosampleIdListCsv,
@@ -31,17 +39,72 @@ function shorten(id: string) {
   return id.length > 22 ? `${id.slice(0, 20)}…` : id
 }
 
+type AxisCount = {
+  loading: boolean
+  total: number | null
+}
+
 type MatrixQueryPanelProps = {
   matrix: Matrix
   query: MatrixWorkspaceQuery
   onPatch: (update: MatrixQueryUpdate) => void
   onClear: () => void
+  featureCount: AxisCount
+  biosampleCount: AxisCount
 }
 
-export function MatrixQueryPanel({ matrix, query, onPatch, onClear }: MatrixQueryPanelProps) {
+function AxisTotal({ noun, count }: { noun: string; count: AxisCount }) {
+  if (count.loading) {
+    return <p className="text-[11px] text-muted-foreground">Loading {noun}…</p>
+  }
+  if (count.total == null) return null
+  const label = count.total === 1 ? noun.replace(/s$/, '') : noun
+  return (
+    <p className="text-[11px] tabular-nums text-muted-foreground">
+      {count.total.toLocaleString()} {label}
+    </p>
+  )
+}
+
+function TermBrowse({
+  count,
+  loading,
+  children,
+}: {
+  count: number
+  loading: boolean
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  if (!loading && count === 0) return null
+  return (
+    <div>
+      <button
+        type="button"
+        className="text-[11px] font-medium text-primary underline-offset-2 hover:underline"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? 'Hide terms' : `Browse terms${loading ? '' : ` (${count.toLocaleString()})`}`}
+      </button>
+      {open && <div className="mt-2">{children}</div>}
+    </div>
+  )
+}
+
+export function MatrixQueryPanel({
+  matrix,
+  query,
+  onPatch,
+  onClear,
+  featureCount,
+  biosampleCount,
+}: MatrixQueryPanelProps) {
   const matrixId = matrix.matrixId
-  const featureTerms = useMatrixAxisFilteringTerms(matrixId, 'features')
-  const biosampleTerms = useMatrixAxisFilteringTerms(matrixId, 'biosamples')
+  const featurePath = matrixHeatmapFilteringTermsPath(matrixId, 'features')
+  const biosamplePath = matrixHeatmapFilteringTermsPath(matrixId, 'biosamples')
+  const featureTerms = useFilteringTerms(featurePath)
+  const biosampleTerms = useFilteringTerms(biosamplePath)
   const scopeIndex = useMemo(
     () =>
       mergeFilterScopeIndexes(
@@ -55,6 +118,16 @@ export function MatrixQueryPanel({ matrix, query, onPatch, onClear }: MatrixQuer
     () => catalogLabelById(biosampleTerms.terms),
     [biosampleTerms.terms]
   )
+  const featurePlaceholder = lensQueryPlaceholder(
+    'feature',
+    featureTerms.terms,
+    featureTerms.resources
+  )
+  const biosamplePlaceholder = lensQueryPlaceholder(
+    'biosample',
+    biosampleTerms.terms,
+    biosampleTerms.resources
+  )
 
   const [featureText, setFeatureText] = useState('')
   const [biosampleText, setBiosampleText] = useState('')
@@ -64,12 +137,11 @@ export function MatrixQueryPanel({ matrix, query, onPatch, onClear }: MatrixQuer
 
   useEffect(() => {
     const controller = new AbortController()
-    listMatrixFeatures(
-      matrixId,
-      0,
-      8,
-      { sort: 'expression.max', order: 'desc', signal: controller.signal }
-    )
+    listMatrixFeatures(matrixId, 0, 8, {
+      sort: 'expression.max',
+      order: 'desc',
+      signal: controller.signal,
+    })
       .then((page) => {
         if (!controller.signal.aborted) setPreviewFeatures(page.results)
       })
@@ -81,13 +153,34 @@ export function MatrixQueryPanel({ matrix, query, onPatch, onClear }: MatrixQuer
 
   const featureExamples = useMemo(() => {
     if (featureTerms.loading) return []
-    return matrixHeatmapFeatureExamples(featureTerms.terms, previewFeatures).slice(0, 4)
+    return matrixHeatmapFeatureExamples(featureTerms.terms, previewFeatures)
   }, [featureTerms.loading, featureTerms.terms, previewFeatures])
 
   const biosampleExamples = useMemo(() => {
-    if (biosampleTerms.loading || !biosampleTerms.terms.length) return []
-    return matrixHeatmapBiosampleExamples(biosampleTerms.terms).slice(0, 4)
+    if (biosampleTerms.loading) return []
+    return matrixHeatmapBiosampleExamples(biosampleTerms.terms)
   }, [biosampleTerms.loading, biosampleTerms.terms])
+
+  function applyFeatureFilter(filter: UiFilter) {
+    onPatch((current) => {
+      if (filter.kind === 'symbol') {
+        if (current.genes.some((gene) => gene.toUpperCase() === filter.value.toUpperCase())) {
+          return current
+        }
+        return { genes: [...current.genes, filter.value] }
+      }
+      if (filter.kind === 'ontology' || filter.kind === 'custom') {
+        return { featureFilters: dedupeFilters([...current.featureFilters, filter]) }
+      }
+      return current
+    })
+  }
+
+  function applyBiosampleFilter(filter: UiFilter) {
+    onPatch((current) => ({
+      biosampleFilters: mergeSampleLensFilters(current.biosampleFilters, filter),
+    }))
+  }
 
   function applyFeatureToken(raw: string) {
     const parts = raw
@@ -238,7 +331,11 @@ export function MatrixQueryPanel({ matrix, query, onPatch, onClear }: MatrixQuer
     range?.max != null &&
     Number.isFinite(range.min) &&
     Number.isFinite(range.max)
-  const capped = (featureIdListCsv(query)?.split(',').length ?? 0) >= 100 || (biosampleIdListCsv(query)?.split(',').length ?? 0) >= 100
+  const featureTokens = featureIdListCsv(query)?.split(',').length ?? 0
+  const biosampleTokens = biosampleIdListCsv(query)?.split(',').length ?? 0
+  const capped = featureTokens >= 100 || biosampleTokens >= 100
+  const featureTermCount = browsableTerms(featureTerms.terms).length
+  const biosampleTermCount = browsableTerms(biosampleTerms.terms).length
 
   return (
     <div className="space-y-4">
@@ -255,67 +352,85 @@ export function MatrixQueryPanel({ matrix, query, onPatch, onClear }: MatrixQuer
         </Button>
       </div>
 
-      <QueryChipInput
-        id="matrix-feature-search-input"
-        label="Features"
-        chips={featureChips}
-        text={featureText}
-        placeholder="TP53, BRCA1, SO:…, GO:…"
-        error={featureError || featureTerms.error}
-        examples={featureExamples.map((example) => ({
-          label: example.label,
-          onSelect: () => {
-            if (example.filter.kind === 'symbol') applyFeatureToken(example.filter.value)
-            else if (example.filter.kind === 'ontology' || example.filter.kind === 'custom') {
-              applyFeatureToken(example.filter.id)
-            }
-          },
-        }))}
-        suggestions={querySuggestions(featureTerms.terms, featureText, 'feature')}
-        onTextChange={(value) => {
-          setFeatureText(value)
-          if (featureError) setFeatureError('')
-        }}
-        onCommit={applyFeatureToken}
-        onRemove={removeFeatureChip}
-        onSuggestion={(suggestion) => applySuggestion(suggestion, 'feature')}
-        onBackspaceEmpty={() => {
-          const last = featureChips[featureChips.length - 1]
-          if (last) removeFeatureChip(last.key)
-        }}
-      />
+      <div className="space-y-2">
+        <QueryChipInput
+          id="matrix-feature-search-input"
+          label="Features"
+          chips={featureChips}
+          text={featureText}
+          placeholder={featureTerms.loading ? 'Add filter…' : featurePlaceholder}
+          error={featureError || featureTerms.error}
+          examples={featureExamples.map((example) => ({
+            label: example.label,
+            onSelect: () => applyFeatureFilter(example.filter),
+          }))}
+          suggestions={querySuggestions(featureTerms.terms, featureText, 'feature')}
+          onTextChange={(value) => {
+            setFeatureText(value)
+            if (featureError) setFeatureError('')
+          }}
+          onCommit={applyFeatureToken}
+          onRemove={removeFeatureChip}
+          onSuggestion={(suggestion) => applySuggestion(suggestion, 'feature')}
+          onBackspaceEmpty={() => {
+            const last = featureChips[featureChips.length - 1]
+            if (last) removeFeatureChip(last.key)
+          }}
+        />
+        <AxisTotal noun="features" count={featureCount} />
+        <TermBrowse count={featureTermCount} loading={featureTerms.loading}>
+          <FilteringTermBrowser
+            variant="embedded"
+            scope="genomicFeature"
+            terms={featureTerms.terms}
+            resources={featureTerms.resources}
+            activeFilters={query.featureFilters}
+            onAddFilter={applyFeatureFilter}
+            loading={featureTerms.loading}
+            error={featureTerms.error}
+          />
+        </TermBrowse>
+      </div>
 
-      <QueryChipInput
-        id="matrix-biosample-filter-input"
-        label="Biosamples"
-        chips={biosampleChips}
-        text={biosampleText}
-        placeholder="Biosample id, tissue, UBERON:…, female"
-        error={biosampleError || biosampleTerms.error}
-        examples={biosampleExamples.map((example) => ({
-          label: example.label,
-          onSelect: () => {
-            const filter = example.filter
-            if (filter.kind === 'sex' || filter.kind === 'alphanumeric') {
-              applyBiosampleToken(filter.value)
-            } else if (filter.kind === 'ontology' || filter.kind === 'custom') {
-              applyBiosampleToken(filter.id)
-            }
-          },
-        }))}
-        suggestions={querySuggestions(biosampleTerms.terms, biosampleText, 'biosample')}
-        onTextChange={(value) => {
-          setBiosampleText(value)
-          if (biosampleError) setBiosampleError('')
-        }}
-        onCommit={applyBiosampleToken}
-        onRemove={removeBiosampleChip}
-        onSuggestion={(suggestion) => applySuggestion(suggestion, 'biosample')}
-        onBackspaceEmpty={() => {
-          const last = biosampleChips[biosampleChips.length - 1]
-          if (last) removeBiosampleChip(last.key)
-        }}
-      />
+      <div className="space-y-2">
+        <QueryChipInput
+          id="matrix-biosample-filter-input"
+          label="Biosamples"
+          chips={biosampleChips}
+          text={biosampleText}
+          placeholder={biosampleTerms.loading ? 'Add filter…' : biosamplePlaceholder}
+          error={biosampleError || biosampleTerms.error}
+          examples={biosampleExamples.map((example) => ({
+            label: example.label,
+            onSelect: () => applyBiosampleFilter(example.filter),
+          }))}
+          suggestions={querySuggestions(biosampleTerms.terms, biosampleText, 'biosample')}
+          onTextChange={(value) => {
+            setBiosampleText(value)
+            if (biosampleError) setBiosampleError('')
+          }}
+          onCommit={applyBiosampleToken}
+          onRemove={removeBiosampleChip}
+          onSuggestion={(suggestion) => applySuggestion(suggestion, 'biosample')}
+          onBackspaceEmpty={() => {
+            const last = biosampleChips[biosampleChips.length - 1]
+            if (last) removeBiosampleChip(last.key)
+          }}
+        />
+        <AxisTotal noun="biosamples" count={biosampleCount} />
+        <TermBrowse count={biosampleTermCount} loading={biosampleTerms.loading}>
+          <FilteringTermBrowser
+            variant="embedded"
+            scope="biosample"
+            terms={biosampleTerms.terms}
+            resources={biosampleTerms.resources}
+            activeFilters={query.biosampleFilters}
+            onAddFilter={applyBiosampleFilter}
+            loading={biosampleTerms.loading}
+            error={biosampleTerms.error}
+          />
+        </TermBrowse>
+      </div>
 
       {capped && (
         <p className="text-[11px] text-muted-foreground">

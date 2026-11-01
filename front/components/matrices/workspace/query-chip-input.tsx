@@ -1,6 +1,6 @@
 'use client'
 
-import { X } from 'lucide-react'
+import { FilterChipButton } from '@/components/shared/filter-chip-button'
 import type { QuerySuggestion } from '@/lib/matrix-workspace-query'
 
 export type QueryChip = {
@@ -49,19 +49,13 @@ export function QueryChipInput({
       <div className="rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-ring/30">
         <div className="flex min-h-11 flex-wrap items-center gap-1.5 px-2 py-1.5">
           {chips.map((chip) => (
-            <button
+            <FilterChipButton
               key={chip.key}
-              type="button"
-              title={chip.title ?? `Remove ${chip.label}`}
-              aria-label={`Remove ${chip.label}`}
-              className={`inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-border bg-muted/80 py-0.5 pl-2 pr-1 text-sm font-medium hover:bg-muted ${
-                chip.mono ? 'font-mono' : ''
-              }`}
-              onClick={() => onRemove(chip.key)}
-            >
-              <span className="truncate">{chip.label}</span>
-              <X className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            </button>
+              label={chip.label}
+              title={chip.title}
+              mono={chip.mono}
+              onRemove={() => onRemove(chip.key)}
+            />
           ))}
           <input
             id={id}

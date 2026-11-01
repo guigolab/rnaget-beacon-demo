@@ -1,5 +1,8 @@
 import {
+  featureDisplayLabel,
+  featureSymbol,
   matrixIdsFromSummaries,
+  matrixViewHref,
   primarySummaryForMatrix,
   resolveSelectedFeature,
 } from './gene-lens'
@@ -24,5 +27,22 @@ const grouped: ExpressionSummary[] = [
   { id: 'all', matrixId: 'm1', featureId: 'x', n: 100, median: 4 },
 ]
 console.assert(primarySummaryForMatrix(grouped)?.median === 4)
+
+const accessionFirst: Feature = {
+  id: 'feature-ENSG00000198886.2',
+  genomicFeature: {
+    aliases: ['ENSG00000198886', 'MT-ND4'],
+    featureIdentifier: { id: 'ENSG00000198886.2', resource: 'gencode' },
+  },
+}
+console.assert(featureSymbol(accessionFirst) === 'MT-ND4')
+console.assert(featureDisplayLabel(accessionFirst) === 'MT-ND4')
+console.assert(matrixViewHref('GTEx-v8-Liver', accessionFirst).includes('genes=MT-ND4'))
+
+const symbolFirst: Feature = {
+  id: 'feature-tp53',
+  genomicFeature: { aliases: ['TP53'], featureIdentifier: { id: 'ENSG00000141510' } },
+}
+console.assert(featureDisplayLabel(symbolFirst) === 'TP53')
 
 console.log('gene-lens.test.ts: ok')

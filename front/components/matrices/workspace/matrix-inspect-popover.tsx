@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import type { Matrix, UiFilter } from '@/lib/beacon'
 import type { Biosample, Feature } from '@/lib/beacon/types'
 import type { FeatureMatrixCell } from '@/lib/feature-expression-grid'
+import { featureSymbol } from '@/lib/gene-lens'
 import { nativeFeatureId } from '@/lib/heatmap-expression'
 import { biosampleHeatmapColumnHeader } from '@/lib/sample-lens'
 
@@ -141,7 +142,7 @@ export function isolateFeaturePatch(feature: Feature): {
   featureIds: string[]
   featureFilters: UiFilter[]
 } {
-  const symbol = feature.genomicFeature?.aliases?.[0]?.trim()
+  const symbol = featureSymbol(feature)
   if (symbol) {
     return { genes: [symbol], featureIds: [], featureFilters: [] }
   }

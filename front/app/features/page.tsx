@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FeatureMatrixHeatmap } from '@/components/genes/feature-matrix-heatmap'
 import { GeneFeatureQueryBar } from '@/components/genes/gene-feature-query-bar'
 import { GeneFilterSidebar } from '@/components/genes/gene-filter-sidebar'
@@ -10,7 +10,10 @@ import { LensMatrixScopeBanner } from '@/components/shared/lens-matrix-scope-ban
 import { useEntityRecordSheet } from '@/components/shared/entity-record-sheet-provider'
 import { LensPageShell } from '@/components/shared/lens-page-shell'
 import { LensResultsPanel } from '@/components/shared/lens-results-panel'
+import { Button } from '@/components/ui/button'
 import { PageFrame, PageHeader } from '@/components/ui-kit'
+import { useLensList } from '@/hooks/use-lens-list'
+import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import {
   dedupeFilters,
   filterKey,
@@ -18,12 +21,11 @@ import {
   geneLensSearchParams,
   getFeature,
   listFeatures,
+  listMatrixFeatures,
   parseGeneLensSearch,
   type Feature,
   type UiFilter,
 } from '@/lib/beacon'
-import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
-import { useGeneFilterProbe } from '@/hooks/use-gene-filter-probe'
 import {
   featureAnnotationResource,
   featureDisplayLabel,
@@ -31,6 +33,7 @@ import {
   mergeGeneLensFilters,
   resolveSelectedFeature,
 } from '@/lib/gene-lens'
+import { matrixHeatmapFilteringTermsPath } from '@/lib/matrix-workspace'
 
 function FeaturesLensContent() {
   const { openRecordSheet } = useEntityRecordSheet()
@@ -45,19 +48,63 @@ function FeaturesLensContent() {
     lens
 
   const filterKeyLine = useMemo(
-    () => featureFilters.map((f) => filterKey(f)).join('|'),
+    () => featureFilters.map((filter) => filterKey(filter)).join('|'),
     [featureFilters]
   )
   const querySummary = useMemo(
     () => filtersQuerySummary(featureFilters),
     [featureFilters]
   )
+  const termsPath = focusMatrix
+    ? matrixHeatmapFilteringTermsPath(focusMatrix, 'features')
+    : '/features/filtering_terms'
 
-  const [matches, setMatches] = useState<Feature[]>([])
-  const [displayLimit, setDisplayLimit] = useState(GENE_LENS_PAGE_SIZE)
-  const [searchError, setSearchError] = useState('')
-  const [searchLoading, setSearchLoading] = useState(false)
-  const probe = useGeneFilterProbe(featureFilters)
+  const filtersRef = useRef(featureFilters)
+  filtersRef.current = featureFilters
+  const focusRef = useRef(focusMatrix)
+  focusRef.current = focusMatrix
+
+  const list = useLensList<Feature>({
+    queryKey: `${filterKeyLine}|${focusMatrix ?? ''}`,
+    pageSize: GENE_LENS_PAGE_SIZE,
+    enabled: featureFilters.length > 0,
+    itemKey: (item) => item.id,
+    fetchPage: (skip, limit, signal) => {
+      const filters = filtersRef.current
+      const matrixId = focusRef.current
+      if (matrixId) {
+        return listMatrixFeatures(matrixId, skip, limit, { filters, signal })
+      }
+      return listFeatures(skip, limit, { filters, granularity: 'record', signal })
+    },
+  })
+
+  const [pinned, setPinned] = useState<Feature | null>(null)
+  const pinnedFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (!featureParam) {
+      pinnedFor.current = null
+      setPinned(null)
+      return
+    }
+    if (list.items.some((item) => item.id === featureParam)) return
+    if (pinnedFor.current === featureParam) return
+    pinnedFor.current = featureParam
+    let cancelled = false
+    getFeature(featureParam)
+      .then((feature) => {
+        if (!cancelled) setPinned(feature)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [featureParam, list.items])
+
+  const matches = useMemo(() => {
+    if (!pinned || list.items.some((item) => item.id === pinned.id)) return list.items
+    return [pinned, ...list.items]
+  }, [list.items, pinned])
 
   const selectedFeature = useMemo(
     () => resolveSelectedFeature(matches, featureParam),
@@ -65,9 +112,7 @@ function FeaturesLensContent() {
   )
 
   const lensScopeKey = `${filterKeyLine}|${focusMatrix ?? ''}`
-  const [activeUnitKey, setActiveUnitKey] = useState<string | null>(
-    () => unitParam ?? null
-  )
+  const [activeUnitKey, setActiveUnitKey] = useState<string | null>(() => unitParam ?? null)
 
   useEffect(() => {
     setActiveUnitKey(unitParam ?? null)
@@ -82,20 +127,17 @@ function FeaturesLensContent() {
     return () => window.removeEventListener('popstate', syncUnitFromUrl)
   }, [])
 
-  useEffect(() => {
-    setDisplayLimit(GENE_LENS_PAGE_SIZE)
-  }, [filterKeyLine])
-
   const writeFilters = useCallback(
     (next: UiFilter[]) => {
       const params = geneLensSearchParams({
         filters: dedupeFilters(next),
         matrix: focusMatrix,
         feature: null,
+        index: scopeIndex,
       })
       router.replace(`/features/?${params.toString()}`)
     },
-    [router, focusMatrix]
+    [router, focusMatrix, scopeIndex]
   )
 
   const setUnitKey = useCallback(
@@ -106,91 +148,34 @@ function FeaturesLensContent() {
         feature: featureParam,
         matrix: focusMatrix,
         unit: key,
+        index: scopeIndex,
       })
-      const path = `/features/?${params.toString()}`
-      window.history.replaceState(window.history.state, '', path)
+      window.history.replaceState(window.history.state, '', `/features/?${params.toString()}`)
     },
-    [featureFilters, featureParam, focusMatrix]
+    [featureFilters, featureParam, focusMatrix, scopeIndex]
   )
 
-  useEffect(() => {
-    if (featureFilters.length === 0) {
-      setMatches([])
-      setSearchError('')
-      setSearchLoading(false)
-      return
-    }
-    if (probe.loading || probe.exists !== true) {
-      setMatches([])
-      setSearchError('')
-      setSearchLoading(false)
-      return
-    }
-
-    let cancelled = false
-    async function loadMatches() {
-      const showBlockingLoad = matches.length === 0
-      if (showBlockingLoad) setSearchLoading(true)
-      setSearchError('')
-      try {
-        const page = await listFeatures(0, displayLimit, {
-          filters: featureFilters,
-          granularity: 'record',
-        })
-        if (cancelled) return
-        setMatches(page.results)
-      } catch (err: unknown) {
-        if (!cancelled) {
-          setSearchError(err instanceof Error ? err.message : 'Cannot reach the beacon.')
-          setMatches([])
-        }
-      } finally {
-        if (!cancelled) setSearchLoading(false)
-      }
-    }
-    loadMatches()
-    return () => {
-      cancelled = true
-    }
-  }, [filterKeyLine, featureFilters, probe.loading, probe.exists, displayLimit])
-
-  useEffect(() => {
-    if (!featureParam || searchLoading || probe.exists !== true) return
-    if (matches.some((f) => f.id === featureParam)) return
-
-    let cancelled = false
-    getFeature(featureParam)
-      .then((feature) => {
-        if (cancelled || !feature) return
-        setMatches((prev) => {
-          if (prev.some((f) => f.id === feature.id)) return prev
-          return [feature, ...prev].slice(0, displayLimit)
-        })
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [featureParam, matches, searchLoading, probe.exists, displayLimit])
-
   const canLoadMore =
-    probe.exists === true &&
-    probe.total != null &&
-    matches.length < probe.total &&
-    !searchLoading
+    list.exists === true &&
+    list.total != null &&
+    list.items.length < list.total &&
+    !list.loading &&
+    !list.loadingMore
 
   const clearMatrixHref = useMemo(() => {
     const params = geneLensSearchParams({
       filters: featureFilters,
       feature: featureParam,
       unit: activeUnitKey,
+      index: scopeIndex,
     })
     return `/features/?${params.toString()}`
-  }, [featureFilters, featureParam, activeUnitKey])
+  }, [featureFilters, featureParam, activeUnitKey, scopeIndex])
 
-  const pageTitle = selectedFeature
-    ? featureDisplayLabel(selectedFeature)
-    : 'Features'
+  const pageTitle = selectedFeature ? featureDisplayLabel(selectedFeature) : 'Features'
+  const endpoint = focusMatrix
+    ? `GET or POST /matrices/${focusMatrix}/features`
+    : 'GET or POST /features'
 
   return (
     <PageFrame>
@@ -204,58 +189,68 @@ function FeaturesLensContent() {
       />
 
       {focusMatrix && (
-        <LensMatrixScopeBanner matrixId={focusMatrix} clearHref={clearMatrixHref} />
+        <LensMatrixScopeBanner
+          matrixId={focusMatrix}
+          clearHref={clearMatrixHref}
+          noun="features"
+        />
       )}
 
       <LensChrome
         sidebar={
           <GeneFilterSidebar
-            activeFilters={featureFilters}
-            onAddFilter={(added) =>
-              writeFilters(mergeGeneLensFilters(featureFilters, added))
+            termsPath={termsPath}
+            source={
+              focusMatrix
+                ? `GET /matrices/${focusMatrix}/features/filtering_terms`
+                : 'GET /features/filtering_terms'
             }
+            activeFilters={featureFilters}
+            onAddFilter={(added) => writeFilters(mergeGeneLensFilters(featureFilters, added))}
           />
         }
         queryBar={
           <GeneFeatureQueryBar
             filters={featureFilters}
             onChange={writeFilters}
-            probe={probe}
+            probe={list}
+            scopeIndex={scopeIndex}
+            termsPath={termsPath}
           />
         }
-        endpointLines={['GET or POST /features']}
+        endpointLines={[endpoint]}
         hasFilters={featureFilters.length > 0}
         emptyState={{
           title: 'Start with a filter',
           description:
-            'Use an example chip, type in the bar, or pick SO / GO terms from the sidebar.',
+            'Use an example chip, type in the bar, or pick a term from the sidebar.',
         }}
         resultsPanel={
           <LensResultsPanel
-            probe={probe}
+            probe={list}
             querySummary={querySummary}
-            previewLimit={displayLimit}
+            previewLimit={matches.length}
             previewCount={matches.length}
             previewTruncatedSuffix="matrix medians from expression_summary"
             previewWhenShowing="Matrix medians from batched POST /matrices/{id}/expression_summary (featureIDList)"
-            noMatchesMessage="No features match these filters at boolean granularity."
+            noMatchesMessage="No features match these filters."
             loadErrorTitle="Could not load features"
-            searchError={searchError}
-            searchLoading={searchLoading}
+            searchError={list.error}
+            searchLoading={list.loading}
             hasMatches={matches.length > 0}
             refreshingLabel="Refreshing feature list…"
             canLoadMore={canLoadMore}
+            loadingMore={list.loadingMore}
             pageSize={GENE_LENS_PAGE_SIZE}
-            onLoadMore={() => setDisplayLimit((n) => n + GENE_LENS_PAGE_SIZE)}
+            onLoadMore={list.loadMore}
+            onClearFilters={() => writeFilters([])}
           >
             <FeatureMatrixHeatmap
               features={matches}
               focusMatrix={focusMatrix}
               selectedFeatureId={selectedFeature?.id ?? null}
               activeFilters={featureFilters}
-              onAddFilter={(added) =>
-                writeFilters(mergeGeneLensFilters(featureFilters, added))
-              }
+              onAddFilter={(added) => writeFilters(mergeGeneLensFilters(featureFilters, added))}
               unitKey={activeUnitKey}
               onUnitKeyChange={setUnitKey}
             />
@@ -265,17 +260,17 @@ function FeaturesLensContent() {
           selectedFeature ? (
             <>
               <h3 className="text-sm font-semibold">Selected feature</h3>
-              <p className="mt-1 font-mono text-xs text-muted-foreground">
-                {selectedFeature.id}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-3">
-                <button
+              <p className="mt-1 font-mono text-xs text-muted-foreground">{selectedFeature.id}</p>
+              <div className="mt-3">
+                <Button
                   type="button"
-                  className="text-sm font-medium text-primary underline-offset-2 hover:underline"
+                  variant="link"
+                  size="sm"
+                  className="h-auto px-0"
                   onClick={() => openRecordSheet('feature', selectedFeature.id)}
                 >
                   Full feature record
-                </button>
+                </Button>
               </div>
             </>
           ) : undefined

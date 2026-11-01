@@ -21,7 +21,7 @@ export function featureTokens(feature: Feature): string[] {
     if (value && !tokens.includes(value)) tokens.push(value)
   }
   push(feature.genomicFeature?.featureIdentifier?.id)
-  push(feature.genomicFeature?.aliases?.[0])
+  for (const alias of feature.genomicFeature?.aliases ?? []) push(alias)
   push(feature.id)
   return tokens
 }

@@ -1,10 +1,13 @@
 import {
   buildFilterScopeIndex,
+  geneLensSearchParams,
+  isFeatureLensFilter,
   isMatrixLensFilter,
   mergeFilterScopeIndexes,
   parseGeneLensSearch,
   parseMatrixLensSearch,
   parseSampleLensSearch,
+  sampleLensSearchParams,
   scopeOf,
 } from '@/lib/beacon/filters'
 import type { FilteringTerm, UiFilter } from '@/lib/beacon/types'
@@ -93,5 +96,42 @@ const mergedSo = mergeFilterScopeIndexes(
 )
 const soFilter: UiFilter = { kind: 'ontology', id: 'SO:0000704' }
 console.assert(isMatrixLensFilter(soFilter, mergedSo) === true)
+
+const dualSo: FilteringTerm = {
+  id: 'SO:0000704',
+  label: 'gene',
+  type: 'SO',
+  scopes: ['genomicFeature', 'matrix'],
+}
+const geoSample: FilteringTerm = {
+  id: 'GEO:sample',
+  label: 'GEO sample',
+  type: 'custom',
+  scopes: ['biosample'],
+}
+const roundTrip = mergeFilterScopeIndexes(
+  buildFilterScopeIndex([dualSo, featureGo]),
+  buildFilterScopeIndex([biosampleGo, geoSample]),
+  buildFilterScopeIndex([matrixObi])
+)
+const soBoth: UiFilter = { kind: 'ontology', id: 'SO:0000704', label: 'gene' }
+console.assert(scopeOf(soBoth, roundTrip) === 'matrix')
+console.assert(isFeatureLensFilter(soBoth, roundTrip) === true)
+
+const featureWritten = geneLensSearchParams({ filters: [soBoth], index: roundTrip })
+const featureRead = parseGeneLensSearch(featureWritten, roundTrip)
+console.assert(featureRead.featureFilters.some((f) => ontologyId(f) === 'SO:0000704'))
+
+const sampleWritten = sampleLensSearchParams({
+  filters: [
+    { kind: 'ontology', id: 'GO:0005829', label: 'cytosol' },
+    { kind: 'ontology', id: 'GEO:sample', label: 'GEO sample' },
+  ],
+  index: roundTrip,
+})
+const sampleRead = parseSampleLensSearch(sampleWritten, roundTrip)
+console.assert(sampleRead.biosampleFilters.some((f) => ontologyId(f) === 'GO:0005829'))
+console.assert(sampleRead.biosampleFilters.some((f) => ontologyId(f) === 'GEO:sample'))
+console.assert(!sampleWritten.get('filters')?.includes('GO:0008150'))
 
 console.log('filters-scope.test.ts: ok')

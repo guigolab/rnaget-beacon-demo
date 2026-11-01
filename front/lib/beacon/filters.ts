@@ -134,6 +134,31 @@ export function scopeOf(filter: UiFilter, index?: FilterScopeIndex): FilterScope
   return 'feature'
 }
 
+/**
+ * Filters applicable to GET/POST /features.
+ * SO terms stay here even when the catalog also scopes them to matrices.
+ */
+export function isFeatureLensFilter(filter: UiFilter, index?: FilterScopeIndex): boolean {
+  if (filter.kind === 'symbol') return true
+  if (filter.kind === 'sex' || filter.kind === 'matrixUnit') return false
+  if (filter.kind === 'alphanumeric') return filter.id === 'genomicFeature.symbol'
+  if (filter.kind === 'custom') {
+    if (filter.id.toLowerCase().startsWith('resource:')) return true
+    if (index) {
+      const hit = index.get(normalizeFilterTermId(filter.id))
+      if (hit !== undefined) return hit === 'feature'
+    }
+    return false
+  }
+  const prefix = filter.id.split(':', 1)[0]?.toUpperCase() ?? ''
+  if (prefix === 'SO') return true
+  if (index) {
+    const hit = index.get(normalizeFilterTermId(filter.id))
+    if (hit !== undefined) return hit === 'feature'
+  }
+  return scopeOf(filter, index) === 'feature'
+}
+
 /** Filters applicable to GET/POST /matrices (SO feature types + matrix alphanumerics + OBI). */
 export function isMatrixLensFilter(filter: UiFilter, index?: FilterScopeIndex): boolean {
   if (filter.kind === 'alphanumeric' && MATRIX_ALPHANUMERIC_FIELD_IDS.has(filter.id)) {
@@ -279,7 +304,7 @@ export function parseGeneLensSearch(
   index?: FilterScopeIndex
 ): GeneLensSearch {
   const { filters } = parseCatalogSearch(params)
-  const featureFilters = filters.filter((f) => scopeOf(f, index) === 'feature')
+  const featureFilters = filters.filter((f) => isFeatureLensFilter(f, index))
   return {
     featureFilters: dedupeFilters(featureFilters),
     feature: params.get('feature'),
@@ -293,9 +318,10 @@ export function geneLensSearchParams(opts: {
   feature?: string | null
   matrix?: string | null
   unit?: string | null
+  index?: FilterScopeIndex
 }): URLSearchParams {
   const featureOnly = dedupeFilters(
-    opts.filters.filter((f) => scopeOf(f) === 'feature')
+    opts.filters.filter((f) => isFeatureLensFilter(f, opts.index))
   )
   const base = catalogSearchParams({
     filters: featureOnly,
@@ -340,9 +366,10 @@ export function sampleLensSearchParams(opts: {
   sample?: string | null
   matrix?: string | null
   unit?: string | null
+  index?: FilterScopeIndex
 }): URLSearchParams {
   const biosampleOnly = dedupeFilters(
-    opts.filters.filter((f) => scopeOf(f) === 'biosample')
+    opts.filters.filter((f) => scopeOf(f, opts.index) === 'biosample')
   )
   const base = catalogSearchParams({
     filters: biosampleOnly,
@@ -387,8 +414,11 @@ export function parseMatrixLensSearch(
 export function matrixLensSearchParams(opts: {
   filters: UiFilter[]
   matrix?: string | null
+  index?: FilterScopeIndex
 }): URLSearchParams {
-  const matrixOnly = dedupeFilters(opts.filters.filter((f) => isMatrixLensFilter(f)))
+  const matrixOnly = dedupeFilters(
+    opts.filters.filter((f) => isMatrixLensFilter(f, opts.index))
+  )
   const base = catalogSearchParams({
     filters: matrixOnly,
     granularity: 'record',
