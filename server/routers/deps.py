@@ -90,11 +90,13 @@ def coerce_id_list_csv(value: Any) -> Optional[str]:
 
 def parse_id_list_or_error(
     value: Optional[str],
+    *,
+    received: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Optional[str], Optional[JSONResponse]]:
     try:
         return validate_id_list_csv(value), None
     except ValueError as exc:
-        return None, error_json(400, str(exc))
+        return None, error_json(400, str(exc), received=received)
 
 
 def axis_sort_value(sort: Union[AxisSort, str, None]) -> str:
@@ -186,7 +188,11 @@ def request_parameters_from_get(**kwargs: Any) -> Dict[str, Any]:
     return out
 
 
-def reject_legacy_top_level_body(body_dict: Dict[str, Any]) -> Optional[JSONResponse]:
+def reject_legacy_top_level_body(
+    body_dict: Dict[str, Any],
+    *,
+    received: Optional[Dict[str, Any]] = None,
+) -> Optional[JSONResponse]:
     legacy = ALLOWED_REQUEST_PARAMETER_KEYS & set(body_dict.keys())
     if legacy:
         return error_json(
@@ -194,6 +200,7 @@ def reject_legacy_top_level_body(body_dict: Dict[str, Any]) -> Optional[JSONResp
             "use query.requestParameters for "
             + ", ".join(sorted(legacy))
             + "; top-level fields are not accepted",
+            received=received,
         )
     return None
 
@@ -206,6 +213,7 @@ def resolve_list_args(
     body: Optional[Dict[str, Any]] = None,
     extra_summary: Optional[Dict[str, Any]] = None,
     cap_limit: bool = False,
+    entity_type: Optional[str] = None,
 ) -> Tuple[int, int, Granularity, Dict[str, Any]]:
     body_dict = body or {}
     skip_v, limit_v = pagination_from_query(skip, limit, body_dict)
@@ -216,7 +224,7 @@ def resolve_list_args(
             pass
         if body.get("limit") is not None and limit is None:
             limit_v = int(body["limit"])
-    _validate_pagination_bounds(int(skip_v or 0), int(limit_v or 10), cap_limit=cap_limit)
+    _validate_pagination_bounds(int(skip_v or 0), int(limit_v), cap_limit=cap_limit)
     skip_v = max(0, min(int(skip_v), MAX_SKIP))
     if cap_limit:
         limit_v = max(1, min(int(limit_v), MAX_PAGE_LIMIT))
@@ -224,9 +232,37 @@ def resolve_list_args(
         limit_v = max(1, int(limit_v))
     gran = granularity_from_request(requested_granularity, body_dict)
     received = build_received_summary(
-        skip=skip_v, limit=limit_v, granularity=gran, extra=extra_summary
+        skip=skip_v,
+        limit=limit_v,
+        granularity=gran,
+        entity_type=entity_type,
+        extra=extra_summary,
     )
     return skip_v, limit_v, gran, received
+
+
+def partial_received_for_error(
+    *,
+    skip: Optional[int] = None,
+    limit: Optional[int] = None,
+    requested_granularity: Optional[str] = None,
+    body: Optional[Dict[str, Any]] = None,
+    entity_type: Optional[str] = None,
+    extra_summary: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    body_dict = body or {}
+    skip_v, limit_v = pagination_from_query(skip, limit, body_dict)
+    try:
+        gran = granularity_from_request(requested_granularity, body_dict)
+    except InvalidGranularity:
+        gran = Granularity.record
+    return build_received_summary(
+        skip=int(skip_v or 0),
+        limit=int(limit_v),
+        granularity=gran,
+        entity_type=entity_type,
+        extra=extra_summary,
+    )
 
 
 def resolve_or_error(
@@ -237,7 +273,16 @@ def resolve_or_error(
     body: Optional[Dict[str, Any]] = None,
     extra_summary: Optional[Dict[str, Any]] = None,
     cap_limit: bool = False,
+    entity_type: Optional[str] = None,
 ):
+    partial = partial_received_for_error(
+        skip=skip,
+        limit=limit,
+        requested_granularity=requested_granularity,
+        body=body,
+        entity_type=entity_type,
+        extra_summary=extra_summary,
+    )
     try:
         return (
             resolve_list_args(
@@ -247,10 +292,11 @@ def resolve_or_error(
                 body=body,
                 extra_summary=extra_summary,
                 cap_limit=cap_limit,
+                entity_type=entity_type,
             ),
             None,
         )
     except InvalidGranularity as exc:
-        return None, error_json(400, str(exc))
+        return None, error_json(400, str(exc), received=partial)
     except PaginationLimitError as exc:
-        return None, error_json(400, str(exc))
+        return None, error_json(400, str(exc), received=partial)

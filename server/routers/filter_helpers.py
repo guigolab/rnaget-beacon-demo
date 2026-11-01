@@ -20,6 +20,7 @@ def resolve_entity_filters(
     entity: str,
     filters_csv: Optional[str] = None,
     body: Optional[Dict[str, Any]] = None,
+    received: Optional[Dict[str, Any]] = None,
 ):
     try:
         if body is not None:
@@ -30,10 +31,10 @@ def resolve_entity_filters(
             filters = parse_get_filters_csv(filters_csv)
         err = validate_filters_for_entity(filters, entity=entity)
         if err:
-            return None, error_json(400, err)
+            return None, error_json(400, err, received=received)
         return filters, None
     except ValueError as exc:
-        return None, error_json(400, str(exc))
+        return None, error_json(400, str(exc), received=received)
 
 
 def filters_summary(filters) -> Optional[Dict[str, Any]]:

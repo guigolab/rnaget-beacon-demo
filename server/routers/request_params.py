@@ -14,23 +14,31 @@ from routers.deps import (
 )
 
 
-def params_from_post(body_dict: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[JSONResponse]]:
-    legacy = reject_legacy_top_level_body(body_dict)
+def params_from_post(
+    body_dict: Dict[str, Any],
+    *,
+    received: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], Optional[JSONResponse]]:
+    legacy = reject_legacy_top_level_body(body_dict, received=received)
     if legacy:
         return {}, legacy
     query = body_dict.get("query") or {}
     raw = query.get("requestParameters")
     params, err = validate_request_parameters(raw)
     if err:
-        return {}, error_json(400, err)
+        return {}, error_json(400, err, received=received)
     return params or {}, None
 
 
-def params_from_get(**query_values: Any) -> Tuple[Dict[str, Any], Optional[JSONResponse]]:
+def params_from_get(
+    *,
+    received: Optional[Dict[str, Any]] = None,
+    **query_values: Any,
+) -> Tuple[Dict[str, Any], Optional[JSONResponse]]:
     raw = request_parameters_from_get(**query_values)
     params, err = validate_request_parameters(raw)
     if err:
-        return {}, error_json(400, err)
+        return {}, error_json(400, err, received=received)
     return params or {}, None
 
 

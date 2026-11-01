@@ -48,6 +48,8 @@ All example matrices live in one catalog: [`profiles/datasets.yaml`](profiles/da
 | `encode` | `ENCSR000AED` | Gingeras lab GM12878 polyA+; two RSEM gene-quant files (ENCFF902UYP + ENCFF550OHK); **same GENCODE v24** |
 | `geo` | `GSE164073` | NCBI-pipeline TPM (`GeneID` × 18 GSM); Annotation Release 109.20190905 / GRCh38.p13 |
 | `geo` | `GSE152418` | NCBI-pipeline TPM (~34 GSM); **same annotation** as GSE164073 |
+| `geo` | `GSE107011` | NCBI-pipeline **raw** counts (~127 GSM, 29 immune cell types + PBMC); **same annotation** as GSE164073 |
+| `geo` | `GSE120795` | NCBI-pipeline **FPKM** (~135 GSM, multi-tissue atlas); **same annotation** as GSE164073 |
 | `gtex` | `GTEx-v8-Adipose-Subcutaneous` | GTEx v8 Adipose - Subcutaneous gene TPM GCT; GENCODE v26 (~56k × ~663) |
 | `gtex` | `GTEx-v8-Liver` | GTEx v8 Liver gene TPM GCT; **same GENCODE v26** annotation pin |
 

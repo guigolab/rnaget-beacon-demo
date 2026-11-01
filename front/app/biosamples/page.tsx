@@ -23,6 +23,7 @@ import {
   type Biosample,
   type UiFilter,
 } from '@/lib/beacon'
+import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import {
   biosampleDisplayLabel,
   mergeSampleLensFilters,
@@ -34,7 +35,11 @@ function BiosamplesLensContent() {
   const { openRecordSheet } = useEntityRecordSheet()
   const search = useSearchParams()
   const router = useRouter()
-  const lens = useMemo(() => parseSampleLensSearch(search), [search])
+  const scopeIndex = useMergedFilterScopeIndex()
+  const lens = useMemo(
+    () => parseSampleLensSearch(search, scopeIndex),
+    [search, scopeIndex]
+  )
   const {
     biosampleFilters,
     sample: sampleParam,

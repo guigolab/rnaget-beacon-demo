@@ -1,0 +1,97 @@
+import {
+  buildFilterScopeIndex,
+  isMatrixLensFilter,
+  mergeFilterScopeIndexes,
+  parseGeneLensSearch,
+  parseMatrixLensSearch,
+  parseSampleLensSearch,
+  scopeOf,
+} from '@/lib/beacon/filters'
+import type { FilteringTerm, UiFilter } from '@/lib/beacon/types'
+
+function ontologyId(f: UiFilter): string | undefined {
+  return f.kind === 'ontology' || f.kind === 'custom' ? f.id : undefined
+}
+
+const featureGo: FilteringTerm = {
+  id: 'GO:0008150',
+  label: 'biological_process',
+  type: 'GO',
+  scopes: ['genomicFeature'],
+}
+
+const biosampleGo: FilteringTerm = {
+  id: 'GO:0005829',
+  label: 'cytosol',
+  type: 'GO',
+  scopes: ['biosample'],
+}
+
+const matrixObi: FilteringTerm = {
+  id: 'OBI:0003090',
+  label: 'bulk RNA-seq assay',
+  type: 'OBI',
+  scopes: ['matrix'],
+}
+
+const biosampleObi: FilteringTerm = {
+  id: 'OBI:0001876',
+  label: 'cell culture',
+  type: 'OBI',
+  scopes: ['biosample'],
+}
+
+const merged = mergeFilterScopeIndexes(
+  buildFilterScopeIndex([featureGo]),
+  buildFilterScopeIndex([biosampleGo, biosampleObi]),
+  buildFilterScopeIndex([matrixObi])
+)
+
+const goFeature: UiFilter = { kind: 'ontology', id: 'GO:0008150' }
+const goBio: UiFilter = { kind: 'ontology', id: 'GO:0005829' }
+const obiMatrix: UiFilter = { kind: 'ontology', id: 'OBI:0003090' }
+const obiBio: UiFilter = { kind: 'ontology', id: 'OBI:0001876' }
+
+console.assert(scopeOf(goFeature, merged) === 'feature')
+console.assert(scopeOf(goBio, merged) === 'biosample')
+console.assert(scopeOf(obiMatrix, merged) === 'matrix')
+console.assert(scopeOf(obiBio, merged) === 'biosample')
+
+const params = new URLSearchParams(
+  'filters=GO:0008150,GO:0005829,OBI:0003090,EFO:0009655'
+)
+const featureLens = parseGeneLensSearch(params, merged)
+console.assert(
+  featureLens.featureFilters.some((f) => ontologyId(f) === 'GO:0008150')
+)
+console.assert(
+  !featureLens.featureFilters.some((f) => ontologyId(f) === 'GO:0005829')
+)
+
+const sampleLens = parseSampleLensSearch(params, merged)
+console.assert(
+  sampleLens.biosampleFilters.some((f) => ontologyId(f) === 'GO:0005829')
+)
+console.assert(
+  sampleLens.biosampleFilters.some((f) => ontologyId(f) === 'EFO:0009655')
+)
+
+const matrixLens = parseMatrixLensSearch(params, merged)
+console.assert(
+  matrixLens.matrixFilters.some((f) => ontologyId(f) === 'OBI:0003090')
+)
+
+const soFeature: FilteringTerm = {
+  id: 'SO:0000704',
+  label: 'gene',
+  type: 'SO',
+  scopes: ['genomicFeature'],
+}
+const mergedSo = mergeFilterScopeIndexes(
+  buildFilterScopeIndex([soFeature]),
+  merged
+)
+const soFilter: UiFilter = { kind: 'ontology', id: 'SO:0000704' }
+console.assert(isMatrixLensFilter(soFilter, mergedSo) === true)
+
+console.log('filters-scope.test.ts: ok')

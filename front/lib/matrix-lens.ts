@@ -13,8 +13,8 @@ export const MATRIX_LENS_QUERY_FALLBACK: Array<{ label: string; filter: UiFilter
     filter: { kind: 'ontology', id: 'SO:0000704', label: 'gene' },
   },
   {
-    label: 'polyA RNA-seq',
-    filter: { kind: 'ontology', id: 'OBI:0003090', label: 'polyA plus RNA-seq' },
+    label: 'bulk RNA-seq assay',
+    filter: { kind: 'ontology', id: 'OBI:0003090', label: 'bulk RNA-seq assay' },
   },
 ]
 

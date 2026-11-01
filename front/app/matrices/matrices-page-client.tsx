@@ -22,6 +22,7 @@ import {
   type Matrix,
   type UiFilter,
 } from '@/lib/beacon'
+import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import {
   MATRIX_LENS_PAGE_SIZE,
   matrixDisplayLabel,
@@ -32,7 +33,11 @@ import {
 function MatricesContent() {
   const search = useSearchParams()
   const router = useRouter()
-  const lens = useMemo(() => parseMatrixLensSearch(search), [search])
+  const scopeIndex = useMergedFilterScopeIndex()
+  const lens = useMemo(
+    () => parseMatrixLensSearch(search, scopeIndex),
+    [search, scopeIndex]
+  )
   const { matrixFilters, matrix: matrixParam } = lens
 
   const filterKeyLine = useMemo(

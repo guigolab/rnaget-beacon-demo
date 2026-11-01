@@ -11,6 +11,22 @@ function termText(term?: OntologyTerm | string | null): string | undefined {
   return term.label || term.id
 }
 
+function termFactFields(
+  resources: FilteringResource[],
+  term?: OntologyTerm | string | null
+): Pick<Fact, 'value' | 'links'> {
+  if (!term) return {}
+  const links = linkedTerms(
+    resources,
+    typeof term === 'string' ? [term] : [term]
+  )
+  if (!links.length) return { value: termText(term) }
+  if (links.some((link) => link.href)) {
+    return { links }
+  }
+  return { value: termText(term) }
+}
+
 export function curieHref(resources: FilteringResource[], id: string): string | undefined {
   const split = id.split(':')
   if (split.length < 2) return undefined
@@ -77,39 +93,88 @@ export function featureFacts(feature: Feature, resources: FilteringResource[] = 
   ]
 }
 
-export function biosampleFacts(sample: Biosample): Fact[] {
+export function biosampleFacts(
+  sample: Biosample,
+  resources: FilteringResource[] = []
+): Fact[] {
   const sex = sample.sex ?? sample.info?.sex
-  const phenotypes = (sample.phenotypicFeatures ?? [])
-    .map((pf) => {
-      const disease = termText(pf.featureType)
-      const sev = termText(pf.severity)
-      const bits = [disease, sev, pf.notes].filter(Boolean)
-      return bits.join(' — ')
-    })
-    .filter(Boolean)
-  const measurements = (sample.measurements ?? [])
-    .map((m) => {
-      const assay = termText(m.assayCode)
-      const val = m.measurementValue?.value
-      const unit = termText(m.measurementValue?.unit)
-      if (val == null) return assay
-      return unit ? `${assay}: ${val} ${unit}` : `${assay}: ${val}`
-    })
-    .filter(Boolean)
+  const info = sample.info ?? {}
+
+  const phenotypeLinks: FactLink[] = []
+  for (const pf of sample.phenotypicFeatures ?? []) {
+    if (pf.featureType?.id || pf.featureType?.label) {
+      phenotypeLinks.push(...linkedTerms(resources, [pf.featureType]))
+    }
+    if (pf.severity?.id || pf.severity?.label) {
+      phenotypeLinks.push(...linkedTerms(resources, [pf.severity]))
+    }
+    if (pf.notes?.trim()) {
+      phenotypeLinks.push({ text: pf.notes.trim() })
+    }
+  }
+
+  const measurementLinks: FactLink[] = []
+  for (const m of sample.measurements ?? []) {
+    const assay = m.assayCode
+    const val = m.measurementValue?.value
+    const unit = m.measurementValue?.unit
+    if (assay?.id || assay?.label) {
+      const assayLinks = linkedTerms(resources, [assay])
+      const prefix = assayLinks[0]?.text ?? termText(assay)
+      if (val != null) {
+        const unitText = termText(unit)
+        const unitLink =
+          unit && typeof unit === 'object' && unit.id
+            ? curieHref(resources, unit.id)
+            : undefined
+        measurementLinks.push({
+          text: unitText ? `${prefix}: ${val} ${unitText}` : `${prefix}: ${val}`,
+          href: assayLinks[0]?.href ?? unitLink,
+        })
+      } else if (assayLinks[0]) {
+        measurementLinks.push(assayLinks[0])
+      }
+    }
+  }
+
   return [
-    { label: 'Origin', value: termText(sample.sampleOriginType) },
-    { label: 'Origin detail', value: termText(sample.sampleOriginDetail) },
-    { label: 'Processing', value: termText(sample.sampleProcessing) },
-    { label: 'Sample type', value: termText(sample.sampleType) },
-    { label: 'Status', value: termText(sample.biosampleStatus) },
-    { label: 'Phenotypes', value: phenotypes.length ? phenotypes.join('; ') : undefined },
-    { label: 'Measurements', value: measurements.length ? measurements.join('; ') : undefined },
+    { label: 'Status', ...termFactFields(resources, sample.biosampleStatus) },
+    { label: 'Origin', ...termFactFields(resources, sample.sampleOriginType) },
+    {
+      label: 'Origin detail',
+      ...termFactFields(resources, sample.sampleOriginDetail),
+    },
+    {
+      label: 'Processing',
+      ...termFactFields(resources, sample.sampleProcessing),
+    },
+    { label: 'Sample type', ...termFactFields(resources, sample.sampleType) },
+    {
+      label: 'Phenotypes',
+      links: phenotypeLinks.length ? phenotypeLinks : undefined,
+    },
+    {
+      label: 'Measurements',
+      links: measurementLinks.length ? measurementLinks : undefined,
+    },
     { label: 'Sex', value: sex },
     { label: 'Individual', value: sample.individualId },
     { label: 'Collection date', value: sample.collectionDate },
     { label: 'Collection', value: sample.collectionMoment },
+    { label: 'Condition', value: info.condition != null ? String(info.condition) : undefined },
+    { label: 'Timepoint', value: info.timepoint != null ? String(info.timepoint) : undefined },
+    { label: 'Age bracket', value: info.age_bracket != null ? String(info.age_bracket) : undefined },
+    {
+      label: 'RIN',
+      value: info.rin != null ? String(info.rin) : undefined,
+    },
+    {
+      label: 'Ischemic time (min)',
+      value:
+        info.ischemic_time_min != null ? String(info.ischemic_time_min) : undefined,
+    },
     { label: 'Organism', value: sample.organism?.scientificName },
-    { label: 'Lab', value: sample.info?.lab },
+    { label: 'Lab', value: info.lab != null ? String(info.lab) : undefined },
     { label: 'Description', value: sample.description ?? sample.summary },
     { label: 'Notes', value: sample.notes },
   ]

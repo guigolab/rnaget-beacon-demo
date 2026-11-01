@@ -45,6 +45,8 @@ export {
   parseMatrixQuery,
   matrixLensSearchParams,
   isMatrixLensFilter,
+  buildFilterScopeIndex,
+  mergeFilterScopeIndexes,
   preserveQuery,
   scopeOf,
   MATRIX_ALPHANUMERIC_FIELD_IDS,
@@ -55,7 +57,12 @@ export {
   matrixHref,
 } from './filters'
 export type { ExpressionSummary, ResolvedCohort } from './client'
-export type { GeneLensSearch, MatrixQuery, SampleLensSearch } from './filters'
+export type {
+  FilterScopeIndex,
+  GeneLensSearch,
+  MatrixQuery,
+  SampleLensSearch,
+} from './filters'
 export type { Fact } from './facts'
 export { biosampleFacts, curieHref, featureFacts, matrixDownloads, matrixFacts, ncbiAssemblyFtp } from './facts'
 export { FALLBACK_MATRIX_IDS, MAX_COHORT } from './types'

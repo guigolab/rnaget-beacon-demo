@@ -1,5 +1,5 @@
 {
-  "_comment": "Curated SOFT Sample_characteristics_ch1 → sampleOriginDetail (id+label required). Prefer UBERON tissue over EFO when both match a GSM.",
+  "_comment": "Curated SOFT Sample_characteristics_ch1 → sampleOriginDetail (id+label required). Prefer UBERON tissue over EFO when both match a GSM. Keys are matched after lowercasing the full characteristic string.",
   "tissue: cornea": {
     "id": "UBERON:0000964",
     "label": "cornea",
@@ -15,7 +15,137 @@
     "label": "sclera",
     "source": "UBERON"
   },
+  "tissue: stomach": {
+    "id": "UBERON:0000945",
+    "label": "stomach",
+    "source": "UBERON"
+  },
+  "tissue: liver": {
+    "id": "UBERON:0002107",
+    "label": "liver",
+    "source": "UBERON"
+  },
+  "tissue: esophagus": {
+    "id": "UBERON:0001043",
+    "label": "esophagus",
+    "source": "UBERON"
+  },
+  "tissue: lung": {
+    "id": "UBERON:0002048",
+    "label": "lung",
+    "source": "UBERON"
+  },
+  "tissue: pancreas": {
+    "id": "UBERON:0001264",
+    "label": "pancreas",
+    "source": "UBERON"
+  },
+  "tissue: kidney": {
+    "id": "UBERON:0002113",
+    "label": "kidney",
+    "source": "UBERON"
+  },
+  "tissue: prostate": {
+    "id": "UBERON:0002367",
+    "label": "prostate gland",
+    "source": "UBERON"
+  },
+  "tissue: tonsil": {
+    "id": "UBERON:0002373",
+    "label": "tonsil",
+    "source": "UBERON"
+  },
+  "tissue: skeletal muscle": {
+    "id": "UBERON:0001134",
+    "label": "skeletal muscle tissue",
+    "source": "UBERON"
+  },
+  "tissue: skin": {
+    "id": "UBERON:0002097",
+    "label": "skin of body",
+    "source": "UBERON"
+  },
+  "tissue: brain (mixed white and gray matter)": {
+    "id": "UBERON:0000955",
+    "label": "brain",
+    "source": "UBERON"
+  },
+  "tissue: mammary gland": {
+    "id": "UBERON:0001911",
+    "label": "mammary gland",
+    "source": "UBERON"
+  },
+  "tissue: thyroid gland": {
+    "id": "UBERON:0002046",
+    "label": "thyroid gland",
+    "source": "UBERON"
+  },
+  "tissue: adrenal gland": {
+    "id": "UBERON:0002369",
+    "label": "adrenal gland",
+    "source": "UBERON"
+  },
+  "tissue: bladder": {
+    "id": "UBERON:0001255",
+    "label": "urinary bladder",
+    "source": "UBERON"
+  },
+  "tissue: colon, epithelium": {
+    "id": "UBERON:0001155",
+    "label": "colon",
+    "source": "UBERON"
+  },
+  "tissue: ovary": {
+    "id": "UBERON:0000992",
+    "label": "ovary",
+    "source": "UBERON"
+  },
+  "tissue: colon": {
+    "id": "UBERON:0001155",
+    "label": "colon",
+    "source": "UBERON"
+  },
+  "tissue: small inestine": {
+    "id": "UBERON:0002108",
+    "label": "small intestine",
+    "source": "UBERON"
+  },
+  "tissue: small intestine": {
+    "id": "UBERON:0002108",
+    "label": "small intestine",
+    "source": "UBERON"
+  },
+  "tissue: cervix, endometrium": {
+    "id": "UBERON:0001295",
+    "label": "endometrium",
+    "source": "UBERON"
+  },
+  "tissue: uterus (myometrium)": {
+    "id": "UBERON:0001296",
+    "label": "myometrium",
+    "source": "UBERON"
+  },
+  "tissue: cervix": {
+    "id": "UBERON:0000002",
+    "label": "uterine cervix",
+    "source": "UBERON"
+  },
+  "cell type: whole blood nuclear cells": {
+    "id": "UBERON:0000178",
+    "label": "blood",
+    "source": "UBERON"
+  },
+  "cell type: cd138+ enriched bone marrow cells": {
+    "id": "UBERON:0002371",
+    "label": "bone marrow",
+    "source": "UBERON"
+  },
   "cell type: PBMC": {
+    "id": "EFO:0004167",
+    "label": "peripheral blood mononuclear cell",
+    "source": "EFO"
+  },
+  "cell type: pbmcs": {
     "id": "EFO:0004167",
     "label": "peripheral blood mononuclear cell",
     "source": "EFO"

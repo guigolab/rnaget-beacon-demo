@@ -65,8 +65,81 @@ export function sampleLensQueryExamples(
     })
   }
 
+  const efoStatus = terms.find(
+    (t) => biosample(t) && t.type === 'EFO' && t.id === 'EFO:0009655'
+  )
+  if (efoStatus) {
+    examples.push({
+      label: efoStatus.label ?? 'abnormal sample',
+      filter: {
+        kind: 'ontology',
+        id: efoStatus.id,
+        label: efoStatus.label,
+      },
+    })
+  }
+
+  const phenotype = terms.find(
+    (t) =>
+      biosample(t) &&
+      (t.type === 'MONDO' || t.type === 'HP') &&
+      t.id.includes(':')
+  )
+  if (phenotype) {
+    examples.push({
+      label: phenotype.label ?? phenotype.id,
+      filter: {
+        kind: 'ontology',
+        id: phenotype.id,
+        label: phenotype.label,
+      },
+    })
+  }
+
+  const rinAssay = terms.find(
+    (t) => biosample(t) && t.type === 'NCIT' && t.id.startsWith('NCIT:')
+  )
+  if (rinAssay) {
+    examples.push({
+      label: rinAssay.label ?? rinAssay.id,
+      filter: {
+        kind: 'ontology',
+        id: rinAssay.id,
+        label: rinAssay.label,
+      },
+    })
+  }
+
   if (!examples.length) return SAMPLE_LENS_QUERY_FALLBACK
   return examples.slice(0, 6)
+}
+
+function termLabel(term?: { id?: string; label?: string } | string | null): string | undefined {
+  if (!term) return undefined
+  if (typeof term === 'string') return term
+  return term.label ?? term.id
+}
+
+export function biosampleStatusDisplay(sample: Biosample): {
+  label: string
+  id?: string
+} {
+  const st = sample.biosampleStatus
+  if (!st) return { label: '—' }
+  if (typeof st === 'string') return { label: st }
+  return {
+    label: st.label ?? st.id ?? '—',
+    id: st.id,
+  }
+}
+
+export function biosamplePhenotypeDisplay(sample: Biosample): string {
+  const pf = sample.phenotypicFeatures?.[0]
+  if (!pf) return '—'
+  const disease = termLabel(pf.featureType)
+  const sev = termLabel(pf.severity)
+  const bits = [disease, sev].filter(Boolean)
+  return bits.length ? bits.join(' · ') : '—'
 }
 
 export function mergeSampleLensFilters(current: UiFilter[], added: UiFilter): UiFilter[] {

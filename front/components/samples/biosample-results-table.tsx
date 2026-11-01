@@ -5,6 +5,8 @@ import { EntityRecordLink } from '@/components/shared/entity-record-link'
 import type { Biosample } from '@/lib/beacon/types'
 import {
   biosampleDisplayLabel,
+  biosamplePhenotypeDisplay,
+  biosampleStatusDisplay,
   matrixCountForBiosample,
 } from '@/lib/sample-lens'
 
@@ -27,6 +29,8 @@ export function BiosampleResultsTable({
             <th className="px-3 py-2">Sample</th>
             <th className="px-3 py-2">Id</th>
             <th className="px-3 py-2">Type / origin</th>
+            <th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2">Phenotype</th>
             <th className="px-3 py-2">Matrices</th>
           </tr>
         </thead>
@@ -34,6 +38,7 @@ export function BiosampleResultsTable({
           {samples.map((sample) => {
             const selected = sample.id === selectedSampleId
             const matrixIds = sample.matrixIds ?? []
+            const status = biosampleStatusDisplay(sample)
             return (
               <tr
                 key={sample.id}
@@ -61,8 +66,20 @@ export function BiosampleResultsTable({
                 </td>
                 <td className="px-3 py-2 text-muted-foreground">
                   {sample.sampleType?.label ??
+                    sample.sampleOriginDetail?.label ??
                     sample.sampleOriginType?.label ??
                     '—'}
+                </td>
+                <td className="px-3 py-2 text-muted-foreground">
+                  <span className="block">{status.label}</span>
+                  {status.id && (
+                    <span className="font-mono text-[10px] text-muted-foreground/80">
+                      {status.id}
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-muted-foreground">
+                  {biosamplePhenotypeDisplay(sample)}
                 </td>
                 <td className="px-3 py-2">
                   <span className="text-xs text-muted-foreground">

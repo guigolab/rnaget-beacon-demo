@@ -10,7 +10,12 @@ from beacon.schemas.envelopes import (
     OPENAPI_FILTERING_TERMS_RESPONSES,
 )
 from routers.common import empty_entity_response, list_response
-from routers.deps import BeaconRequestBody, model_to_dict, resolve_or_error
+from routers.deps import (
+    BeaconRequestBody,
+    model_to_dict,
+    partial_received_for_error,
+    resolve_or_error,
+)
 from routers.filter_helpers import filters_summary, resolve_entity_filters
 from routers.request_params import params_from_post, params_summary
 
@@ -24,7 +29,15 @@ def get_features(
     requestedGranularity: Optional[str] = Query(None),
     filters: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
-    filt, ferr = resolve_entity_filters(entity="feature", filters_csv=filters)
+    partial = partial_received_for_error(
+        skip=skip,
+        limit=limit,
+        requested_granularity=requestedGranularity,
+        entity_type="feature",
+    )
+    filt, ferr = resolve_entity_filters(
+        entity="feature", filters_csv=filters, received=partial
+    )
     if ferr:
         return ferr
     resolved, err = resolve_or_error(
@@ -33,6 +46,7 @@ def get_features(
         requested_granularity=requestedGranularity,
         cap_limit=True,
         extra_summary={"filters": filters_summary(filt)} if filt else None,
+        entity_type="feature",
     )
     if err:
         return err
@@ -59,16 +73,20 @@ def post_features(
     body: BeaconRequestBody = Body(...),
 ) -> Union[Dict[str, Any], JSONResponse]:
     body_dict = model_to_dict(body)
-    _, perr = params_from_post(body_dict)
+    partial = partial_received_for_error(body=body_dict, entity_type="feature")
+    _, perr = params_from_post(body_dict, received=partial)
     if perr:
         return perr
-    filt, ferr = resolve_entity_filters(entity="feature", body=body_dict)
+    filt, ferr = resolve_entity_filters(
+        entity="feature", body=body_dict, received=partial
+    )
     if ferr:
         return ferr
     resolved, err = resolve_or_error(
         body=body_dict,
         cap_limit=True,
         extra_summary={"filters": filters_summary(filt)} if filt else None,
+        entity_type="feature",
     )
     if err:
         return err
@@ -111,7 +129,10 @@ def get_feature(
     requestedGranularity: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
     item = get_store().get_feature(id)
-    resolved, err = resolve_or_error(requested_granularity=requestedGranularity)
+    resolved, err = resolve_or_error(
+        requested_granularity=requestedGranularity,
+        entity_type="feature",
+    )
     if err:
         return err
     _, _, gran, received = resolved
@@ -126,10 +147,11 @@ def post_feature(
 ) -> Union[Dict[str, Any], JSONResponse]:
     item = get_store().get_feature(id)
     body_dict = model_to_dict(body)
-    _, perr = params_from_post(body_dict)
+    partial = partial_received_for_error(body=body_dict, entity_type="feature")
+    _, perr = params_from_post(body_dict, received=partial)
     if perr:
         return perr
-    resolved, err = resolve_or_error(body=body_dict)
+    resolved, err = resolve_or_error(body=body_dict, entity_type="feature")
     if err:
         return err
     _, _, gran, received = resolved
@@ -150,6 +172,7 @@ def get_feature_matrices(
         limit=limit,
         requested_granularity=requestedGranularity,
         cap_limit=True,
+        entity_type="matrix",
     )
     if err:
         return err
@@ -173,10 +196,13 @@ def post_feature_matrices(
     id: str, body: BeaconRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:
     body_dict = model_to_dict(body)
-    _, perr = params_from_post(body_dict)
+    partial = partial_received_for_error(body=body_dict, entity_type="matrix")
+    _, perr = params_from_post(body_dict, received=partial)
     if perr:
         return perr
-    resolved, err = resolve_or_error(body=body_dict, cap_limit=True)
+    resolved, err = resolve_or_error(
+        body=body_dict, cap_limit=True, entity_type="matrix"
+    )
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
@@ -208,6 +234,7 @@ def get_feature_expression_summary(
     resolved, err = resolve_or_error(
         requested_granularity=requestedGranularity,
         extra_summary={"threshold": threshold} if threshold is not None else None,
+        entity_type="expressionSummary",
     )
     if err:
         return err
@@ -216,7 +243,11 @@ def get_feature_expression_summary(
         return empty_entity_response("expressionSummary", id, gran, received)
     getter = getattr(store, "expression_summary_for_feature", None)
     if not callable(getter):
-        return error_json(501, "expression_summary not available")
+        return error_json(
+            501,
+            "expression_summary not available",
+            received=received,
+        )
     results = getter(id, threshold=threshold)
     if gran.value != "record":
         return list_response(
@@ -253,7 +284,10 @@ def post_feature_expression_summary(
 ) -> Union[Dict[str, Any], JSONResponse]:
     store = get_store()
     payload = model_to_dict(body)
-    params, perr = params_from_post(payload)
+    partial = partial_received_for_error(
+        body=payload, entity_type="expressionSummary"
+    )
+    params, perr = params_from_post(payload, received=partial)
     if perr:
         return perr
     thr = params.get("threshold")
@@ -262,7 +296,9 @@ def post_feature_expression_summary(
         extra = {"threshold": thr}
     elif extra and thr is not None:
         extra = {**extra, "threshold": thr}
-    resolved, err = resolve_or_error(body=payload, extra_summary=extra)
+    resolved, err = resolve_or_error(
+        body=payload, extra_summary=extra, entity_type="expressionSummary"
+    )
     if err:
         return err
     _, _, gran, received = resolved
@@ -270,7 +306,11 @@ def post_feature_expression_summary(
         return empty_entity_response("expressionSummary", id, gran, received)
     getter = getattr(store, "expression_summary_for_feature", None)
     if not callable(getter):
-        return error_json(501, "expression_summary not available")
+        return error_json(
+            501,
+            "expression_summary not available",
+            received=received,
+        )
     results = getter(id, threshold=float(thr) if thr is not None else None)
     if gran.value != "record":
         return list_response(

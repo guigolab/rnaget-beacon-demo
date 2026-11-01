@@ -22,6 +22,7 @@ import {
   type Feature,
   type UiFilter,
 } from '@/lib/beacon'
+import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import { useGeneFilterProbe } from '@/hooks/use-gene-filter-probe'
 import {
   featureAnnotationResource,
@@ -35,7 +36,11 @@ function FeaturesLensContent() {
   const { openRecordSheet } = useEntityRecordSheet()
   const search = useSearchParams()
   const router = useRouter()
-  const lens = useMemo(() => parseGeneLensSearch(search), [search])
+  const scopeIndex = useMergedFilterScopeIndex()
+  const lens = useMemo(
+    () => parseGeneLensSearch(search, scopeIndex),
+    [search, scopeIndex]
+  )
   const { featureFilters, feature: featureParam, matrix: focusMatrix, unit: unitParam } =
     lens
 
@@ -205,7 +210,7 @@ function FeaturesLensContent() {
         emptyState={{
           title: 'Start with a filter',
           description:
-            'Use an example chip, type in the bar, or pick a Sequence Ontology term from the sidebar.',
+            'Use an example chip, type in the bar, or pick SO / GO terms from the sidebar.',
         }}
         resultsPanel={
           <LensResultsPanel

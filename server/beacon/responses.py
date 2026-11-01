@@ -10,6 +10,51 @@ class InvalidGranularity(ValueError):
     """Raised when requestedGranularity is not boolean|count|record."""
 
 
+def requested_schemas_for_entity(entity_type: Optional[str]) -> List[Dict[str, str]]:
+    if not entity_type:
+        return []
+    schema_id = config.SCHEMA_IDS.get(entity_type)
+    if not schema_id:
+        return []
+    return [{"entityType": entity_type, "schema": schema_id}]
+
+
+def build_received_summary(
+    *,
+    skip: int = 0,
+    limit: int = 10,
+    granularity: Granularity = Granularity.record,
+    entity_type: Optional[str] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    summary: Dict[str, Any] = {
+        "apiVersion": config.API_VERSION.lstrip("v"),
+        "requestedSchemas": requested_schemas_for_entity(entity_type),
+        "requestedGranularity": granularity.value,
+        "pagination": {"skip": skip, "limit": limit},
+    }
+    if extra:
+        summary.update({k: v for k, v in extra.items() if v is not None})
+    return summary
+
+
+def default_error_received(
+    *,
+    granularity: Granularity = Granularity.record,
+    skip: int = 0,
+    limit: int = 10,
+    entity_type: Optional[str] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    return build_received_summary(
+        skip=skip,
+        limit=limit,
+        granularity=granularity,
+        entity_type=entity_type,
+        extra=extra,
+    )
+
+
 def _meta(
     entity_type: str,
     schema_id: str,
@@ -20,29 +65,14 @@ def _meta(
         "apiVersion": config.API_VERSION,
         "beaconId": config.BEACON_ID,
         "returnedSchemas": [{"entityType": entity_type, "schema": schema_id}],
-        "receivedRequestSummary": received
-        or {"apiVersion": config.API_VERSION.lstrip("v")},
     }
     if granularity is not None:
         meta["returnedGranularity"] = granularity.value
+        meta["receivedRequestSummary"] = received or build_received_summary(
+            granularity=granularity,
+            entity_type=entity_type,
+        )
     return meta
-
-
-def build_received_summary(
-    *,
-    skip: int = 0,
-    limit: int = 10,
-    granularity: Granularity = Granularity.record,
-    extra: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    summary: Dict[str, Any] = {
-        "apiVersion": config.API_VERSION.lstrip("v"),
-        "requestedGranularity": granularity.value,
-        "pagination": {"skip": skip, "limit": limit},
-    }
-    if extra:
-        summary.update({k: v for k, v in extra.items() if v is not None})
-    return summary
 
 
 def build_resultsets_response(
@@ -70,7 +100,10 @@ def build_resultsets_response(
 
     if received is None:
         received = build_received_summary(
-            skip=skip, limit=limit, granularity=granularity
+            skip=skip,
+            limit=limit,
+            granularity=granularity,
+            entity_type=entity_type,
         )
     meta = _meta(entity_type, schema_id, granularity, received)
 
@@ -132,14 +165,21 @@ def build_error_response(
     error_message: str,
     *,
     received: Optional[Dict[str, Any]] = None,
+    returned_granularity: Optional[Granularity] = None,
 ) -> Dict[str, Any]:
+    summary = received or default_error_received()
+    gran_value = (
+        returned_granularity.value
+        if returned_granularity is not None
+        else summary.get("requestedGranularity", Granularity.record.value)
+    )
     meta: Dict[str, Any] = {
         "apiVersion": config.API_VERSION,
         "beaconId": config.BEACON_ID,
         "returnedSchemas": [],
+        "returnedGranularity": gran_value,
+        "receivedRequestSummary": summary,
     }
-    if received:
-        meta["receivedRequestSummary"] = received
     return {
         "meta": meta,
         "error": {
@@ -149,10 +189,21 @@ def build_error_response(
     }
 
 
-def error_json(error_code: int, error_message: str) -> JSONResponse:
+def error_json(
+    error_code: int,
+    error_message: str,
+    *,
+    received: Optional[Dict[str, Any]] = None,
+    returned_granularity: Optional[Granularity] = None,
+) -> JSONResponse:
     return JSONResponse(
         status_code=error_code,
-        content=build_error_response(error_code, error_message),
+        content=build_error_response(
+            error_code,
+            error_message,
+            received=received,
+            returned_granularity=returned_granularity,
+        ),
     )
 
 
@@ -177,8 +228,13 @@ def pagination_from_query(
     query = body.get("query") or {}
     pagination = query.get("pagination") or {}
     skip_v = skip if skip is not None else pagination.get("skip", 0)
-    limit_v = limit if limit is not None else pagination.get("limit", 10)
-    return int(skip_v or 0), int(limit_v or 10)
+    if limit is not None:
+        limit_v = limit
+    elif isinstance(pagination, dict) and "limit" in pagination:
+        limit_v = pagination.get("limit")
+    else:
+        limit_v = 10
+    return int(skip_v or 0), int(limit_v)
 
 
 def granularity_from_request(

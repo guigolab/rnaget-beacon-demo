@@ -31,9 +31,10 @@ export function EntityDetailPanel({
   const [matrixError, setMatrixError] = useState('')
 
   useEffect(() => {
-    if (kind !== 'feature') return
     let cancelled = false
-    getFilteringTerms()
+    const path =
+      kind === 'feature' ? '/features/filtering_terms' : '/biosamples/filtering_terms'
+    getFilteringTerms(path)
       .then((terms) => {
         if (!cancelled) setResources(terms.resources)
       })
@@ -88,7 +89,9 @@ export function EntityDetailPanel({
           <RecordFacts
             title="Record"
             facts={
-              feature ? featureFacts(feature, resources) : biosampleFacts(sample as Biosample)
+              feature
+                ? featureFacts(feature, resources)
+                : biosampleFacts(sample as Biosample, resources)
             }
           />
           <section className="rounded-xl border border-border bg-card p-4 shadow-sm">

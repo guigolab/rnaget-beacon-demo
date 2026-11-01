@@ -8,9 +8,14 @@ export const BEACON_SCOPES: BeaconScope[] = ['biosample', 'genomicFeature', 'mat
 
 const TYPE_LABELS: Record<string, string> = {
   SO: 'Sequence Ontology',
+  GO: 'Gene Ontology',
   OBI: 'Ontology for Biomedical Investigations',
   UBERON: 'Uberon',
   EFO: 'Experimental Factor Ontology',
+  MONDO: 'Mondo Disease Ontology',
+  HP: 'Human Phenotype Ontology',
+  NCIT: 'NCI Thesaurus',
+  UO: 'Units of Measurement Ontology',
 }
 
 export const SCOPE_LEGEND: Array<{

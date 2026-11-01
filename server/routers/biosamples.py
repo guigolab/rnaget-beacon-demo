@@ -10,7 +10,12 @@ from beacon.schemas.envelopes import (
     OPENAPI_FILTERING_TERMS_RESPONSES,
 )
 from routers.common import empty_entity_response, list_response
-from routers.deps import BeaconRequestBody, model_to_dict, resolve_or_error
+from routers.deps import (
+    BeaconRequestBody,
+    model_to_dict,
+    partial_received_for_error,
+    resolve_or_error,
+)
 from routers.filter_helpers import filters_summary, resolve_entity_filters
 from routers.request_params import params_from_post
 
@@ -24,7 +29,15 @@ def get_biosamples(
     requestedGranularity: Optional[str] = Query(None),
     filters: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
-    filt, ferr = resolve_entity_filters(entity="biosample", filters_csv=filters)
+    partial = partial_received_for_error(
+        skip=skip,
+        limit=limit,
+        requested_granularity=requestedGranularity,
+        entity_type="biosample",
+    )
+    filt, ferr = resolve_entity_filters(
+        entity="biosample", filters_csv=filters, received=partial
+    )
     if ferr:
         return ferr
     resolved, err = resolve_or_error(
@@ -33,6 +46,7 @@ def get_biosamples(
         requested_granularity=requestedGranularity,
         cap_limit=True,
         extra_summary={"filters": filters_summary(filt)} if filt else None,
+        entity_type="biosample",
     )
     if err:
         return err
@@ -59,16 +73,20 @@ def post_biosamples(
     body: BeaconRequestBody = Body(...),
 ) -> Union[Dict[str, Any], JSONResponse]:
     body_dict = model_to_dict(body)
-    _, perr = params_from_post(body_dict)
+    partial = partial_received_for_error(body=body_dict, entity_type="biosample")
+    _, perr = params_from_post(body_dict, received=partial)
     if perr:
         return perr
-    filt, ferr = resolve_entity_filters(entity="biosample", body=body_dict)
+    filt, ferr = resolve_entity_filters(
+        entity="biosample", body=body_dict, received=partial
+    )
     if ferr:
         return ferr
     resolved, err = resolve_or_error(
         body=body_dict,
         cap_limit=True,
         extra_summary={"filters": filters_summary(filt)} if filt else None,
+        entity_type="biosample",
     )
     if err:
         return err
@@ -111,7 +129,10 @@ def get_biosample(
     requestedGranularity: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
     item = get_store().get_biosample(id)
-    resolved, err = resolve_or_error(requested_granularity=requestedGranularity)
+    resolved, err = resolve_or_error(
+        requested_granularity=requestedGranularity,
+        entity_type="biosample",
+    )
     if err:
         return err
     _, _, gran, received = resolved
@@ -126,10 +147,11 @@ def post_biosample(
 ) -> Union[Dict[str, Any], JSONResponse]:
     item = get_store().get_biosample(id)
     body_dict = model_to_dict(body)
-    _, perr = params_from_post(body_dict)
+    partial = partial_received_for_error(body=body_dict, entity_type="biosample")
+    _, perr = params_from_post(body_dict, received=partial)
     if perr:
         return perr
-    resolved, err = resolve_or_error(body=body_dict)
+    resolved, err = resolve_or_error(body=body_dict, entity_type="biosample")
     if err:
         return err
     _, _, gran, received = resolved
@@ -154,6 +176,7 @@ def get_biosample_matrices(
         limit=limit,
         requested_granularity=requestedGranularity,
         cap_limit=True,
+        entity_type="matrix",
     )
     if err:
         return err
@@ -181,10 +204,13 @@ def post_biosample_matrices(
     id: str, body: BeaconRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:
     body_dict = model_to_dict(body)
-    _, perr = params_from_post(body_dict)
+    partial = partial_received_for_error(body=body_dict, entity_type="matrix")
+    _, perr = params_from_post(body_dict, received=partial)
     if perr:
         return perr
-    resolved, err = resolve_or_error(body=body_dict, cap_limit=True)
+    resolved, err = resolve_or_error(
+        body=body_dict, cap_limit=True, entity_type="matrix"
+    )
     if err:
         return err
     skip_v, limit_v, gran, received = resolved

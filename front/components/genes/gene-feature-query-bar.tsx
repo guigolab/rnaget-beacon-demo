@@ -3,15 +3,11 @@
 import { X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { GeneFilterProbe } from '@/hooks/use-gene-filter-probe'
-import {
-  dedupeFilters,
-  filterKey,
-  tokenToFilter,
-  type UiFilter,
-} from '@/lib/beacon'
+import { dedupeFilters, filterKey, tokenToFilter, type UiFilter } from '@/lib/beacon'
 import { useFilteringTerms } from '@/hooks/use-filtering-terms'
+import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import { catalogLabelById, filterChipDisplay } from '@/lib/gene-filter-labels'
-import { GENE_LENS_QUERY_EXAMPLES } from '@/lib/gene-lens'
+import { geneLensQueryExamples } from '@/lib/gene-lens'
 
 function isHiddenResourceTerm(id: string): boolean {
   const lower = id.toLowerCase()
@@ -42,6 +38,8 @@ export function GeneFeatureQueryBar({ filters, onChange, probe }: GeneFeatureQue
   const [text, setText] = useState('')
 
   const labelCatalog = useMemo(() => catalogLabelById(terms), [terms])
+  const scopeIndex = useMergedFilterScopeIndex()
+  const examples = useMemo(() => geneLensQueryExamples(terms), [terms])
 
   function add(filter: UiFilter | null) {
     if (!filter) return
@@ -54,7 +52,7 @@ export function GeneFeatureQueryBar({ filters, onChange, probe }: GeneFeatureQue
   }
 
   function addText(raw: string) {
-    const typed = tokenToFilter(raw, 'feature')
+    const typed = tokenToFilter(raw, 'feature', scopeIndex)
     if (!typed) return
     if (typed.kind === 'ontology' || typed.kind === 'custom') {
       if (isHiddenResourceTerm(typed.id)) return
@@ -109,7 +107,7 @@ export function GeneFeatureQueryBar({ filters, onChange, probe }: GeneFeatureQue
                 remove(filters[filters.length - 1])
               }
             }}
-            placeholder={filters.length ? 'Add filter…' : 'Symbol, HGNC:…, ENSEMBL:…, SO:…'}
+            placeholder={filters.length ? 'Add filter…' : 'Symbol, HGNC:…, SO:…, GO:…'}
             className="min-w-[10rem] flex-1 border-0 bg-transparent py-1.5 text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>
@@ -117,7 +115,7 @@ export function GeneFeatureQueryBar({ filters, onChange, probe }: GeneFeatureQue
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <span className="text-[11px] text-muted-foreground">Examples</span>
-        {GENE_LENS_QUERY_EXAMPLES.map((example) => (
+        {examples.map((example) => (
           <button
             key={example.label}
             type="button"

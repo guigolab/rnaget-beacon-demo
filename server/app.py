@@ -37,9 +37,9 @@ register_beacon_routers(app)
 
 
 def _default_received() -> dict:
-    from beacon import config
+    from beacon.responses import default_error_received
 
-    return {"apiVersion": config.API_VERSION.lstrip("v")}
+    return default_error_received()
 
 
 @app.exception_handler(RequestValidationError)

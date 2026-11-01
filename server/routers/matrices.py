@@ -23,6 +23,7 @@ from routers.deps import (
     axis_sort_value,
     model_to_dict,
     parse_id_list_or_error,
+    partial_received_for_error,
     resolve_or_error,
 )
 from routers.filter_helpers import filters_summary, resolve_entity_filters
@@ -49,7 +50,15 @@ def get_matrices(
     requestedGranularity: Optional[str] = Query(None),
     filters: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
-    filt, ferr = resolve_entity_filters(entity="matrix", filters_csv=filters)
+    partial = partial_received_for_error(
+        skip=skip,
+        limit=limit,
+        requested_granularity=requestedGranularity,
+        entity_type="matrix",
+    )
+    filt, ferr = resolve_entity_filters(
+        entity="matrix", filters_csv=filters, received=partial
+    )
     if ferr:
         return ferr
     extra = filters_summary(filt)
@@ -59,6 +68,7 @@ def get_matrices(
         requested_granularity=requestedGranularity,
         cap_limit=True,
         extra_summary=extra,
+        entity_type="matrix",
     )
     if err:
         return err
@@ -79,16 +89,20 @@ def post_matrices(
     body: BeaconRequestBody = Body(...),
 ) -> Union[Dict[str, Any], JSONResponse]:
     body_dict = model_to_dict(body)
-    _, perr = params_from_post(body_dict)
+    partial = partial_received_for_error(body=body_dict, entity_type="matrix")
+    _, perr = params_from_post(body_dict, received=partial)
     if perr:
         return perr
-    filt, ferr = resolve_entity_filters(entity="matrix", body=body_dict)
+    filt, ferr = resolve_entity_filters(
+        entity="matrix", body=body_dict, received=partial
+    )
     if ferr:
         return ferr
     resolved, err = resolve_or_error(
         body=body_dict,
         cap_limit=True,
         extra_summary=filters_summary(filt),
+        entity_type="matrix",
     )
     if err:
         return err
@@ -129,7 +143,10 @@ def get_matrix(
     requestedGranularity: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
     item = get_store().get_matrix(id)
-    resolved, err = resolve_or_error(requested_granularity=requestedGranularity)
+    resolved, err = resolve_or_error(
+        requested_granularity=requestedGranularity,
+        entity_type="matrix",
+    )
     if err:
         return err
     _, _, gran, received = resolved
@@ -144,10 +161,11 @@ def post_matrix(
 ) -> Union[Dict[str, Any], JSONResponse]:
     item = get_store().get_matrix(id)
     body_dict = model_to_dict(body)
-    _, perr = params_from_post(body_dict)
+    partial = partial_received_for_error(body=body_dict, entity_type="matrix")
+    _, perr = params_from_post(body_dict, received=partial)
     if perr:
         return perr
-    resolved, err = resolve_or_error(body=body_dict)
+    resolved, err = resolve_or_error(body=body_dict, entity_type="matrix")
     if err:
         return err
     _, _, gran, received = resolved
@@ -234,24 +252,33 @@ def get_matrix_features(
     order: AxisOrder = Query(AxisOrder.asc),
 ) -> Union[Dict[str, Any], JSONResponse]:
     store = get_store()
+    partial = partial_received_for_error(
+        skip=skip,
+        limit=limit,
+        requested_granularity=requestedGranularity,
+        entity_type="feature",
+    )
+    filt, ferr = resolve_entity_filters(
+        entity="biosample", filters_csv=filters, received=partial
+    )
+    if ferr:
+        return ferr
+    extra = _effective_axis_summary(store, id, axis="features", sort=sort, order=order)
+    if filt:
+        extra = {**extra, **(filters_summary(filt) or {})}
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
         requested_granularity=requestedGranularity,
         cap_limit=True,
+        extra_summary=extra,
+        entity_type="feature",
     )
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
     if not store.get_matrix(id):
         return empty_entity_response("feature", id, gran, received)
-    filt, ferr = resolve_entity_filters(entity="biosample", filters_csv=filters)
-    if ferr:
-        return ferr
-    extra = _effective_axis_summary(store, id, axis="features", sort=sort, order=order)
-    if filt:
-        extra = {**extra, **(filters_summary(filt) or {})}
-    received = {**received, **{k: v for k, v in extra.items() if v}}
     return _matrix_axis_list(
         id,
         axis="features",
@@ -273,10 +300,13 @@ def post_matrix_features(
 ) -> Union[Dict[str, Any], JSONResponse]:
     store = get_store()
     payload = model_to_dict(body)
-    params, perr = params_from_post(payload)
+    partial = partial_received_for_error(body=payload, entity_type="feature")
+    params, perr = params_from_post(payload, received=partial)
     if perr:
         return perr
-    filt, ferr = resolve_entity_filters(entity="biosample", body=payload)
+    filt, ferr = resolve_entity_filters(
+        entity="biosample", body=payload, received=partial
+    )
     if ferr:
         return ferr
     extra = _effective_axis_summary(
@@ -295,6 +325,7 @@ def post_matrix_features(
         body=payload,
         extra_summary=extra,
         cap_limit=True,
+        entity_type="feature",
     )
     if err:
         return err
@@ -327,18 +358,15 @@ def get_matrix_biosamples(
     order: AxisOrder = Query(AxisOrder.asc),
 ) -> Union[Dict[str, Any], JSONResponse]:
     store = get_store()
-    resolved, err = resolve_or_error(
+    partial = partial_received_for_error(
         skip=skip,
         limit=limit,
         requested_granularity=requestedGranularity,
-        cap_limit=True,
+        entity_type="biosample",
     )
-    if err:
-        return err
-    skip_v, limit_v, gran, received = resolved
-    if not store.get_matrix(id):
-        return empty_entity_response("biosample", id, gran, received)
-    filt, ferr = resolve_entity_filters(entity="biosample", filters_csv=filters)
+    filt, ferr = resolve_entity_filters(
+        entity="biosample", filters_csv=filters, received=partial
+    )
     if ferr:
         return ferr
     extra = _effective_axis_summary(
@@ -346,7 +374,19 @@ def get_matrix_biosamples(
     )
     if filt:
         extra = {**extra, **(filters_summary(filt) or {})}
-    received = {**received, **{k: v for k, v in extra.items() if v}}
+    resolved, err = resolve_or_error(
+        skip=skip,
+        limit=limit,
+        requested_granularity=requestedGranularity,
+        cap_limit=True,
+        extra_summary=extra,
+        entity_type="biosample",
+    )
+    if err:
+        return err
+    skip_v, limit_v, gran, received = resolved
+    if not store.get_matrix(id):
+        return empty_entity_response("biosample", id, gran, received)
     return _matrix_axis_list(
         id,
         axis="biosamples",
@@ -367,10 +407,13 @@ def post_matrix_biosamples(
 ) -> Union[Dict[str, Any], JSONResponse]:
     store = get_store()
     payload = model_to_dict(body)
-    params, perr = params_from_post(payload)
+    partial = partial_received_for_error(body=payload, entity_type="biosample")
+    params, perr = params_from_post(payload, received=partial)
     if perr:
         return perr
-    filt, ferr = resolve_entity_filters(entity="biosample", body=payload)
+    filt, ferr = resolve_entity_filters(
+        entity="biosample", body=payload, received=partial
+    )
     if ferr:
         return ferr
     extra = _effective_axis_summary(
@@ -389,6 +432,7 @@ def post_matrix_biosamples(
         body=payload,
         extra_summary=extra,
         cap_limit=True,
+        entity_type="biosample",
     )
     if err:
         return err
@@ -459,7 +503,14 @@ def get_expression_values(
     minValue: Optional[float] = Query(None),
     maxValue: Optional[float] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
+    partial = partial_received_for_error(
+        skip=skip,
+        limit=limit,
+        requested_granularity=requestedGranularity,
+        entity_type="expressionValue",
+    )
     params, perr = params_from_get(
+        received=partial,
         featureIDList=featureIDList,
         biosampleIDList=biosampleIDList,
         minValue=minValue,
@@ -467,17 +518,31 @@ def get_expression_values(
     )
     if perr:
         return perr
+    if params:
+        partial = partial_received_for_error(
+            skip=skip,
+            limit=limit,
+            requested_granularity=requestedGranularity,
+            entity_type="expressionValue",
+            extra_summary=params_summary(params) or None,
+        )
     if featureIDList:
-        featureIDList, ferr = parse_id_list_or_error(featureIDList)
+        featureIDList, ferr = parse_id_list_or_error(
+            featureIDList, received=partial
+        )
         if ferr:
             return ferr
         params["featureIDList"] = featureIDList
     if biosampleIDList:
-        biosampleIDList, berr = parse_id_list_or_error(biosampleIDList)
+        biosampleIDList, berr = parse_id_list_or_error(
+            biosampleIDList, received=partial
+        )
         if berr:
             return berr
         params["biosampleIDList"] = biosampleIDList
-    bio_filt, bferr = resolve_entity_filters(entity="biosample", filters_csv=filters)
+    bio_filt, bferr = resolve_entity_filters(
+        entity="biosample", filters_csv=filters, received=partial
+    )
     if bferr:
         return bferr
     extra = {**params_summary(params), **(filters_summary(bio_filt) or {})}
@@ -487,6 +552,7 @@ def get_expression_values(
         requested_granularity=requestedGranularity,
         extra_summary=extra or None,
         cap_limit=True,
+        entity_type="expressionValue",
     )
     if err:
         return err
@@ -509,10 +575,22 @@ def post_expression_values(
     id: str, body: ExpressionValuesRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:
     payload = model_to_dict(body)
-    params, perr = params_from_post(payload)
+    partial = partial_received_for_error(
+        body=payload,
+        entity_type="expressionValue",
+    )
+    params, perr = params_from_post(payload, received=partial)
     if perr:
         return perr
-    bio_filt, bferr = resolve_entity_filters(entity="biosample", body=payload)
+    if params:
+        partial = partial_received_for_error(
+            body=payload,
+            entity_type="expressionValue",
+            extra_summary=params_summary(params) or None,
+        )
+    bio_filt, bferr = resolve_entity_filters(
+        entity="biosample", body=payload, received=partial
+    )
     if bferr:
         return bferr
     extra = {**params_summary(params), **(filters_summary(bio_filt) or {})}
@@ -520,6 +598,7 @@ def post_expression_values(
         body=payload,
         extra_summary=extra or None,
         cap_limit=True,
+        entity_type="expressionValue",
     )
     if err:
         return err
@@ -548,12 +627,17 @@ def _matrix_expression_summary_response(
     store = get_store()
     getter = getattr(store, "expression_summary_for_matrix", None)
     if not callable(getter):
-        return error_json(501, "expression_summary not available")
+        return error_json(
+            501,
+            "expression_summary not available",
+            received=received,
+        )
     group = params.get("groupBy")
     if group and group not in _ALLOWED_EXPRESSION_GROUP_BY:
         return error_json(
             400,
             f"unsupported groupBy {group!r}; allowed: {sorted(_ALLOWED_EXPRESSION_GROUP_BY)}",
+            received=received,
         )
     results = getter(
         id,
@@ -601,25 +685,40 @@ def get_matrix_expression_summary(
     filters: Optional[str] = Query(None),
     requestedGranularity: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
+    partial = partial_received_for_error(
+        requested_granularity=requestedGranularity,
+        entity_type="expressionSummary",
+    )
     params, perr = params_from_get(
+        received=partial,
         featureIDList=featureIDList,
         groupBy=groupBy,
         threshold=threshold,
     )
     if perr:
         return perr
+    if params:
+        partial = partial_received_for_error(
+            requested_granularity=requestedGranularity,
+            entity_type="expressionSummary",
+            extra_summary=params_summary(params) or None,
+        )
     if groupBy and groupBy not in _ALLOWED_EXPRESSION_GROUP_BY:
         return error_json(
             400,
             f"unsupported groupBy {groupBy!r}; allowed: {sorted(_ALLOWED_EXPRESSION_GROUP_BY)}",
+            received=partial,
         )
-    bio_filt, bferr = resolve_entity_filters(entity="biosample", filters_csv=filters)
+    bio_filt, bferr = resolve_entity_filters(
+        entity="biosample", filters_csv=filters, received=partial
+    )
     if bferr:
         return bferr
     extra = {**params_summary(params), **(filters_summary(bio_filt) or {})}
     resolved, err = resolve_or_error(
         requested_granularity=requestedGranularity,
         extra_summary=extra or None,
+        entity_type="expressionSummary",
     )
     if err:
         return err
@@ -641,20 +740,37 @@ def post_matrix_expression_summary(
     body: ExpressionValuesRequestBody = Body(...),
 ) -> Union[Dict[str, Any], JSONResponse]:
     payload = model_to_dict(body)
-    params, perr = params_from_post(payload)
+    partial = partial_received_for_error(
+        body=payload,
+        entity_type="expressionSummary",
+    )
+    params, perr = params_from_post(payload, received=partial)
     if perr:
         return perr
+    if params:
+        partial = partial_received_for_error(
+            body=payload,
+            entity_type="expressionSummary",
+            extra_summary=params_summary(params) or None,
+        )
     group = params.get("groupBy")
     if group and group not in _ALLOWED_EXPRESSION_GROUP_BY:
         return error_json(
             400,
             f"unsupported groupBy {group!r}; allowed: {sorted(_ALLOWED_EXPRESSION_GROUP_BY)}",
+            received=partial,
         )
-    bio_filt, bferr = resolve_entity_filters(entity="biosample", body=payload)
+    bio_filt, bferr = resolve_entity_filters(
+        entity="biosample", body=payload, received=partial
+    )
     if bferr:
         return bferr
     extra = {**params_summary(params), **(filters_summary(bio_filt) or {})}
-    resolved, err = resolve_or_error(body=payload, extra_summary=extra or None)
+    resolved, err = resolve_or_error(
+        body=payload,
+        extra_summary=extra or None,
+        entity_type="expressionSummary",
+    )
     if err:
         return err
     _, _, gran, received = resolved

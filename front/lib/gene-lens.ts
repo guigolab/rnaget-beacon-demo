@@ -1,6 +1,6 @@
 import { dedupeFilters } from '@/lib/beacon/filters'
 import type { ExpressionSummary } from '@/lib/beacon/client'
-import type { Feature, UiFilter } from '@/lib/beacon/types'
+import type { Feature, FilteringTerm, UiFilter } from '@/lib/beacon/types'
 import { nativeFeatureId } from '@/lib/heatmap-expression'
 
 /** One-click starter queries on the gene lens (not applied until selected). */
@@ -13,6 +13,24 @@ export const GENE_LENS_QUERY_EXAMPLES: Array<{ label: string; filter: UiFilter }
 ]
 
 export const GENE_LENS_PAGE_SIZE = 5
+
+export function geneLensQueryExamples(
+  terms: FilteringTerm[]
+): Array<{ label: string; filter: UiFilter }> {
+  const base = [...GENE_LENS_QUERY_EXAMPLES]
+  const featureScope = (term: FilteringTerm) =>
+    term.scopes?.includes('genomicFeature') ?? false
+  const go = terms.find(
+    (t) => featureScope(t) && t.type === 'GO' && t.id.startsWith('GO:')
+  )
+  if (go) {
+    base.push({
+      label: go.label ?? go.id,
+      filter: { kind: 'ontology', id: go.id, label: go.label },
+    })
+  }
+  return base.slice(0, 7)
+}
 
 export function mergeGeneLensFilters(current: UiFilter[], added: UiFilter): UiFilter[] {
   return dedupeFilters([...current, added])

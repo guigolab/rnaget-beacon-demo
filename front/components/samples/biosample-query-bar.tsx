@@ -3,13 +3,9 @@
 import { X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { BiosampleFilterProbe } from '@/hooks/use-biosample-filter-probe'
-import {
-  dedupeFilters,
-  filterKey,
-  tokenToFilter,
-  type UiFilter,
-} from '@/lib/beacon'
+import { dedupeFilters, filterKey, tokenToFilter, type UiFilter } from '@/lib/beacon'
 import { useFilteringTerms } from '@/hooks/use-filtering-terms'
+import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import { catalogLabelById, filterChipDisplay } from '@/lib/gene-filter-labels'
 import { mergeSampleLensFilters, sampleLensQueryExamples } from '@/lib/sample-lens'
 
@@ -37,6 +33,7 @@ export function BiosampleQueryBar({ filters, onChange, probe }: BiosampleQueryBa
   const [text, setText] = useState('')
 
   const labelCatalog = useMemo(() => catalogLabelById(terms), [terms])
+  const scopeIndex = useMergedFilterScopeIndex()
   const examples = useMemo(() => sampleLensQueryExamples(terms), [terms])
 
   const alphanumericTerms = useMemo(
@@ -68,7 +65,7 @@ export function BiosampleQueryBar({ filters, onChange, probe }: BiosampleQueryBa
     const trimmed = raw.trim()
     if (!trimmed) return
 
-    const typed = tokenToFilter(trimmed, 'biosample')
+    const typed = tokenToFilter(trimmed, 'biosample', scopeIndex)
     if (typed && (typed.kind === 'ontology' || typed.kind === 'custom')) {
       const match = terms.find((term) => term.id.toLowerCase() === typed.id.toLowerCase())
       add({ ...typed, label: match?.label ?? typed.label })

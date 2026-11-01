@@ -11,6 +11,9 @@ type GeneFilterSidebarProps = {
   onAddFilter: (filter: UiFilter) => void
 }
 
+/** Namespaces that are lookup keys, not ontology facets in the catalog. */
+const NON_FACET_PREFIXES = new Set(['HGNC', 'NCBIGENE', 'ENSEMBL'])
+
 function NamespaceRow({
   prefix,
   name,
@@ -33,40 +36,55 @@ function NamespaceRow({
 export function GeneFilterSidebar({ activeFilters, onAddFilter }: GeneFilterSidebarProps) {
   const { terms, resources, error, loading } = useFilteringTerms('/features/filtering_terms')
 
-  const soGroup = useMemo(() => {
-    return groupTermsByNamespaceScope(terms)
-      .filter((g) => g.scope === 'genomicFeature' && g.namespaceType === 'SO')
-      .at(0)
-  }, [terms])
+  const featureGroups = useMemo(
+    () =>
+      groupTermsByNamespaceScope(terms).filter(
+        (g) => g.scope === 'genomicFeature' && g.namespaceType !== 'alphanumeric'
+      ),
+    [terms]
+  )
+
+  const groupsByPrefix = useMemo(() => {
+    const map = new Map<string, (typeof featureGroups)[0]>()
+    for (const g of featureGroups) map.set(g.namespaceType, g)
+    return map
+  }, [featureGroups])
+
+  const resourceByPrefix = useMemo(() => {
+    const map = new Map<string, (typeof resources)[0]>()
+    for (const r of resources) {
+      if (r.nameSpacePrefix) map.set(r.nameSpacePrefix, r)
+    }
+    return map
+  }, [resources])
 
   const namespaceItems = useMemo(() => {
     const items: Array<
-      | { kind: 'so' }
+      | { kind: 'collapse'; prefix: string; group: (typeof featureGroups)[0] }
       | { kind: 'resource'; prefix?: string; name?: string; id: string }
     > = []
+    const seenCollapse = new Set<string>()
+
+    for (const group of featureGroups) {
+      items.push({ kind: 'collapse', prefix: group.namespaceType, group })
+      seenCollapse.add(group.namespaceType)
+    }
 
     for (const resource of resources) {
       const prefix = resource.nameSpacePrefix
-      if (prefix === 'SO' && soGroup) {
-        items.push({ kind: 'so' })
-        continue
+      if (prefix && seenCollapse.has(prefix)) continue
+      if (!prefix || NON_FACET_PREFIXES.has(prefix.toUpperCase())) {
+        items.push({
+          kind: 'resource',
+          id: resource.id ?? prefix ?? resource.name ?? 'resource',
+          prefix,
+          name: resource.name ?? resource.id,
+        })
       }
-      items.push({
-        kind: 'resource',
-        id: resource.id ?? prefix ?? resource.name ?? 'resource',
-        prefix,
-        name: resource.name ?? resource.id,
-      })
-    }
-
-    if (soGroup && !items.some((item) => item.kind === 'so')) {
-      items.unshift({ kind: 'so' })
     }
 
     return items
-  }, [resources, soGroup])
-
-  const soResourceName = resources.find((r) => r.nameSpacePrefix === 'SO')?.name
+  }, [featureGroups, resources])
 
   return (
     <aside className="w-full min-w-0 shrink-0 lg:w-56 xl:w-64">
@@ -84,27 +102,27 @@ export function GeneFilterSidebar({ activeFilters, onAddFilter }: GeneFilterSide
         {!loading && !error && (
           <ul className="mt-3 space-y-2">
             {namespaceItems.map((item) => {
-              if (item.kind === 'so' && soGroup) {
+              if (item.kind === 'collapse') {
+                const resourceName =
+                  resourceByPrefix.get(item.prefix)?.name ??
+                  groupsByPrefix.get(item.prefix)?.namespaceLabel
                 return (
-                  <li key="namespace-so">
+                  <li key={`collapse-${item.prefix}`}>
                     <NamespaceTermCollapse
-                      group={soGroup}
+                      group={item.group}
                       scope="genomicFeature"
                       activeFilters={activeFilters}
                       onAddFilter={onAddFilter}
-                      resourceName={soResourceName}
+                      resourceName={resourceName}
                     />
                   </li>
                 )
               }
-              if (item.kind === 'resource') {
-                return (
-                  <li key={item.id}>
-                    <NamespaceRow prefix={item.prefix} name={item.name} />
-                  </li>
-                )
-              }
-              return null
+              return (
+                <li key={item.id}>
+                  <NamespaceRow prefix={item.prefix} name={item.name} />
+                </li>
+              )
             })}
             {namespaceItems.length === 0 && (
               <li className="text-xs text-muted-foreground">No namespaces in catalog.</li>

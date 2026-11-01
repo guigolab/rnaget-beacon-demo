@@ -29,6 +29,9 @@ function ontologyTerms(sample: Biosample): OntologyTerm[] {
   push(sample.sampleOriginType)
   push(sample.sampleType)
   if (typeof sample.biosampleStatus === 'object') push(sample.biosampleStatus)
+  const pf0 = sample.phenotypicFeatures?.[0]
+  if (pf0?.featureType) push(pf0.featureType)
+  if (pf0?.severity) push(pf0.severity)
   const seen = new Set<string>()
   return terms.filter((t) => {
     const key = t.id ?? t.label ?? ''

@@ -3,13 +3,9 @@
 import { X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { MatrixFilterProbe } from '@/hooks/use-matrix-filter-probe'
-import {
-  dedupeFilters,
-  filterKey,
-  tokenToFilter,
-  type UiFilter,
-} from '@/lib/beacon'
+import { dedupeFilters, filterKey, tokenToFilter, type UiFilter } from '@/lib/beacon'
 import { useFilteringTerms } from '@/hooks/use-filtering-terms'
+import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import { catalogLabelById, filterChipDisplay } from '@/lib/gene-filter-labels'
 import { mergeMatrixLensFilters, matrixLensQueryExamples } from '@/lib/matrix-lens'
 
@@ -37,6 +33,7 @@ export function MatrixQueryBar({ filters, onChange, probe }: MatrixQueryBarProps
   const [text, setText] = useState('')
 
   const labelCatalog = useMemo(() => catalogLabelById(terms), [terms])
+  const scopeIndex = useMergedFilterScopeIndex()
   const examples = useMemo(() => matrixLensQueryExamples(terms), [terms])
 
   const alphanumericTerms = useMemo(
@@ -67,7 +64,7 @@ export function MatrixQueryBar({ filters, onChange, probe }: MatrixQueryBarProps
     const trimmed = raw.trim()
     if (!trimmed) return
 
-    const typed = tokenToFilter(trimmed, 'matrix')
+    const typed = tokenToFilter(trimmed, 'matrix', scopeIndex)
     if (typed && typed.kind === 'ontology') {
       const match = terms.find((term) => term.id.toLowerCase() === typed.id.toLowerCase())
       add({ ...typed, label: match?.label ?? typed.label })
@@ -90,7 +87,7 @@ export function MatrixQueryBar({ filters, onChange, probe }: MatrixQueryBarProps
     }
 
     if (trimmed.includes(':')) {
-      const asOntology = tokenToFilter(trimmed, 'matrix')
+      const asOntology = tokenToFilter(trimmed, 'matrix', scopeIndex)
       if (asOntology) add(asOntology)
     }
   }

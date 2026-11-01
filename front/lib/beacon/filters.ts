@@ -1,4 +1,5 @@
-import type { BeaconFilter, Granularity, UiFilter } from './types'
+import { isBeaconScope, type BeaconScope } from '@/lib/scope-theme'
+import type { BeaconFilter, FilteringTerm, Granularity, UiFilter } from './types'
 
 /** Shared by features lens URL parsing (Beacon ontology + gene public ids). */
 const ONTOLOGY_ID =
@@ -55,7 +56,51 @@ export const MATRIX_ALPHANUMERIC_URL_PARAMS = [
 
 export type FilterScope = 'feature' | 'biosample' | 'matrix'
 
-export function scopeOf(filter: UiFilter): FilterScope {
+export type FilterScopeIndex = Map<string, FilterScope>
+
+function normalizeFilterTermId(id: string): string {
+  return id.trim().toUpperCase()
+}
+
+function beaconScopeToFilterScope(scope: BeaconScope): FilterScope {
+  if (scope === 'genomicFeature') return 'feature'
+  return scope
+}
+
+/** Map filtering-term ids to lens scope using catalog `scopes` (case-insensitive keys). */
+export function buildFilterScopeIndex(terms: FilteringTerm[]): FilterScopeIndex {
+  const map: FilterScopeIndex = new Map()
+  for (const term of terms) {
+    const id = term.id?.trim()
+    if (!id) continue
+    const scopes = (term.scopes ?? []).filter(isBeaconScope)
+    if (scopes.length === 0) continue
+    // Prefer matrix > biosample > feature when a id is registered under multiple scopes.
+    const priority: Record<BeaconScope, number> = {
+      matrix: 3,
+      biosample: 2,
+      genomicFeature: 1,
+    }
+    const best = scopes.reduce((a, b) =>
+      priority[b] > priority[a] ? b : a
+    )
+    map.set(normalizeFilterTermId(id), beaconScopeToFilterScope(best))
+  }
+  return map
+}
+
+export function mergeFilterScopeIndexes(
+  ...indexes: Array<FilterScopeIndex | undefined>
+): FilterScopeIndex {
+  const merged: FilterScopeIndex = new Map()
+  for (const index of indexes) {
+    if (!index) continue
+    for (const [key, scope] of index) merged.set(key, scope)
+  }
+  return merged
+}
+
+export function scopeOf(filter: UiFilter, index?: FilterScopeIndex): FilterScope {
   if (filter.kind === 'symbol') return 'feature'
   if (filter.kind === 'matrixUnit') return 'feature'
   if (filter.kind === 'sex') return 'biosample'
@@ -68,6 +113,10 @@ export function scopeOf(filter: UiFilter): FilterScope {
   if (filter.kind === 'custom') {
     if (filter.id.toLowerCase().startsWith('resource:')) return 'feature'
     return 'biosample'
+  }
+  if (filter.kind === 'ontology' && index) {
+    const hit = index.get(normalizeFilterTermId(filter.id))
+    if (hit) return hit
   }
   const prefix = filter.id.split(':', 1)[0]?.toUpperCase() ?? ''
   const idUpper = filter.id.toUpperCase()
@@ -86,13 +135,25 @@ export function scopeOf(filter: UiFilter): FilterScope {
 }
 
 /** Filters applicable to GET/POST /matrices (SO feature types + matrix alphanumerics + OBI). */
-export function isMatrixLensFilter(filter: UiFilter): boolean {
+export function isMatrixLensFilter(filter: UiFilter, index?: FilterScopeIndex): boolean {
   if (filter.kind === 'alphanumeric' && MATRIX_ALPHANUMERIC_FIELD_IDS.has(filter.id)) {
     return true
   }
   if (filter.kind === 'ontology') {
     const prefix = filter.id.split(':', 1)[0]?.toUpperCase() ?? ''
-    return prefix === 'OBI' || prefix === 'SO'
+    const idUpper = filter.id.toUpperCase()
+    // Matrices accept SO feature types even when the catalog scopes SO to genomicFeature.
+    if (prefix === 'SO') return true
+    if (index) {
+      const hit = index.get(normalizeFilterTermId(filter.id))
+      if (hit !== undefined) return hit === 'matrix'
+    }
+    if (prefix === 'OBI') {
+      return !(
+        BIOSAMPLE_OBI_ORIGIN.has(filter.id) || BIOSAMPLE_OBI_ORIGIN.has(idUpper)
+      )
+    }
+    return false
   }
   return false
 }
@@ -213,9 +274,12 @@ export type GeneLensSearch = {
   unit: string | null
 }
 
-export function parseGeneLensSearch(params: URLSearchParams): GeneLensSearch {
+export function parseGeneLensSearch(
+  params: URLSearchParams,
+  index?: FilterScopeIndex
+): GeneLensSearch {
   const { filters } = parseCatalogSearch(params)
-  const featureFilters = filters.filter((f) => scopeOf(f) === 'feature')
+  const featureFilters = filters.filter((f) => scopeOf(f, index) === 'feature')
   return {
     featureFilters: dedupeFilters(featureFilters),
     feature: params.get('feature'),
@@ -257,9 +321,12 @@ export type SampleLensSearch = {
   unit: string | null
 }
 
-export function parseSampleLensSearch(params: URLSearchParams): SampleLensSearch {
+export function parseSampleLensSearch(
+  params: URLSearchParams,
+  index?: FilterScopeIndex
+): SampleLensSearch {
   const { filters } = parseCatalogSearch(params)
-  const biosampleFilters = filters.filter((f) => scopeOf(f) === 'biosample')
+  const biosampleFilters = filters.filter((f) => scopeOf(f, index) === 'biosample')
   return {
     biosampleFilters: dedupeFilters(biosampleFilters),
     sample: params.get('sample'),
@@ -305,9 +372,12 @@ export type MatrixLensSearch = {
   matrix: string | null
 }
 
-export function parseMatrixLensSearch(params: URLSearchParams): MatrixLensSearch {
+export function parseMatrixLensSearch(
+  params: URLSearchParams,
+  index?: FilterScopeIndex
+): MatrixLensSearch {
   const { filters } = parseCatalogSearch(params)
-  const matrixFilters = filters.filter((f) => isMatrixLensFilter(f))
+  const matrixFilters = filters.filter((f) => isMatrixLensFilter(f, index))
   return {
     matrixFilters: dedupeFilters(matrixFilters),
     matrix: params.get('matrix'),
@@ -523,7 +593,8 @@ export function matrixHref(id: string, extra?: string): string {
 
 export function tokenToFilter(
   token: string,
-  scope: 'feature' | 'biosample' | 'matrix' | 'both'
+  scope: 'feature' | 'biosample' | 'matrix' | 'both',
+  index?: FilterScopeIndex
 ): UiFilter | null {
   const text = token.trim()
   if (!text) return null
@@ -532,16 +603,16 @@ export function tokenToFilter(
       kind: 'custom',
       id: text.toLowerCase().startsWith('resource:') ? text : 'GEO:sample',
     }
-    if (scope !== 'both' && scopeOf(filter) !== scope) return null
+    if (scope !== 'both' && scopeOf(filter, index) !== scope) return null
     return filter
   }
   if (isOntologyId(text)) {
     const filter: UiFilter = { kind: 'ontology', id: text }
     if (scope === 'matrix') {
-      if (!isMatrixLensFilter(filter)) return null
+      if (!isMatrixLensFilter(filter, index)) return null
       return filter
     }
-    if (scope !== 'both' && scopeOf(filter) !== scope) return null
+    if (scope !== 'both' && scopeOf(filter, index) !== scope) return null
     return filter
   }
   if (scope === 'biosample' || scope === 'matrix') return null

@@ -10,7 +10,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, FrozenSet, Iterable, Iterator, List, Optional, Tuple, Union
 
 import requests
 import yaml
@@ -330,6 +330,54 @@ def _slug(value: str) -> str:
     return re.sub(r"[^\w.\-]+", "_", value.strip())[:120] or "id"
 
 
+def _iter_wide_matrix_data_rows(path: Path, *, delim: str) -> Iterator[List[str]]:
+    """Yield data rows from a wide matrix file (header and # comments skipped)."""
+    with _open_text(path) as fh:
+        first = fh.readline()
+        while first.startswith("#"):
+            first = fh.readline()
+        reader = csv.reader(io.StringIO(first), delimiter=delim)
+        next(reader)  # column header
+        rest_reader = csv.reader(fh, delimiter=delim)
+        for row in rest_reader:
+            if row:
+                yield row
+
+
+def _iter_wide_matrix_expression(
+    path: Path,
+    *,
+    matrix_id: str,
+    profile: Dict[str, Any],
+    sample_names: List[str],
+    allowed_native_ids: Optional[FrozenSet[str]] = None,
+) -> Iterator[Tuple[str, str, str, float]]:
+    """Second pass over a wide matrix: stream (matrix, gene, sample, value) tuples."""
+    delim = profile.get("delimiter") or "\t"
+    feature_col = int(profile.get("feature_column", 0))
+    sample_start = int(profile.get("sample_start_column", feature_col + 1))
+    n_samples = len(sample_names)
+
+    for row in _iter_wide_matrix_data_rows(path, delim=delim):
+        if len(row) <= sample_start:
+            continue
+        native_id = row[feature_col].strip()
+        if not native_id:
+            continue
+        if allowed_native_ids is not None and native_id not in allowed_native_ids:
+            continue
+        values = row[sample_start : sample_start + n_samples]
+        for sample_id, raw in zip(sample_names, values):
+            raw = (raw or "").strip()
+            if raw == "" or raw.upper() == "NA":
+                continue
+            try:
+                value = float(raw)
+            except ValueError:
+                continue
+            yield (matrix_id, native_id, sample_id, value)
+
+
 def parse_wide_matrix(
     path: Path,
     profile: Dict[str, Any],
@@ -345,6 +393,9 @@ def parse_wide_matrix(
         "id": "SO:0000704",
         "label": "gene",
     }
+    # Full GEO/NCBI matrices (~40k × 100+ samples) materialize ~5M Python tuples
+    # if expression is buffered; stream on a second file pass when unsliced.
+    stream_expression = max_genes == 0 and max_samples == 0
 
     with _open_text(path) as fh:
         # Skip comment lines (common in GTEx)
@@ -367,7 +418,7 @@ def parse_wide_matrix(
         n_samples = len(sample_names)
 
         features: List[Dict[str, Any]] = []
-        expression_rows: List[Tuple[str, str, str, float]] = []
+        expression_rows_list: List[Tuple[str, str, str, float]] = []
         gene_count = 0
 
         for row in rest_reader:
@@ -395,16 +446,35 @@ def parse_wide_matrix(
                 }
             )
 
-            values = row[sample_start : sample_start + n_samples]
-            for sample_id, raw in zip(sample_names, values):
-                raw = (raw or "").strip()
-                if raw == "" or raw.upper() == "NA":
-                    continue
-                try:
-                    value = float(raw)
-                except ValueError:
-                    continue
-                expression_rows.append((matrix_id, native_id, sample_id, value))
+            if not stream_expression:
+                values = row[sample_start : sample_start + n_samples]
+                for sample_id, raw in zip(sample_names, values):
+                    raw = (raw or "").strip()
+                    if raw == "" or raw.upper() == "NA":
+                        continue
+                    try:
+                        value = float(raw)
+                    except ValueError:
+                        continue
+                    expression_rows_list.append(
+                        (matrix_id, native_id, sample_id, value)
+                    )
+
+    if stream_expression:
+        allowed: Optional[FrozenSet[str]] = frozenset(
+            f["nativeId"] for f in features if f.get("nativeId")
+        )
+        expression_rows: Iterable[Tuple[str, str, str, float]] = (
+            _iter_wide_matrix_expression(
+                path,
+                matrix_id=matrix_id,
+                profile=profile,
+                sample_names=sample_names,
+                allowed_native_ids=allowed,
+            )
+        )
+    else:
+        expression_rows = expression_rows_list
 
     biosamples = [
         {"id": sid, "biosampleId": sid, "matrixIds": [matrix_id]} for sid in sample_names
@@ -447,6 +517,7 @@ def parse_wide_matrix(
             "maxSamples": max_samples,
             # Upper bound (genes × samples); NA/invalid cells may be omitted.
             "expectedExpressionCells": len(features) * len(biosamples),
+            **({"expressionStreaming": True} if stream_expression else {}),
         },
     }
 
