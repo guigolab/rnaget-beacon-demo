@@ -763,6 +763,9 @@ def hydrate_package(
         for field in orig_schema:
             if field.name not in out_table.column_names:
                 continue
+            if pa.types.is_null(field.type):
+                # Export inferred null when every value was None; keep hydrated type.
+                continue
             idx = out_table.schema.get_field_index(field.name)
             try:
                 cast_col = out_table.column(idx).cast(field.type, safe=False)

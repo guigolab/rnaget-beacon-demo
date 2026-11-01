@@ -71,16 +71,43 @@ def compute_n_shards(n_features: int, n_biosamples: int) -> int:
     return max(1, int(math.ceil(expected / CELLS_PER_SHARD)))
 
 
-def _write_table(path: Path, rows: List[Dict[str, Any]], *, empty_schema=None) -> None:
+def _features_export_schema():
+    import pyarrow as pa
+
+    str_list = pa.list_(pa.string())
+    return pa.schema(
+        [
+            ("feature_id", pa.string()),
+            ("wrapper_id", pa.string()),
+            ("resource", pa.string()),
+            ("symbol", pa.string()),
+            ("aliases", str_list),
+            ("feature_type_id", pa.string()),
+            ("feature_type_label", pa.string()),
+            ("matrix_id", pa.string()),
+        ]
+    )
+
+
+def _write_table(
+    path: Path,
+    rows: List[Dict[str, Any]],
+    *,
+    empty_schema=None,
+    schema=None,
+) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
 
     path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
-        schema = empty_schema or pa.schema([])
+        schema = schema or empty_schema or pa.schema([])
         pq.write_table(pa.Table.from_batches([], schema=schema), path, compression="zstd")
         return
-    table = pa.Table.from_pylist(rows)
+    if schema is not None:
+        table = pa.Table.from_pylist(rows, schema=schema)
+    else:
+        table = pa.Table.from_pylist(rows)
     pq.write_table(table, path, compression="zstd")
 
 
@@ -243,7 +270,11 @@ def export_profile(
         cache_dir=cache_dir,
         skip_download=skip_download,
     )
-    _write_table(matrix_dir / "features.parquet", feat_rows)
+    _write_table(
+        matrix_dir / "features.parquet",
+        feat_rows,
+        schema=_features_export_schema(),
+    )
     _write_table(matrix_dir / "biosamples.parquet", sample_rows)
 
     n_shards = compute_n_shards(len(feat_rows), len(sample_rows))
