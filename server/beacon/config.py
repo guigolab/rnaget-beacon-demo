@@ -30,10 +30,3 @@ SCHEMA_IDS = {
     "entryTypes": "beacon-entry-types-v2.0.0",
     "filteringTerms": "beacon-filtering-terms-v2.0.0",
 }
-
-# Enable legacy Mongo/Celery upload routes when set to "1"/"true"
-ENABLE_LEGACY_UPLOADS = os.environ.get("ENABLE_LEGACY_UPLOADS", "0").lower() in (
-    "1",
-    "true",
-    "yes",
-)

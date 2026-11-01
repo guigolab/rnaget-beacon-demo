@@ -38,7 +38,10 @@ def get_biosamples(
     requestedGranularity: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
     resolved, err = resolve_or_error(
-        skip=skip, limit=limit, requested_granularity=requestedGranularity
+        skip=skip,
+        limit=limit,
+        requested_granularity=requestedGranularity,
+        cap_limit=True,
     )
     if err:
         return err
@@ -58,7 +61,7 @@ def get_biosamples(
 def post_biosamples(
     body: BeaconRequestBody = Body(...),
 ) -> Union[Dict[str, Any], JSONResponse]:
-    resolved, err = resolve_or_error(body=model_to_dict(body))
+    resolved, err = resolve_or_error(body=model_to_dict(body), cap_limit=True)
     if err:
         return err
     skip_v, limit_v, gran, received = resolved

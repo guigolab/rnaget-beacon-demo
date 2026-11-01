@@ -1,9 +1,11 @@
 window.onload = function() {
   //<editor-fold desc="Changeable Configuration Block">
 
-  // the following lines will be replaced by docker/configurator, when it runs in a docker-container
+  // Static offline docs: committed Beacon OpenAPI (regenerate with
+  // python3 scripts/export_openapi.py). Live server also exposes /docs
+  // and /openapi.json from FastAPI.
   window.ui = SwaggerUIBundle({
-    url: "/openapi.json",
+    url: "./rnaget-beacon-schema.yaml",
     dom_id: '#swagger-ui',
     deepLinking: true,
     presets: [

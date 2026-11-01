@@ -10,6 +10,20 @@ class Granularity(str, Enum):
     record = "record"
 
 
+class Pagination(BaseModel):
+    skip: Optional[int] = Field(0, ge=0)
+    limit: Optional[int] = Field(10, ge=1)
+
+
+class BeaconQuery(BaseModel):
+    requestedGranularity: Optional[Granularity] = None
+    pagination: Optional[Pagination] = None
+
+
+class BeaconRequestMeta(BaseModel):
+    apiVersion: Optional[str] = None
+
+
 class ResponseMeta(BaseModel):
     apiVersion: str
     beaconId: str
@@ -28,6 +42,8 @@ class ResultsetInstance(BaseModel):
     setType: str
     exists: bool
     resultsCount: Optional[int] = None
+    # Entity items: Matrix | GenomicFeatureWrapper | Biosample | ExpressionValue
+    # (wired to beacon-schemas via custom OpenAPI).
     results: Optional[List[Dict[str, Any]]] = None
 
 
@@ -61,6 +77,21 @@ class BeaconErrorResponse(BaseModel):
     error: BeaconErrorBody
 
 
+class BeaconInformationalResponse(BaseModel):
+    meta: ResponseMeta
+    response: Dict[str, Any]
+
+
+class FilteringTermsPayload(BaseModel):
+    filteringTerms: List[Dict[str, Any]] = Field(default_factory=list)
+    resources: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class BeaconFilteringTermsResponse(BaseModel):
+    meta: ResponseMeta
+    response: FilteringTermsPayload
+
+
 BeaconSuccessResponse = Union[
     BeaconResultsetsResponse, BeaconCountResponse, BeaconBooleanResponse
 ]
@@ -69,9 +100,33 @@ BeaconSuccessResponse = Union[
 # Used by routers for OpenAPI documentation (actual return is a plain dict / JSONResponse).
 OPENAPI_BEACON_RESPONSES = {
     200: {
-        "description": "Beacon success response (boolean, count, or resultsets by granularity)",
-        "model": BeaconResultsetsResponse,
+        "description": "Beacon success response (boolean, count, or resultSets by granularity)",
+        "content": {
+            "application/json": {
+                "schema": {
+                    "oneOf": [
+                        {"$ref": "#/components/schemas/BeaconBooleanResponse"},
+                        {"$ref": "#/components/schemas/BeaconCountResponse"},
+                        {"$ref": "#/components/schemas/BeaconResultsetsResponse"},
+                    ]
+                }
+            }
+        },
     },
     400: {"description": "Beacon error", "model": BeaconErrorResponse},
     404: {"description": "Beacon error", "model": BeaconErrorResponse},
+}
+
+OPENAPI_INFORMATIONAL_RESPONSES = {
+    200: {
+        "description": "Beacon informational response",
+        "model": BeaconInformationalResponse,
+    },
+}
+
+OPENAPI_FILTERING_TERMS_RESPONSES = {
+    200: {
+        "description": "Beacon filtering terms response",
+        "model": BeaconFilteringTermsResponse,
+    },
 }

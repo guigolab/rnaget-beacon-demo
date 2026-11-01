@@ -1,0 +1,13 @@
+**/node_modules
+**/.next
+**/__pycache__
+**/.venv
+**/.git
+data/
+dist/data-package*
+scripts/.cache
+Pipfile.lock
+.venv
+*.pyc
+front/.next
+front/out

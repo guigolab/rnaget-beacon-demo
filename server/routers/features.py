@@ -9,7 +9,10 @@ from beacon.responses import (
     build_resultsets_response,
     error_json,
 )
-from beacon.schemas.envelopes import OPENAPI_BEACON_RESPONSES
+from beacon.schemas.envelopes import (
+    OPENAPI_BEACON_RESPONSES,
+    OPENAPI_FILTERING_TERMS_RESPONSES,
+)
 from routers.deps import BeaconRequestBody, model_to_dict, resolve_or_error
 
 router = APIRouter(tags=["Genomic features"])
@@ -23,6 +26,9 @@ def _list_response(
     limit,
     granularity,
     received: Optional[Dict[str, Any]] = None,
+    *,
+    total_count: Optional[int] = None,
+    results_are_page: bool = False,
 ):
     return build_resultsets_response(
         entity_type=entity_type,
@@ -32,6 +38,8 @@ def _list_response(
         skip=skip,
         limit=limit,
         received=received,
+        total_count=total_count,
+        results_are_page=results_are_page,
     )
 
 
@@ -42,19 +50,26 @@ def get_features(
     requestedGranularity: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
     resolved, err = resolve_or_error(
-        skip=skip, limit=limit, requested_granularity=requestedGranularity
+        skip=skip,
+        limit=limit,
+        requested_granularity=requestedGranularity,
+        cap_limit=True,
     )
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
+    page_limit = limit_v if gran.value == "record" else 0
+    results, total = get_store().list_features_page(skip=skip_v, limit=page_limit)
     return _list_response(
-        get_store().list_features(),
+        results,
         "feature",
         "features",
         skip_v,
         limit_v,
         gran,
         received,
+        total_count=total,
+        results_are_page=True,
     )
 
 
@@ -62,23 +77,35 @@ def get_features(
 def post_features(
     body: BeaconRequestBody = Body(...),
 ) -> Union[Dict[str, Any], JSONResponse]:
-    resolved, err = resolve_or_error(body=model_to_dict(body))
+    resolved, err = resolve_or_error(body=model_to_dict(body), cap_limit=True)
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
+    page_limit = limit_v if gran.value == "record" else 0
+    results, total = get_store().list_features_page(skip=skip_v, limit=page_limit)
     return _list_response(
-        get_store().list_features(),
+        results,
         "feature",
         "features",
         skip_v,
         limit_v,
         gran,
         received,
+        total_count=total,
+        results_are_page=True,
     )
 
 
-@router.get("/features/filtering_terms", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
-@router.post("/features/filtering_terms", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.get(
+    "/features/filtering_terms",
+    response_model=None,
+    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
+)
+@router.post(
+    "/features/filtering_terms",
+    response_model=None,
+    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
+)
 def features_filtering_terms():
     return build_filtering_terms_response([])
 
@@ -122,7 +149,10 @@ def get_feature_matrices(
     if not get_store().get_feature(id):
         return error_json(404, f"Feature '{id}' not found")
     resolved, err = resolve_or_error(
-        skip=skip, limit=limit, requested_granularity=requestedGranularity
+        skip=skip,
+        limit=limit,
+        requested_granularity=requestedGranularity,
+        cap_limit=True,
     )
     if err:
         return err
@@ -144,7 +174,7 @@ def post_feature_matrices(
 ) -> Union[Dict[str, Any], JSONResponse]:
     if not get_store().get_feature(id):
         return error_json(404, f"Feature '{id}' not found")
-    resolved, err = resolve_or_error(body=model_to_dict(body))
+    resolved, err = resolve_or_error(body=model_to_dict(body), cap_limit=True)
     if err:
         return err
     skip_v, limit_v, gran, received = resolved

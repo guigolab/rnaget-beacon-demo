@@ -172,6 +172,24 @@
                 }
             }
         },
+        "expressionValueRange": {
+            "type": "object",
+            "description": "Global minimum and maximum of expressionValue.value across this matrix. Uses the same unit and scale as expressionUnitAndScale. Optional; when present, clients may use it for colour scales without scanning all cells.",
+            "required": [
+                "min",
+                "max"
+            ],
+            "properties": {
+                "min": {
+                    "type": "number",
+                    "description": "Minimum expression value observed in the matrix."
+                },
+                "max": {
+                    "type": "number",
+                    "description": "Maximum expression value observed in the matrix."
+                }
+            }
+        },
         "annotation": {
             "description": "Annotation catalog used to define feature identifiers in this matrix. source SHOULD use the same identifiers.org-style prefix vocabulary as genomicFeature.featureIdentifier.resource (e.g. ensembl, gencode). version is the annotation release; it is not the same as an Ensembl object version suffix (e.g. .18).",
             "type": "object",

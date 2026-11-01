@@ -1,0 +1,43 @@
+proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=my_cache:10m max_size=10g inactive=60m;
+
+upstream beacon_api {
+    server ${API_HOST}:${API_PORT};
+}
+
+server {
+
+    gzip             on;
+    gzip_types      text/tab-separated-values application/json text/css application/javascript;
+
+    listen ${API_PORT};
+
+    # Beacon API under /rnaget-beacon/api/* → FastAPI /*
+    location ${BASE_PATH}/api/ {
+        rewrite ^${BASE_PATH}/api/(.*)$ /$1 break;
+
+        proxy_cache my_cache;
+        proxy_cache_valid 200 10m;
+        proxy_cache_methods GET HEAD;
+        proxy_cache_key $scheme$proxy_host$request_uri;
+
+        proxy_pass http://beacon_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix ${BASE_PATH}/api;
+        client_max_body_size 1000M;
+        proxy_read_timeout 600s;
+    }
+
+    # Static Next export (files live under /usr/share/nginx/html${BASE_PATH}/)
+    location ${BASE_PATH}/ {
+        root /usr/share/nginx/html;
+        try_files $uri $uri.html $uri/index.html ${BASE_PATH}/index.html;
+    }
+
+    location = ${BASE_PATH} {
+        return 302 ${BASE_PATH}/;
+    }
+}

@@ -1,81 +1,40 @@
-version: '3'
+# Local prod simulation: build images from this tree.
+# Prepare data first:
+#   pipenv run python scripts/fetch_data_package.py --out data/rnaget-demo
+# Then:
+#   docker compose -f docker-compose-dev.yml up --build
+#
+# UI:  http://localhost:94/rnaget-beacon/
+# API: http://localhost:94/rnaget-beacon/api/  (also direct :5000)
 
 services:
 
   nginx:
     build:
-      context: ./nginx
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: nginx/Dockerfile
       args:
-        - BASE_PATH=$BASE_PATH
-    container_name: ${NGINX_HOST}
+        NEXT_PUBLIC_API_BASE_URL: /rnaget-beacon/api
+    container_name: rnaget-nginx
     restart: always
     environment:
-      - API_PORT=${API_PORT}
-      - API_HOST=${API_HOST}
-      - BASE_PATH=${BASE_PATH}
+      - API_PORT=5000
+      - API_HOST=rnaget-server
+      - BASE_PATH=/rnaget-beacon
     ports:
-        - "94:${API_PORT}"
-    
-
-  mongo:
-    image: mongo:6.0
-    container_name: "${DB_HOST}"
-    env_file:
-      - .env
-    restart: always
-    volumes:
-     - ./mongo-init.sh:/docker-entrypoint-initdb.d/mongo-init.sh
-     - mongodb-data:${MONGODB_DATA_DIR}
-    ports:
-      - "${DB_PORT}:27017"
-
-  # Postgres for expression_values (seeded by scripts/seed_matrix.py)
-  postgres:
-    image: postgres:16-alpine
-    container_name: rnaget-postgres
-    restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-beacon}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-beacon}
-      POSTGRES_DB: ${POSTGRES_DB:-rnaget_beacon}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./scripts/sql/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - "94:5000"
+    depends_on:
+      - server
 
   server:
     build: ./server
-    container_name: ${API_HOST}
+    container_name: rnaget-server
     restart: always
     volumes:
-      - ./server:/server
-    env_file:
-      - .env
-    depends_on:
-      - redis
+      - ./data/rnaget-demo:/data/package:ro
+    environment:
+      - DATA_PACKAGE_PATH=/data/package
+      - BEACON_BASE_URL=http://localhost:94/rnaget-beacon/api
+      - CORS_ALLOW_ORIGINS=*
     ports:
-      - "5000:5000"  # Expose
-
-  celery:
-    build: ./server
-    command: celery --app app.celery_app worker --loglevel=info --autoscale=1,1 --max-tasks-per-child=1
-    restart: always
-    volumes:
-      - ./server:/server
-    env_file:
-      - .env
-    depends_on:
-      - server
-      - mongo
-      - redis
-
-  redis:
-    image: "redis:alpine"
-
-volumes:
-  app:
-  mongodb-data:
-  postgres-data:
-  node_modules:
+      - "5000:5000"

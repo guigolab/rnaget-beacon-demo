@@ -6,6 +6,10 @@ from fastapi import APIRouter
 
 from beacon import config
 from beacon.responses import build_filtering_terms_response, build_informational_response
+from beacon.schemas.envelopes import (
+    OPENAPI_FILTERING_TERMS_RESPONSES,
+    OPENAPI_INFORMATIONAL_RESPONSES,
+)
 
 router = APIRouter(tags=["Informational endpoints"])
 
@@ -40,8 +44,8 @@ def _info_body() -> Dict[str, Any]:
     }
 
 
-@router.get("/")
-@router.get("/info")
+@router.get("/", responses=OPENAPI_INFORMATIONAL_RESPONSES)
+@router.get("/info", responses=OPENAPI_INFORMATIONAL_RESPONSES)
 def get_info():
     return build_informational_response(
         entity_type="info",
@@ -50,7 +54,7 @@ def get_info():
     )
 
 
-@router.get("/configuration")
+@router.get("/configuration", responses=OPENAPI_INFORMATIONAL_RESPONSES)
 def get_configuration():
     return build_informational_response(
         entity_type="configuration",
@@ -59,7 +63,7 @@ def get_configuration():
     )
 
 
-@router.get("/map")
+@router.get("/map", responses=OPENAPI_INFORMATIONAL_RESPONSES)
 def get_map():
     return build_informational_response(
         entity_type="map",
@@ -68,7 +72,7 @@ def get_map():
     )
 
 
-@router.get("/entry_types")
+@router.get("/entry_types", responses=OPENAPI_INFORMATIONAL_RESPONSES)
 def get_entry_types():
     cfg = _load_fixture("beaconConfiguration.json")
     return build_informational_response(
@@ -78,7 +82,7 @@ def get_entry_types():
     )
 
 
-@router.get("/filtering_terms")
-@router.post("/filtering_terms")
+@router.get("/filtering_terms", responses=OPENAPI_FILTERING_TERMS_RESPONSES)
+@router.post("/filtering_terms", responses=OPENAPI_FILTERING_TERMS_RESPONSES)
 def filtering_terms():
     return build_filtering_terms_response([])

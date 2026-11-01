@@ -25,6 +25,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _check_stats_parquet(
+    matrix_id: str,
+    path: Path,
+    *,
+    id_col: str,
+    label: str,
+) -> List[str]:
+    """Require readable, non-empty stats parquet with expected columns."""
+    import pyarrow.parquet as pq
+
+    errs: List[str] = []
+    try:
+        table = pq.read_table(path)
+    except Exception as exc:  # noqa: BLE001 — surface any read failure
+        return [f"{matrix_id}: {label} unreadable: {exc}"]
+    if table.num_rows <= 0:
+        errs.append(f"{matrix_id}: {label} has zero rows")
+    cols = set(table.column_names)
+    for required in (id_col, "min_value", "max_value"):
+        if required not in cols:
+            errs.append(f"{matrix_id}: {label} missing column {required}")
+    return errs
+
+
 def main(argv: List[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     root: Path = args.package
@@ -65,18 +89,50 @@ def main(argv: List[str] | None = None) -> int:
             errors.append(f"manifest matrix entry incomplete: {entry!r}")
             continue
         matrix_dir = root / "matrices" / dirname
-        for name in ("features.parquet", "biosamples.parquet"):
+        for name in (
+            "features.parquet",
+            "biosamples.parquet",
+            "feature_expression_stats.parquet",
+            "biosample_expression_stats.parquet",
+        ):
             if not (matrix_dir / name).is_file():
                 errors.append(f"{mid}: missing {name}")
+        feat_stats = matrix_dir / "feature_expression_stats.parquet"
+        bio_stats = matrix_dir / "biosample_expression_stats.parquet"
+        if feat_stats.is_file():
+            errors.extend(
+                _check_stats_parquet(
+                    mid,
+                    feat_stats,
+                    id_col="feature_id",
+                    label="feature_expression_stats",
+                )
+            )
+        if bio_stats.is_file():
+            errors.extend(
+                _check_stats_parquet(
+                    mid,
+                    bio_stats,
+                    id_col="biosample_id",
+                    label="biosample_expression_stats",
+                )
+            )
+        merged_expr = matrix_dir / "expression.parquet"
         expr = matrix_dir / "expression"
         parts = sorted(expr.glob("part-*.parquet")) if expr.is_dir() else []
-        if not parts:
-            errors.append(f"{mid}: no expression/part-*.parquet files")
+        if not merged_expr.is_file() and not parts:
+            errors.append(
+                f"{mid}: missing expression.parquet and expression/part-*.parquet"
+            )
         doc = by_id.get(mid)
         if doc is None:
             errors.append(f"{mid}: listed in manifest but missing from matrices.json")
-        elif not (doc.get("annotation") or {}).get("file"):
-            errors.append(f"{mid}: annotation.file missing")
+        else:
+            if not (doc.get("annotation") or {}).get("file"):
+                errors.append(f"{mid}: annotation.file missing")
+            evr = doc.get("expressionValueRange")
+            if not isinstance(evr, dict) or "min" not in evr or "max" not in evr:
+                errors.append(f"{mid}: matrices.json missing expressionValueRange.min/max")
 
     genes_path = root / "genes.parquet"
     lookup_path = root / "gene_lookup.parquet"

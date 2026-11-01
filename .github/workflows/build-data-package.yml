@@ -101,6 +101,9 @@ jobs:
       - name: Hydrate genes from GTF/GFF
         run: python scripts/hydrate_genes.py --package dist/data-package
 
+      - name: Build expression stats
+        run: python scripts/build_expression_stats.py --package dist/data-package
+
       - name: Disk usage after hydrate
         run: |
           set -euo pipefail
@@ -138,5 +141,5 @@ jobs:
           else
             gh release create "$TAG" "$FILE" \
               --title "$TAG" \
-              --notes "Parquet data package (encode/geo/gtex). Sync to NFS and point the API at the extracted package. Full gtex may need a large runner or smoke=true slices."
+              --notes "Parquet data package (encode/geo/gtex)."
           fi

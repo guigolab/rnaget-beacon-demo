@@ -1,8 +1,15 @@
-from typing import Any, Dict, List, Optional, Set
+import logging
+import os
+import threading
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .loader import load_all, strip_schema
 
-_STORE: Optional["FixtureStore"] = None
+logger = logging.getLogger(__name__)
+
+_STORE: Optional[Any] = None
+_STORE_LOCK = threading.Lock()
 
 
 class FixtureStore:
@@ -28,6 +35,12 @@ class FixtureStore:
 
     def list_features(self) -> List[Dict[str, Any]]:
         return list(self.features)
+
+    def list_features_page(
+        self, *, skip: int = 0, limit: int = 10
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        total = len(self.features)
+        return self.features[skip : skip + limit], total
 
     def get_feature(self, feature_id: str) -> Optional[Dict[str, Any]]:
         return self._features_by_id.get(feature_id)
@@ -56,6 +69,47 @@ class FixtureStore:
             if matrix_id in (f.get("matrixIds") or [])
         ]
 
+    def effective_axis_sort(
+        self,
+        matrix_id: str,
+        *,
+        axis: str,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
+    ) -> Tuple[str, str]:
+        """Fixtures have no expression stats — expression.* sorts degrade to id."""
+        del matrix_id, axis  # unused; signature matches DuckDBStore
+        s = (sort or "id").strip()
+        o = (order or "asc").strip().lower()
+        if s.startswith("expression."):
+            s = "id"
+        if o not in ("asc", "desc"):
+            o = "asc"
+        if s != "id":
+            s = "id"
+        return s, o
+
+    def features_for_matrix_page(
+        self,
+        matrix_id: str,
+        *,
+        skip: int = 0,
+        limit: int = 10,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        all_feats = self.features_for_matrix(matrix_id)
+        _, order_key = self.effective_axis_sort(
+            matrix_id, axis="features", sort=sort, order=order
+        )
+        reverse = order_key == "desc"
+        all_feats = sorted(
+            all_feats,
+            key=lambda f: f.get("id") or "",
+            reverse=reverse,
+        )
+        return all_feats[skip : skip + limit], len(all_feats)
+
     def biosamples_for_matrix(self, matrix_id: str) -> List[Dict[str, Any]]:
         ids: Set[str] = set()
         for bid, mids in self.biosample_matrices.items():
@@ -70,6 +124,23 @@ class FixtureStore:
             if i in self._biosamples_by_id
         ]
 
+    def biosamples_for_matrix_page(
+        self,
+        matrix_id: str,
+        *,
+        skip: int = 0,
+        limit: int = 10,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        items = self.biosamples_for_matrix(matrix_id)
+        _, order_key = self.effective_axis_sort(
+            matrix_id, axis="biosamples", sort=sort, order=order
+        )
+        reverse = order_key == "desc"
+        items = sorted(items, key=lambda b: b.get("id") or "", reverse=reverse)
+        return items[skip : skip + limit], len(items)
+
     def expression_values_for_matrix(
         self,
         matrix_id: str,
@@ -78,7 +149,9 @@ class FixtureStore:
         biosample_id_list: Optional[str] = None,
         min_value: Optional[float] = None,
         max_value: Optional[float] = None,
-    ) -> List[Dict[str, Any]]:
+        skip: int = 0,
+        limit: Optional[int] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
         feature_ids = self._resolve_feature_filter_ids(feature_id_list)
         biosample_ids = _csv_set(biosample_id_list)
         out = []
@@ -95,7 +168,12 @@ class FixtureStore:
             if max_value is not None and value is not None and value > max_value:
                 continue
             out.append(ev)
-        return out
+        total = len(out)
+        if limit is None:
+            page = out[skip:]
+        else:
+            page = out[skip : skip + limit]
+        return page, total
 
     def _resolve_feature_filter_ids(self, feature_id_list: Optional[str]) -> Set[str]:
         """Accept genomic accessions and/or feature wrapper ids."""
@@ -123,8 +201,40 @@ def _csv_set(value: Optional[str]) -> Set[str]:
     return {part.strip() for part in value.split(",") if part.strip()}
 
 
-def get_store() -> FixtureStore:
+def get_store() -> Any:
+    """Return DuckDBStore when DATA_PACKAGE_PATH is set; otherwise FixtureStore.
+
+    If DATA_PACKAGE_PATH is set but manifest.json is missing, raise immediately
+    (do not silently fall back to fixtures).
+    """
     global _STORE
-    if _STORE is None:
-        _STORE = FixtureStore()
-    return _STORE
+    if _STORE is not None:
+        return _STORE
+    with _STORE_LOCK:
+        if _STORE is not None:
+            return _STORE
+        package = os.environ.get("DATA_PACKAGE_PATH", "").strip()
+        if package:
+            manifest = Path(package) / "manifest.json"
+            if not manifest.is_file():
+                raise FileNotFoundError(
+                    f"DATA_PACKAGE_PATH={package!r} is set but "
+                    f"{manifest} is missing (refusing fixture fallback)"
+                )
+            from beacon.duckdb_store import DuckDBStore
+
+            logger.info("Loading DuckDBStore from DATA_PACKAGE_PATH=%s", package)
+            _STORE = DuckDBStore(Path(package))
+        else:
+            logger.info(
+                "DATA_PACKAGE_PATH unset; using FixtureStore (demo JSON fixtures)"
+            )
+            _STORE = FixtureStore()
+        return _STORE
+
+
+def reset_store() -> None:
+    """Clear singleton (tests / reload after package swap)."""
+    global _STORE
+    with _STORE_LOCK:
+        _STORE = None

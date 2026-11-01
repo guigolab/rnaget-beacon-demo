@@ -54,11 +54,19 @@ def build_resultsets_response(
     skip: int = 0,
     limit: int = 10,
     received: Optional[Dict[str, Any]] = None,
+    total_count: Optional[int] = None,
+    results_are_page: bool = False,
 ) -> Dict[str, Any]:
     schema_id = config.SCHEMA_IDS[entity_type]
-    total = len(results)
+    total = len(results) if total_count is None else int(total_count)
     exists = total > 0
-    page = results[skip : skip + limit] if granularity == Granularity.record else []
+    if granularity == Granularity.record:
+        if results_are_page:
+            page = results
+        else:
+            page = results[skip : skip + limit]
+    else:
+        page = []
 
     if received is None:
         received = build_received_summary(

@@ -5,7 +5,7 @@ Offline pipeline to download RNA-seq quantification matrices and seed **PostgreS
 - **Metadata** — `matrices`, `features`, `biosamples` (+ membership junction tables)
 - **Expression** — `expression_values` fact table (native feature ids × biosamples)
 
-The FastAPI demo can keep using fixtures; these scripts prepare a Postgres store for a later API wiring phase. (The compose `mongo` service remains for the legacy API/Celery stack and is unused by this pipeline.)
+The FastAPI demo serves Beacon envelopes from fixtures or a Parquet package (`DATA_PACKAGE_PATH`). These scripts prepare an optional Postgres store for offline seeding; they are not required to run the Beacon API.
 
 ## Setup
 
