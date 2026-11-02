@@ -16,7 +16,20 @@ import pyarrow.parquet as pq
 
 SERVER_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVER_DIR.parent
-BEACON_V2 = REPO_ROOT.parent / "beacon-v2"
+
+
+def _beacon_v2_root() -> Path:
+    """Monorepo sibling, in-repo CI checkout, or BEACON_V2_PATH override."""
+    env = os.environ.get("BEACON_V2_PATH", "").strip()
+    if env:
+        return Path(env)
+    in_repo = REPO_ROOT / "beacon-v2"
+    if (in_repo / "framework" / "json").is_dir():
+        return in_repo
+    return REPO_ROOT.parent / "beacon-v2"
+
+
+BEACON_V2 = _beacon_v2_root()
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
@@ -737,6 +750,11 @@ class DuckDBPackageTest(unittest.TestCase):
             except ValidationError as exc:
                 self.fail(f"{path.name}: {exc.message}")
         envelope = BEACON_V2 / "framework" / "json" / "responses" / "beaconResultsetsResponse.json"
+        if not envelope.is_file():
+            self.skipTest(
+                f"Beacon v2 framework schemas not found at {envelope} "
+                "(clone beacon-v2, set BEACON_V2_PATH, or use CI checkout)"
+            )
         try:
             _validator(envelope).validate(feature)
         except ValidationError as exc:
