@@ -7,5 +7,3 @@ scripts/.venv/
 scripts/.cache/
 # Repo-root demo/local packages only (keep scripts/data/ maps tracked).
 /data/
-# Optional CI/local sparse clone of ga4gh-beacon/beacon-v2 (framework/json).
-/beacon-v2/

@@ -18,18 +18,15 @@ SERVER_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVER_DIR.parent
 
 
-def _beacon_v2_root() -> Path:
-    """Monorepo sibling, in-repo CI checkout, or BEACON_V2_PATH override."""
-    env = os.environ.get("BEACON_V2_PATH", "").strip()
+def _framework_json_dir() -> Path:
+    env = os.environ.get("BEACON_FRAMEWORK_JSON", "").strip()
     if env:
         return Path(env)
-    in_repo = REPO_ROOT / "beacon-v2"
-    if (in_repo / "framework" / "json").is_dir():
-        return in_repo
-    return REPO_ROOT.parent / "beacon-v2"
+    return REPO_ROOT / "beacon-schemas" / "framework" / "json"
 
 
-BEACON_V2 = _beacon_v2_root()
+FRAMEWORK_JSON = _framework_json_dir()
+ENVELOPE_SCHEMA = FRAMEWORK_JSON / "responses" / "beaconResultsetsResponse.json"
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
@@ -441,8 +438,9 @@ def _load_ref(ref: str, base: Path) -> Tuple[Any, Path]:
         return {"type": "object", "additionalProperties": True}, base
     path_part, _, fragment = ref.partition("#")
     fragment = f"#{fragment}" if fragment else ""
-    framework = BEACON_V2 / "framework" / "json"
-    models = BEACON_V2 / "models" / "json" / "beacon-v2-default-model" / "common"
+    framework = FRAMEWORK_JSON
+    # Default-model common JSON is not vendored; missing refs resolve permissively.
+    models = REPO_ROOT / "beacon-schemas" / ".models-placeholder"
     github = "https://raw.githubusercontent.com/ga4gh-beacon/beacon-v2/main/framework/json/"
     named = {
         "measurement.json": models / "measurement.json",
@@ -749,14 +747,13 @@ class DuckDBPackageTest(unittest.TestCase):
                 _validator(path).validate(doc)
             except ValidationError as exc:
                 self.fail(f"{path.name}: {exc.message}")
-        envelope = BEACON_V2 / "framework" / "json" / "responses" / "beaconResultsetsResponse.json"
-        if not envelope.is_file():
-            self.skipTest(
-                f"Beacon v2 framework schemas not found at {envelope} "
-                "(clone beacon-v2, set BEACON_V2_PATH, or use CI checkout)"
+        if not ENVELOPE_SCHEMA.is_file():
+            self.fail(
+                f"Missing envelope schema at {ENVELOPE_SCHEMA} "
+                "(commit beacon-schemas/framework/json from ga4gh-beacon/beacon-v2)"
             )
         try:
-            _validator(envelope).validate(feature)
+            _validator(ENVELOPE_SCHEMA).validate(feature)
         except ValidationError as exc:
             self.fail(f"beaconResultsetsResponse: {exc.message}")
 

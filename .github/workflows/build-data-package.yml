@@ -44,6 +44,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Assert committed test fixtures
+        run: |
+          set -euo pipefail
+          f=beacon-schemas/framework/json/responses/beaconResultsetsResponse.json
+          if [ ! -f "$f" ]; then
+            echo "::error::Missing $f — commit beacon-schemas/framework/json before running this workflow"
+            exit 1
+          fi
+
       - name: Check free disk
         run: |
           set -euo pipefail
@@ -125,14 +134,6 @@ jobs:
 
       - name: Verify package
         run: python scripts/verify_data_package.py --package dist/data-package
-
-      - name: Checkout Beacon v2 framework schemas
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: ga4gh-beacon/beacon-v2
-          path: beacon-v2
-          sparse-checkout: |
-            framework/json
 
       - name: Test API against package
         working-directory: server
