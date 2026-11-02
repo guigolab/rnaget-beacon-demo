@@ -1,0 +1,64 @@
+# Publish the data-package tarball from a prior successful export run.
+# Use this when export succeeded but release failed on an older workflow commit
+# (Re-run failed jobs replays the old YAML and will not pick up release fixes.)
+
+name: Publish data package release
+
+on:
+  workflow_dispatch:
+    inputs:
+      export_run_id:
+        description: "Numeric Actions run ID from a successful export (artifact rnaget-data-package)"
+        required: true
+      release_tag:
+        description: "GitHub Release tag"
+        required: true
+        default: data-latest
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Download package from export run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rnaget-data-package
+          path: release-assets
+          run-id: ${{ inputs.export_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG="${RELEASE_TAG}"
+          FILE="$(find release-assets -name 'data-package.tar.zst' -print -quit)"
+          if [ -z "$FILE" ]; then
+            echo "::error::data-package.tar.zst missing (export run ${{ inputs.export_run_id }} may have no artifact)"
+            exit 1
+          fi
+          BYTES=$(stat -c%s "$FILE")
+          LIMIT=$((2 * 1024 * 1024 * 1024))
+          if [ "$BYTES" -ge "$LIMIT" ]; then
+            echo "::error::Release asset is ${BYTES} bytes; GitHub's per-asset limit is 2 GiB"
+            exit 1
+          fi
+          echo "Uploading ${BYTES} bytes from ${FILE} to release ${TAG} on ${GH_REPO}"
+          if gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$FILE" --repo "$GH_REPO" --clobber
+          else
+            gh release create "$TAG" "$FILE" \
+              --repo "$GH_REPO" \
+              --title "$TAG" \
+              --notes "Parquet data package from scripts/profiles/datasets.yaml."
+          fi

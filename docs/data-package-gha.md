@@ -227,6 +227,19 @@ docker compose -f docker-compose-dev.yml up --build
 | API exits on boot: DATA_PACKAGE_PATH set but manifest missing | Fetch/merge into the mounted path first; or unset `DATA_PACKAGE_PATH` for fixture-only demo |
 | Fetch refuses non-empty `--out` | Pass `--force` to replace, or choose a new directory |
 | Release step skipped | `create_release` was left false (artifact is still available) |
+| Release fails with `not a git repository` on **Re-run failed jobs** | Re-runs use the **old workflow YAML** from that run’s commit; they do **not** pick up fixes on `master`. Push the workflow fix, then either run a **new** full workflow with `create_release=true`, or use **Publish data package release** (below) with the successful export’s run ID. |
+| Release fails after export succeeded | Use workflow **Publish data package release**: set **export_run_id** to the numeric ID of the green export run (URL: `…/actions/runs/<id>`). No 15 min rebuild. |
+
+---
+
+## Publish release without rebuilding (export already succeeded)
+
+Workflow: `.github/workflows/publish-data-package-release.yml` (**Run workflow** manually).
+
+1. Open the **successful** “Build Parquet data package” run and copy the run ID from the URL (`…/actions/runs/41396514748` → `41396514748`).
+2. Run **Publish data package release** with that **export_run_id** and your **release_tag** (default `data-latest`).
+
+This downloads the `rnaget-data-package` artifact from that run and uploads it to GitHub Releases. Artifact retention is 14 days.
 
 ---
 
