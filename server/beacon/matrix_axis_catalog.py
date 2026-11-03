@@ -1,4 +1,4 @@
-"""Matrix-scoped filtering_terms for heatmap axis query bars."""
+"""Matrix-scoped filtering_terms for axis query bars."""
 
 from __future__ import annotations
 
@@ -93,7 +93,9 @@ def _prune_resources(
             keep_ids.add(typ)
         if term.get("type") == "custom" and tid.lower().startswith("resource:"):
             keep_ids.add(tid.split(":", 1)[-1].lower())
-    keep_ids.update({"hgnc", "ncbigene", "ensembl", "so", "uberon", "efo", "go"})
+    keep_ids.update(
+        {"hgnc", "ncbigene", "ensembl", "symbol", "so", "uberon", "efo", "go"}
+    )
     return [
         r
         for r in resources
@@ -109,7 +111,7 @@ def _subset_terms(
     present_ids: Set[str],
     alphanumeric: Dict[str, Set[str]],
     scope: str,
-    keep_symbol_term: bool,
+    keep_symbol_resource: bool = False,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     present_lower = {x.lower() for x in present_ids}
     out: List[Dict[str, Any]] = []
@@ -122,7 +124,9 @@ def _subset_terms(
         typ = str(term.get("type") or "")
 
         if typ == "alphanumeric":
-            if tid == "genomicFeature.symbol" and keep_symbol_term:
+            # Continuous expression.* fields are matrix-scoped and have no
+            # enumerated values; keep them when the scope matches.
+            if tid.startswith("expression."):
                 out.append(dict(term))
                 continue
             observed = alphanumeric.get(tid) or set()
@@ -142,6 +146,11 @@ def _subset_terms(
                 out.append(copy)
             continue
 
+        # Precomputed categorical expression.* terms (percentile/profile/detected/…).
+        if tid.startswith("expression."):
+            out.append(dict(term))
+            continue
+
         if tid.lower() in present_lower:
             out.append(dict(term))
             continue
@@ -151,6 +160,16 @@ def _subset_terms(
                 out.append(dict(term))
 
     resources = _prune_resources(out, global_resources)
+    if keep_symbol_resource:
+        resources_by_id = {
+            str(r.get("id") or "").lower(): dict(r) for r in resources if r.get("id")
+        }
+        for r in global_resources:
+            rid = str(r.get("id") or "").lower()
+            prefix = str(r.get("nameSpacePrefix") or "").lower()
+            if rid == "symbol" or prefix == "symbol":
+                resources_by_id[rid or "symbol"] = dict(r)
+        resources = list(resources_by_id.values())
     return out, resources
 
 
@@ -171,7 +190,7 @@ def build_matrix_features_filtering_terms(
         present_ids=present,
         alphanumeric={},
         scope="genomicFeature",
-        keep_symbol_term=bool(features),
+        keep_symbol_resource=bool(features),
     )
 
 
@@ -193,7 +212,7 @@ def build_matrix_biosamples_filtering_terms(
         present_ids=present,
         alphanumeric=alphanumeric,
         scope="biosample",
-        keep_symbol_term=False,
+        keep_symbol_resource=False,
     )
 
 
@@ -213,3 +232,22 @@ def build_matrix_axis_filtering_terms(
     return build_matrix_biosamples_filtering_terms(
         biosamples, global_terms, global_resources
     )
+
+
+def merge_matrix_scoped_filtering_terms(
+    feature_terms: Sequence[Dict[str, Any]],
+    feature_resources: Sequence[Dict[str, Any]],
+    biosample_terms: Sequence[Dict[str, Any]],
+    biosample_resources: Sequence[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Combine feature + biosample axis catalogs for /matrices/{id}/filtering_terms."""
+    from beacon.matrix_catalog_seed import merge_filtering_terms
+
+    terms = merge_filtering_terms(list(feature_terms), list(biosample_terms))
+    resources_by_id: Dict[str, Dict[str, Any]] = {}
+    for resource in (*feature_resources, *biosample_resources):
+        rid = str(resource.get("id") or "")
+        if rid:
+            resources_by_id[rid] = dict(resource)
+    resources = _prune_resources(terms, list(resources_by_id.values()))
+    return terms, resources

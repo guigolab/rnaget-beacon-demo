@@ -11,6 +11,8 @@ export type QueryOptions = {
   granularity?: Granularity
   skip?: number
   limit?: number
+  /** Opaque keyset token; sent as query.pagination.nextPage (forces POST). */
+  pageToken?: string
   search?: Record<string, string | number | undefined | null>
   requestParameters?: RequestParameters
   signal?: AbortSignal
@@ -31,17 +33,26 @@ function cleanRequestParameters(
 export function beaconRequestBody(opts: QueryOptions): {
   query: {
     requestedGranularity: Granularity
-    pagination: { skip: number; limit: number }
+    pagination: {
+      skip: number
+      limit: number
+      nextPage?: string
+    }
     filters?: BeaconFilter[]
     requestParameters?: Record<string, string | number | boolean | string[]>
   }
 } {
   const filters = (opts.filters ?? []).map(toBeaconFilter)
   const requestParameters = cleanRequestParameters(opts.requestParameters)
+  const pageToken = opts.pageToken?.trim()
   return {
     query: {
       requestedGranularity: opts.granularity ?? 'record',
-      pagination: { skip: opts.skip ?? 0, limit: opts.limit ?? 10 },
+      pagination: {
+        skip: pageToken ? 0 : (opts.skip ?? 0),
+        limit: opts.limit ?? 10,
+        ...(pageToken ? { nextPage: pageToken } : {}),
+      },
       ...(filters.length ? { filters } : {}),
       ...(requestParameters ? { requestParameters } : {}),
     },
@@ -72,12 +83,21 @@ export function collectionQuery(path: string, opts: QueryOptions): {
   const limit = opts.limit ?? 10
   const pathname = path.split('?')[0] || path
   const requestParameters = cleanRequestParameters(opts.requestParameters)
-  const usePost = needsPost(opts.filters) || Boolean(requestParameters)
+  const pageToken = opts.pageToken?.trim()
+  const usePost =
+    needsPost(opts.filters) || Boolean(requestParameters) || Boolean(pageToken)
   if (usePost) {
     return {
       method: 'POST',
       path: pathname,
-      body: beaconRequestBody({ ...opts, granularity, skip, limit, requestParameters }),
+      body: beaconRequestBody({
+        ...opts,
+        granularity,
+        skip,
+        limit,
+        requestParameters,
+        pageToken,
+      }),
     }
   }
   const ids = (opts.filters ?? [])

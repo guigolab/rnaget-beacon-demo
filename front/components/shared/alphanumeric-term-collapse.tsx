@@ -9,6 +9,7 @@ const OPEN_BORDER_CLASS: Record<BeaconScope, string> = {
   biosample: 'open:border-[var(--scope-biosample-border)]',
   genomicFeature: 'open:border-[var(--scope-genomicFeature-border)]',
   matrix: 'open:border-[var(--scope-matrix-border)]',
+  expressionValue: 'open:border-[var(--scope-matrix-border)]',
 }
 
 type AlphanumericTermCollapseProps = {

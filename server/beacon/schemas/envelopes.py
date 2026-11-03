@@ -21,6 +21,10 @@ class Pagination(BaseModel):
     skip: Optional[int] = Field(0, ge=0)
     # 0 means "as many as the server allows" (Beacon v2 Limit).
     limit: Optional[int] = Field(10, ge=0)
+    # Opaque Beacon PageToken fields (keyset navigation for expression_values).
+    currentPage: Optional[str] = None
+    nextPage: Optional[str] = None
+    previousPage: Optional[str] = None
 
 
 class OntologyFilter(BaseModel):

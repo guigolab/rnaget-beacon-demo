@@ -29,12 +29,17 @@ import { matrixInspectTriggerId, type MatrixInspect } from './matrix-inspect-pop
 const BIO_COL_FALLBACK_PX = 72
 const BIO_OVERSCAN = 4
 const BIO_SCROLL_FETCH_PX = 240
+/** Ignore sub-pixel / scrollbar flicker in ResizeObserver updates. */
+const SIZE_EPSILON_PX = 2
 
 type MatrixHeatmapGridProps = {
   features: Feature[]
   biosamples: Biosample[]
   columnTotal: number
+  /** Raw expression values (labels + inspect). */
   values: Map<string, number>
+  /** Optional colour map (e.g. window percentiles); defaults to `values`. */
+  colorValues?: Map<string, number>
   pendingKeys: Set<string>
   colorMin: number
   colorMax: number
@@ -53,6 +58,7 @@ export function MatrixHeatmapGrid({
   biosamples,
   columnTotal,
   values,
+  colorValues,
   pendingKeys,
   colorMin,
   colorMax,
@@ -65,6 +71,7 @@ export function MatrixHeatmapGrid({
   loadingMore,
   featureTotal,
 }: MatrixHeatmapGridProps) {
+  const fillValues = colorValues ?? values
   const scrollRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLTableCellElement>(null)
   const [scrollLeft, setScrollLeft] = useState(0)
@@ -75,7 +82,10 @@ export function MatrixHeatmapGrid({
     columnTotal > 0 &&
     columnTotal <= HEATMAP_FEW_BIOSAMPLE_MAX &&
     biosamples.length >= columnTotal
-  const trackCount = few ? biosamples.length : Math.max(columnTotal, biosamples.length)
+  // Lay out only loaded columns. Using full columnTotal as virtual width made the
+  // table enormous and fought ResizeObserver/scrollbar measurements in a loop.
+  const trackCount = biosamples.length
+  const leadColumnId = biosamples[0]?.id ?? ''
   const viewport = viewportW || 800
   const start = few ? 0 : Math.max(0, Math.floor(scrollLeft / colWidth) - BIO_OVERSCAN)
   const end = few
@@ -93,7 +103,10 @@ export function MatrixHeatmapGrid({
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const update = () => setViewportW(el.clientWidth)
+    const update = () => {
+      const width = Math.round(el.clientWidth)
+      setViewportW((prev) => (Math.abs(prev - width) < SIZE_EPSILON_PX ? prev : width))
+    }
     update()
     const observer = new ResizeObserver(update)
     observer.observe(el)
@@ -106,13 +119,16 @@ export function MatrixHeatmapGrid({
     if (!el) return
     const update = () => {
       const width = Math.round(el.getBoundingClientRect().width)
-      if (width >= 32) setColWidth(width)
+      if (width < 32) return
+      setColWidth((prev) => (Math.abs(prev - width) < SIZE_EPSILON_PX ? prev : width))
     }
     update()
     const observer = new ResizeObserver(update)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [few, visibleKey])
+    // Remeasure when the lead column identity changes (peak prepend), not on every
+    // visible-window shift — that recreated observers and amplified layout thrash.
+  }, [few, leadColumnId])
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current
@@ -122,8 +138,7 @@ export function MatrixHeatmapGrid({
     const nearLoaded =
       biosamples.length > 0 &&
       el.scrollLeft + el.clientWidth >= biosamples.length * colWidth - BIO_SCROLL_FETCH_PX
-    const nearTrack = el.scrollLeft + el.clientWidth >= el.scrollWidth - BIO_SCROLL_FETCH_PX
-    if (nearLoaded || nearTrack) onNeedMoreColumns()
+    if (nearLoaded) onNeedMoreColumns()
   }, [biosamples.length, colWidth, columnTotal, onNeedMoreColumns])
 
   return (
@@ -153,17 +168,18 @@ export function MatrixHeatmapGrid({
               />
             )}
             {visible.map((sample, index) => {
+              const columnId = sample.id
               const header = biosampleHeatmapColumnHeader(sample, visible)
               return (
                 <th
-                  key={sample.id}
+                  key={columnId}
                   ref={index === 0 ? measureRef : undefined}
                   className="sticky top-0 z-[20] border-b border-border bg-muted px-0.5 py-1 text-center"
                   title={header.tooltip}
                 >
                   <EntityRecordLink
                     kind="biosample"
-                    id={sample.id}
+                    id={columnId}
                     title="Open biosample details"
                     className={`mx-auto block w-full rounded-md px-1 py-1.5 text-[10px] font-medium text-muted-foreground hover:bg-background hover:text-foreground ${
                       few ? '' : 'max-w-[4.25rem]'
@@ -195,6 +211,8 @@ export function MatrixHeatmapGrid({
         <tbody>
           {features.map((feature) => {
             const rowInspect: MatrixInspect = { kind: 'feature', featureId: feature.id }
+            const featureNativeId = nativeFeatureId(feature)
+            const featureLabel = featureDisplayLabel(feature)
             return (
               <tr key={feature.id} className="group/row">
                 <th
@@ -210,7 +228,7 @@ export function MatrixHeatmapGrid({
                     className="w-full max-w-[10rem] truncate rounded-md px-2 py-2 text-left text-sm font-medium text-foreground hover:bg-muted/60 hover:underline"
                     onClick={() => onInspect(rowInspect)}
                   >
-                    {featureDisplayLabel(feature)}
+                    {featureLabel}
                   </Popover.Trigger>
                 </th>
                 {padLeft > 0 && (
@@ -221,30 +239,33 @@ export function MatrixHeatmapGrid({
                   />
                 )}
                 {visible.map((sample) => {
-                  const key = cellKey(nativeFeatureId(feature), sample.id)
+                  const columnId = sample.id
+                  const key = cellKey(featureNativeId, columnId)
                   const value = values.get(key)
                   const hasValue = value !== undefined && Number.isFinite(value)
+                  const fill = fillValues.get(key)
+                  const hasFill = fill !== undefined && Number.isFinite(fill)
                   const isLoading = !hasValue && pendingKeys.has(key)
-                  const background = hasValue
-                    ? heatFill(value, colorMin, colorMax)
+                  const background = hasFill
+                    ? heatFill(fill, colorMin, colorMax)
                     : COLOR_MISSING
-                  const color = hasValue
-                    ? heatTextColor(value, colorMin, colorMax)
+                  const color = hasFill
+                    ? heatTextColor(fill, colorMin, colorMax)
                     : COLOR_TEXT_DARK
                   const cellInspect: MatrixInspect = {
                     kind: 'cell',
                     featureId: feature.id,
-                    biosampleId: sample.id,
+                    biosampleId: columnId,
                     value: value ?? 0,
                   }
                   return (
-                    <td key={sample.id} className="border-b border-border/60 p-0.5">
+                    <td key={columnId} className="border-b border-border/60 p-0.5">
                       {hasValue ? (
                         <Popover.Trigger
                           handle={popoverHandle}
                           id={matrixInspectTriggerId(cellInspect)}
                           type="button"
-                          title={`${featureDisplayLabel(feature)} · ${formatHeatmapValue(value)}`}
+                          title={`${featureLabel} · ${formatHeatmapValue(value)}`}
                           className={`${HEATMAP_CELL_CLASS} ring-offset-background hover:ring-2 hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
                           style={{ backgroundColor: background, color }}
                           onClick={() => onInspect({ ...cellInspect, value })}
@@ -277,6 +298,7 @@ export function MatrixHeatmapGrid({
             type="button"
             variant="outline"
             size="sm"
+            className="w-full"
             disabled={loadingMore}
             onClick={onLoadMoreFeatures}
           >

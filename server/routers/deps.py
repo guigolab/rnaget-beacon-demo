@@ -26,10 +26,9 @@ ALLOWED_REQUEST_PARAMETER_KEYS = frozenset(
     {
         "featureIDList",
         "biosampleIDList",
+        "matrixIDList",
         "minValue",
         "maxValue",
-        "groupBy",
-        "threshold",
         "sort",
         "order",
     }
@@ -40,6 +39,16 @@ class AxisSort(str, Enum):
     id = "id"
     expression_min = "expression.min"
     expression_max = "expression.max"
+
+
+class ExpressionValueSort(str, Enum):
+    """Sort key for /matrices/{id}/expression_values.
+
+    ``id`` (feature_id, biosample_id; default) or ``value`` (the cell value).
+    """
+
+    id = "id"
+    value = "value"
 
 
 class AxisOrder(str, Enum):
@@ -61,7 +70,7 @@ class MatrixAxisRequestBody(BeaconRequestBody):
 
 
 class ExpressionValuesRequestBody(BeaconRequestBody):
-    """POST body for matrix expression_values / expression_summary."""
+    """POST body for matrix expression_values."""
 
     pass
 
@@ -103,6 +112,17 @@ def axis_sort_value(sort: Union[AxisSort, str, None]) -> str:
     if sort is None:
         return AxisSort.id.value
     if isinstance(sort, AxisSort):
+        return sort.value
+    return str(sort)
+
+
+def expression_value_sort_value(
+    sort: Union[ExpressionValueSort, str, None],
+) -> str:
+    """Expression values sort by ``id`` (default) or ``value``."""
+    if sort is None:
+        return ExpressionValueSort.id.value
+    if isinstance(sort, ExpressionValueSort):
         return sort.value
     return str(sort)
 
@@ -154,17 +174,17 @@ def validate_request_parameters(raw: Any) -> Tuple[Optional[Dict[str, Any]], Opt
         if key not in raw or raw[key] is None:
             continue
         val = raw[key]
-        if key in ("featureIDList", "biosampleIDList"):
+        if key in ("featureIDList", "biosampleIDList", "matrixIDList"):
             try:
                 out[key] = validate_id_list_csv(coerce_id_list_csv(val))
             except ValueError as exc:
                 return None, str(exc)
-        elif key in ("minValue", "maxValue", "threshold"):
+        elif key in ("minValue", "maxValue"):
             try:
                 out[key] = float(val)
             except (TypeError, ValueError):
                 return None, f"requestParameters.{key} must be a number"
-        elif key in ("sort", "order", "groupBy"):
+        elif key in ("sort", "order"):
             out[key] = str(val)
         else:
             out[key] = val
@@ -177,10 +197,9 @@ def request_parameters_from_get(**kwargs: Any) -> Dict[str, Any]:
     mapping = {
         "featureIDList": "featureIDList",
         "biosampleIDList": "biosampleIDList",
+        "matrixIDList": "matrixIDList",
         "minValue": "minValue",
         "maxValue": "maxValue",
-        "groupBy": "groupBy",
-        "threshold": "threshold",
         "sort": "sort",
         "order": "order",
     }

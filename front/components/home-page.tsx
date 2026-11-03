@@ -1,125 +1,149 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { AppShell } from '@/components/app-shell'
+import { BeaconMapSection } from '@/components/home/beacon-map-section'
 import { EntryTypeCards } from '@/components/home/entry-type-cards'
-import { FilteringNamespaceChips } from '@/components/home/filtering-namespace-chips'
-import { FilteringResourceCards } from '@/components/home/filtering-resource-cards'
-import { ScopeLegend } from '@/components/home/scope-legend'
-import { ErrorNote, LoadingNote } from '@/components/status'
-import { EndpointNote, PageFrame, PageHeader } from '@/components/ui-kit'
+import { HomeHero } from '@/components/home/home-hero'
+import { LensPageShell } from '@/components/shared/lens-page-shell'
+import { ErrorNote } from '@/components/status'
+import { PageFrame } from '@/components/ui-kit'
 import {
+  getBeaconConfiguration,
+  getBeaconMap,
   getEntryTypes,
   getFilteringTerms,
   getInfo,
+  getServiceInfo,
+  type BeaconConfiguration,
   type BeaconInfo,
+  type BeaconMap,
   type EntryTypeInfo,
   type FilteringResource,
   type FilteringTerm,
+  type ServiceInfo,
 } from '@/lib/beacon'
-import { DEMO_SCENARIOS } from '@/lib/demo-scenarios'
 
-function organizationName(info: BeaconInfo | null) {
-  const org = info?.organization
-  if (!org) return ''
-  if (typeof org === 'string') return org
-  return org.name ?? org.id ?? ''
-}
+type HomeState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | {
+      status: 'ready'
+      info: BeaconInfo
+      service: ServiceInfo | null
+      entryTypes: EntryTypeInfo[]
+      terms: FilteringTerm[]
+      resources: FilteringResource[]
+      map: BeaconMap | null
+      configuration: BeaconConfiguration | null
+    }
 
 export function HomePage() {
-  const [info, setInfo] = useState<BeaconInfo | null>(null)
-  const [entryTypes, setEntryTypes] = useState<Record<string, EntryTypeInfo> | null>(null)
-  const [terms, setTerms] = useState<FilteringTerm[]>([])
-  const [resources, setResources] = useState<FilteringResource[]>([])
-  const [error, setError] = useState('')
+  const [state, setState] = useState<HomeState>({ status: 'loading' })
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([getInfo(), getEntryTypes(), getFilteringTerms()])
-      .then(([nextInfo, nextTypes, doc]) => {
+
+    Promise.all([
+      getInfo(),
+      getServiceInfo().catch(() => null),
+      getEntryTypes(),
+      getFilteringTerms(),
+      getBeaconMap().catch(() => null),
+      getBeaconConfiguration().catch(() => null),
+    ])
+      .then(([info, service, entryTypes, filtering, map, configuration]) => {
         if (cancelled) return
-        setInfo(nextInfo)
-        setEntryTypes(nextTypes)
-        setTerms(doc.terms)
-        setResources(doc.resources)
+        setState({
+          status: 'ready',
+          info,
+          service,
+          entryTypes: Object.values(entryTypes),
+          terms: filtering.terms,
+          resources: filtering.resources,
+          map,
+          configuration,
+        })
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Cannot reach the beacon.')
+          setState({
+            status: 'error',
+            message: err instanceof Error ? err.message : 'Cannot reach the beacon.',
+          })
         }
       })
+
     return () => {
       cancelled = true
     }
   }, [])
 
-  const org = organizationName(info)
-  const types = entryTypes ? Object.values(entryTypes) : []
-  const pending = !error && info === null
-
   return (
-    <AppShell>
+    <LensPageShell>
       <PageFrame>
-        <PageHeader
-          title={info?.name ?? 'RNA-Get Beacon'}
-          description={
-            info?.description ??
-            'Explore RNA expression matrices, genes, and biosamples through the Beacon v2 API.'
-          }
-        />
-        <p className="mt-2 font-mono text-xs text-muted-foreground">
-          {[info?.id, info?.apiVersion, info?.environment, org].filter(Boolean).join(' · ') ||
-            (pending ? 'Loading…' : '')}
-        </p>
-        <EndpointNote>GET /info</EndpointNote>
-        {error && (
-          <div className="mt-4">
-            <ErrorNote message={error} />
+        {state.status === 'loading' && <HomeSkeleton />}
+
+        {state.status === 'error' && (
+          <div className="space-y-4">
+            <HomeHero info={null} service={null} configuration={null} />
+            <ErrorNote message={state.message} />
           </div>
         )}
-        {pending && <LoadingNote />}
-        {!pending && !error && (
-          <>
-            <section className="mt-6">
-              <h2 className="text-sm font-medium">Demo scenarios</h2>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {DEMO_SCENARIOS.map((scenario) => (
-                  <Link
-                    key={scenario.id}
-                    href={scenario.href}
-                    className="rounded-lg border border-border bg-card p-4 text-sm shadow-sm transition-shadow hover:shadow-md"
-                  >
-                    <span className="font-medium text-primary">{scenario.label}</span>
-                    <p className="mt-1 text-muted-foreground">{scenario.description}</p>
-                  </Link>
-                ))}
-              </div>
-            </section>
 
-            <section className="mt-8 space-y-3">
-              <h2 className="text-sm font-medium">Scope legend</h2>
-              <p className="text-sm text-muted-foreground">
-                Colors match entry-type accents and filtering-term chips below.
-              </p>
-              <ScopeLegend />
-            </section>
+        {state.status === 'ready' && (
+          <div className="space-y-10">
+            <HomeHero
+              info={state.info}
+              service={state.service}
+              configuration={state.configuration}
+            />
 
-            {types.length > 0 && (
-              <section className="mt-8 space-y-3">
-                <h2 className="text-sm font-medium">Entry types</h2>
-                <EndpointNote>GET /entry_types</EndpointNote>
-                <EntryTypeCards entryTypes={types} />
-              </section>
+            {state.entryTypes.length > 0 && (
+              <EntryTypeCards
+                entryTypes={state.entryTypes}
+                terms={state.terms}
+                resources={state.resources}
+              />
             )}
 
-            <div className="mt-8 space-y-8">
-              <FilteringResourceCards resources={resources} terms={terms} />
-              <FilteringNamespaceChips terms={terms} />
-            </div>
-          </>
+            <BeaconMapSection map={state.map} />
+          </div>
         )}
       </PageFrame>
-    </AppShell>
+    </LensPageShell>
+  )
+}
+
+function HomeSkeleton() {
+  return (
+    <div className="space-y-8" aria-hidden>
+      <div className="space-y-6">
+        <div className="space-y-3 border-b border-border pb-6">
+          <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+          <div className="h-8 w-64 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+          <div className="flex gap-1.5">
+            <div className="h-5 w-20 animate-pulse rounded-full bg-muted" />
+            <div className="h-5 w-16 animate-pulse rounded-full bg-muted" />
+            <div className="h-5 w-14 animate-pulse rounded-full bg-muted" />
+          </div>
+          <div className="h-4 w-full max-w-xl animate-pulse rounded bg-muted" />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="h-28 animate-pulse rounded-xl bg-muted" />
+          <div className="h-28 animate-pulse rounded-xl bg-muted" />
+        </div>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="h-48 animate-pulse rounded-xl bg-muted" />
+        <div className="h-48 animate-pulse rounded-xl bg-muted" />
+        <div className="h-48 animate-pulse rounded-xl bg-muted" />
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="h-48 animate-pulse rounded-xl bg-muted" />
+        <div className="h-48 animate-pulse rounded-xl bg-muted" />
+        <div className="h-48 animate-pulse rounded-xl bg-muted" />
+      </div>
+    </div>
   )
 }

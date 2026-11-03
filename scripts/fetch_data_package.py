@@ -283,6 +283,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     from build_expression_stats import build_package as build_stats
 
     build_stats(out)
+    # Percentiles are fetch-time only (too large for the 2 GiB release asset).
+    print("Building expression percentiles…")
+    from build_expression_percentiles import build_package as build_percentiles
+
+    build_percentiles(out)
+    print("Building filtering_terms catalogs…")
+    from build_matrix_filtering_terms import build_all_filtering_terms
+
+    build_all_filtering_terms(out)
     _print_summary(out)
     print(f"\nSet DATA_PACKAGE_PATH={out} for the API.")
     return 0

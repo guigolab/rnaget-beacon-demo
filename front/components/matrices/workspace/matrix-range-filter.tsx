@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { formatHeatmapValue } from '@/lib/heatmap-expression'
 
@@ -29,6 +29,7 @@ type MatrixRangeFilterProps = {
   minValue?: number
   maxValue?: number
   onApply: (minValue?: number, maxValue?: number) => void
+  trailing?: ReactNode
 }
 
 export function MatrixRangeFilter({
@@ -38,8 +39,9 @@ export function MatrixRangeFilter({
   minValue,
   maxValue,
   onApply,
+  trailing,
 }: MatrixRangeFilterProps) {
-  const unitHint = unit ? ` (${unit})` : ''
+  const unitHint = unit ? ` ${unit}` : ''
   const [minDraft, setMinDraft] = useState(() => draftFrom(minValue ?? matrixMin))
   const [maxDraft, setMaxDraft] = useState(() => draftFrom(maxValue ?? matrixMax))
   const [error, setError] = useState('')
@@ -76,22 +78,18 @@ export function MatrixRangeFilter({
   }
 
   const filtered = minValue != null || maxValue != null
+  const catalogHint = `${formatHeatmapValue(matrixMin)}–${formatHeatmapValue(matrixMax)}${unitHint}`
 
   return (
-    <fieldset className="space-y-2">
-      <legend className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Value range{unitHint}
-      </legend>
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Catalog {formatHeatmapValue(matrixMin)}–{formatHeatmapValue(matrixMax)}
-        {unit ? ` ${unit}` : ''}. Rows stay when a feature has a value inside the range.
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="text-[11px] text-muted-foreground" htmlFor="matrix-range-min">
-          Min
+    <div className="space-y-1.5">
+      <span className="block text-[11px] font-medium text-muted-foreground">Value range</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <label className="sr-only" htmlFor="matrix-range-min">
+          Minimum
         </label>
         <input
           id="matrix-range-min"
+          aria-label={`Minimum${unitHint}`}
           value={minDraft}
           inputMode="decimal"
           onChange={(event) => setMinDraft(event.target.value)}
@@ -101,13 +99,17 @@ export function MatrixRangeFilter({
               apply()
             }
           }}
-          className="h-8 w-[5.5rem] rounded-md border border-border bg-background px-2 text-right font-mono text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+          className="h-9 w-[4.75rem] shrink-0 rounded-md border border-border bg-background px-2 text-right font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
         />
-        <label className="text-[11px] text-muted-foreground" htmlFor="matrix-range-max">
-          Max
+        <span className="shrink-0 text-sm text-muted-foreground" aria-hidden>
+          –
+        </span>
+        <label className="sr-only" htmlFor="matrix-range-max">
+          Maximum
         </label>
         <input
           id="matrix-range-max"
+          aria-label={`Maximum${unitHint}`}
           value={maxDraft}
           inputMode="decimal"
           onChange={(event) => setMaxDraft(event.target.value)}
@@ -117,9 +119,9 @@ export function MatrixRangeFilter({
               apply()
             }
           }}
-          className="h-8 w-[5.5rem] rounded-md border border-border bg-background px-2 text-right font-mono text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+          className="h-9 w-[4.75rem] shrink-0 rounded-md border border-border bg-background px-2 text-right font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
         />
-        <Button type="button" size="sm" variant="outline" onClick={apply}>
+        <Button type="button" size="sm" variant="outline" className="h-9 px-2.5" onClick={apply}>
           Apply
         </Button>
         {filtered && (
@@ -127,17 +129,29 @@ export function MatrixRangeFilter({
             type="button"
             size="sm"
             variant="ghost"
+            className="h-9 px-2"
             onClick={() => onApply(undefined, undefined)}
           >
             Reset
           </Button>
         )}
+        {trailing != null && (
+          <>
+            <span className="mx-0.5 shrink-0 text-sm text-muted-foreground" aria-hidden>
+              |
+            </span>
+            {trailing}
+          </>
+        )}
       </div>
+      <p className="text-[10px] leading-snug text-muted-foreground" title={catalogHint}>
+        Catalog {catalogHint}. Keep rows with a value in range.
+      </p>
       {error && (
         <p className="text-[11px] text-destructive" role="status">
           {error}
         </p>
       )}
-    </fieldset>
+    </div>
   )
 }

@@ -1,11 +1,11 @@
 'use client'
 
+import { BandCellPopoverContent } from '@/components/genes/band-cell-popover-content'
 import { FeatureRowPopoverContent } from '@/components/genes/feature-row-popover-content'
-import { MatrixCellPopoverContent } from '@/components/genes/matrix-cell-popover-content'
 import { MatrixPopoverDetails } from '@/components/genes/matrix-popover-details'
-import type { ExpressionSummary } from '@/lib/beacon/client'
 import type { Matrix, UiFilter } from '@/lib/beacon'
 import type { Feature } from '@/lib/beacon/types'
+import type { BandCellValue } from '@/lib/expression-band'
 import type { ReactNode } from 'react'
 
 export type HeatmapPopoverInspect =
@@ -17,8 +17,7 @@ type FeatureHeatmapPopoverContentProps = {
   inspect: HeatmapPopoverInspect
   feature: Feature | undefined
   matrix: Matrix | undefined
-  median?: number
-  summary?: ExpressionSummary
+  band?: BandCellValue
   activeFilters: UiFilter[]
   onAddFilter: (filter: UiFilter) => void
   matrixContextFeature?: Feature | null
@@ -30,8 +29,7 @@ export function FeatureHeatmapPopoverContent({
   inspect,
   feature,
   matrix,
-  median,
-  summary,
+  band,
   activeFilters,
   onAddFilter,
   matrixContextFeature,
@@ -48,14 +46,13 @@ export function FeatureHeatmapPopoverContent({
     )
   }
 
-  if (inspect.kind === 'matrix-cell' && feature && matrix) {
+  if (inspect.kind === 'matrix-cell' && feature && matrix && band) {
     return (
-      <MatrixCellPopoverContent
+      <BandCellPopoverContent
         feature={feature}
         matrix={matrix}
         matrixId={inspect.matrixId}
-        median={median}
-        summary={summary}
+        band={band}
         onNavigate={onNavigate}
       />
     )

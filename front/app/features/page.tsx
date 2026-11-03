@@ -33,7 +33,6 @@ import {
   mergeGeneLensFilters,
   resolveSelectedFeature,
 } from '@/lib/gene-lens'
-import { matrixHeatmapFilteringTermsPath } from '@/lib/matrix-workspace'
 
 function FeaturesLensContent() {
   const { openRecordSheet } = useEntityRecordSheet()
@@ -44,8 +43,7 @@ function FeaturesLensContent() {
     () => parseGeneLensSearch(search, scopeIndex),
     [search, scopeIndex]
   )
-  const { featureFilters, feature: featureParam, matrix: focusMatrix, unit: unitParam } =
-    lens
+  const { featureFilters, feature: featureParam, matrix: focusMatrix } = lens
 
   const filterKeyLine = useMemo(
     () => featureFilters.map((filter) => filterKey(filter)).join('|'),
@@ -55,9 +53,7 @@ function FeaturesLensContent() {
     () => filtersQuerySummary(featureFilters),
     [featureFilters]
   )
-  const termsPath = focusMatrix
-    ? matrixHeatmapFilteringTermsPath(focusMatrix, 'features')
-    : '/features/filtering_terms'
+  const termsPath = '/filtering_terms'
 
   const filtersRef = useRef(featureFilters)
   filtersRef.current = featureFilters
@@ -111,22 +107,6 @@ function FeaturesLensContent() {
     [matches, featureParam]
   )
 
-  const lensScopeKey = `${filterKeyLine}|${focusMatrix ?? ''}`
-  const [activeUnitKey, setActiveUnitKey] = useState<string | null>(() => unitParam ?? null)
-
-  useEffect(() => {
-    setActiveUnitKey(unitParam ?? null)
-  }, [lensScopeKey, unitParam])
-
-  useEffect(() => {
-    function syncUnitFromUrl() {
-      const params = new URLSearchParams(window.location.search)
-      setActiveUnitKey(params.get('unit'))
-    }
-    window.addEventListener('popstate', syncUnitFromUrl)
-    return () => window.removeEventListener('popstate', syncUnitFromUrl)
-  }, [])
-
   const writeFilters = useCallback(
     (next: UiFilter[]) => {
       const params = geneLensSearchParams({
@@ -140,21 +120,6 @@ function FeaturesLensContent() {
     [router, focusMatrix, scopeIndex]
   )
 
-  const setUnitKey = useCallback(
-    (key: string) => {
-      setActiveUnitKey(key)
-      const params = geneLensSearchParams({
-        filters: featureFilters,
-        feature: featureParam,
-        matrix: focusMatrix,
-        unit: key,
-        index: scopeIndex,
-      })
-      window.history.replaceState(window.history.state, '', `/features/?${params.toString()}`)
-    },
-    [featureFilters, featureParam, focusMatrix, scopeIndex]
-  )
-
   const canLoadMore =
     list.exists === true &&
     list.total != null &&
@@ -166,11 +131,10 @@ function FeaturesLensContent() {
     const params = geneLensSearchParams({
       filters: featureFilters,
       feature: featureParam,
-      unit: activeUnitKey,
       index: scopeIndex,
     })
     return `/features/?${params.toString()}`
-  }, [featureFilters, featureParam, activeUnitKey, scopeIndex])
+  }, [featureFilters, featureParam, scopeIndex])
 
   const pageTitle = selectedFeature ? featureDisplayLabel(selectedFeature) : 'Features'
   const endpoint = focusMatrix
@@ -184,7 +148,7 @@ function FeaturesLensContent() {
         description={
           selectedFeature
             ? `${querySummary} · ${featureAnnotationResource(selectedFeature) ?? 'feature'}`
-            : 'Query genomic features, then inspect matrix medians in the heatmap.'
+            : 'Query genomic features, then inspect expression bands across matrices.'
         }
       />
 
@@ -200,11 +164,7 @@ function FeaturesLensContent() {
         sidebar={
           <GeneFilterSidebar
             termsPath={termsPath}
-            source={
-              focusMatrix
-                ? `GET /matrices/${focusMatrix}/features/filtering_terms`
-                : 'GET /features/filtering_terms'
-            }
+            source="GET /filtering_terms"
             activeFilters={featureFilters}
             onAddFilter={(added) => writeFilters(mergeGeneLensFilters(featureFilters, added))}
           />
@@ -231,8 +191,8 @@ function FeaturesLensContent() {
             querySummary={querySummary}
             previewLimit={matches.length}
             previewCount={matches.length}
-            previewTruncatedSuffix="matrix medians from expression_summary"
-            previewWhenShowing="Matrix medians from batched POST /matrices/{id}/expression_summary (featureIDList)"
+            previewTruncatedSuffix="banded heatmap via POST /features/{id}/matrices"
+            previewWhenShowing="Expression percentile bands from POST /features/{id}/matrices (expression.percentile.* · matrixIDList)"
             noMatchesMessage="No features match these filters."
             loadErrorTitle="Could not load features"
             searchError={list.error}
@@ -251,8 +211,6 @@ function FeaturesLensContent() {
               selectedFeatureId={selectedFeature?.id ?? null}
               activeFilters={featureFilters}
               onAddFilter={(added) => writeFilters(mergeGeneLensFilters(featureFilters, added))}
-              unitKey={activeUnitKey}
-              onUnitKeyChange={setUnitKey}
             />
           </LensResultsPanel>
         }

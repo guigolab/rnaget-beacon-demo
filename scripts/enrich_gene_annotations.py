@@ -235,6 +235,9 @@ def enrich_package(
                     rec = gene_info_index.by_symbol_upper_unique.get(sym.upper())
                 if rec is not None:
                     xrefs = _merge_xrefs(xrefs, rec.xrefs)
+                    # Symbol-keyed rows use NCBI Gene id for GO slim attachment.
+                    if not ncbi and rec.gene_id:
+                        ncbi = rec.gene_id
         row["xrefs"] = xrefs
         ont = list(row.get("ontology_terms") or [])
         if ncbi and ncbi in gene_go:

@@ -26,7 +26,7 @@ export function MatrixQueryBar({
   onChange,
   probe,
   scopeIndex,
-  termsPath = '/matrices/filtering_terms',
+  termsPath = '/filtering_terms',
 }: MatrixQueryBarProps) {
   const { terms, resources, error, loading } = useFilteringTerms(termsPath)
   const labelCatalog = useMemo(() => catalogLabelById(terms), [terms])

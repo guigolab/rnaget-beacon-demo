@@ -3,12 +3,14 @@
 import { ChevronDown } from 'lucide-react'
 import { useMemo } from 'react'
 import { filterKey, type UiFilter } from '@/lib/beacon'
+import { termToUiFilter } from '@/lib/lens-catalog'
 import type { BeaconScope, NamespaceScopeGroup } from '@/lib/scope-theme'
 
 const OPEN_BORDER_CLASS: Record<BeaconScope, string> = {
   biosample: 'open:border-[var(--scope-biosample-border)]',
   genomicFeature: 'open:border-[var(--scope-genomicFeature-border)]',
   matrix: 'open:border-[var(--scope-matrix-border)]',
+  expressionValue: 'open:border-[var(--scope-matrix-border)]',
 }
 
 type NamespaceTermCollapseProps = {
@@ -39,8 +41,8 @@ export function NamespaceTermCollapse({
     [group.terms]
   )
 
-  function selectTerm(term: { id: string; label?: string }) {
-    onAddFilter({ kind: 'ontology', id: term.id, label: term.label })
+  function selectTerm(term: (typeof sortedTerms)[number]) {
+    onAddFilter(termToUiFilter(term))
   }
 
   const prefix = (group.namespaceType || 'unknown').toUpperCase()
@@ -68,11 +70,7 @@ export function NamespaceTermCollapse({
       </summary>
       <ul className="max-h-52 overflow-x-hidden overflow-y-auto overscroll-contain border-t border-border/80 px-2.5 pb-2 pt-0.5 [scrollbar-width:thin]">
         {sortedTerms.map((term) => {
-          const filter: UiFilter = {
-            kind: 'ontology',
-            id: term.id,
-            label: term.label,
-          }
+          const filter = termToUiFilter(term)
           const selected = activeKeys.has(filterKey(filter))
           const label = term.label ?? term.id
           return (

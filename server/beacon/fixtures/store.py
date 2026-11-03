@@ -56,6 +56,20 @@ _FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
             "iriPrefix": "https://www.ensembl.org/id/",
             "url": "https://www.ensembl.org",
         },
+        {
+            "id": "go",
+            "name": "Gene Ontology",
+            "nameSpacePrefix": "GO",
+            "iriPrefix": "http://purl.obolibrary.org/obo/GO_",
+            "url": "http://purl.obolibrary.org/obo/go.owl",
+        },
+        {
+            "id": "symbol",
+            "name": "Gene symbol",
+            "nameSpacePrefix": "symbol",
+            "iriPrefix": "https://www.genenames.org/tools/search/#!/?query=",
+            "url": "https://www.genenames.org",
+        },
     ],
     "filteringTerms": [
         {
@@ -77,6 +91,12 @@ _FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
             "scopes": ["genomicFeature"],
         },
         {
+            "type": "GO",
+            "id": "GO:0008150",
+            "label": "biological_process",
+            "scopes": ["genomicFeature"],
+        },
+        {
             "type": "UBERON",
             "id": "UBERON:0000474",
             "label": "female reproductive system",
@@ -87,12 +107,6 @@ _FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
             "id": "UBERON:0002107",
             "label": "liver",
             "scopes": ["biosample"],
-        },
-        {
-            "type": "alphanumeric",
-            "id": "genomicFeature.symbol",
-            "label": "Gene symbol",
-            "scopes": ["genomicFeature"],
         },
         {
             "type": "alphanumeric",
@@ -164,6 +178,23 @@ class FixtureStore:
             global_resources=global_resources,
         )
 
+    def matrix_scoped_filtering_terms(
+        self, matrix_id: str
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        from beacon.matrix_axis_catalog import merge_matrix_scoped_filtering_terms
+
+        if not self.get_matrix(matrix_id):
+            return [], []
+        feat_terms, feat_resources = self.matrix_axis_filtering_terms(
+            matrix_id, "features"
+        )
+        bio_terms, bio_resources = self.matrix_axis_filtering_terms(
+            matrix_id, "biosamples"
+        )
+        return merge_matrix_scoped_filtering_terms(
+            feat_terms, feat_resources, bio_terms, bio_resources
+        )
+
     def get_matrix(self, matrix_id: str) -> Optional[Dict[str, Any]]:
         return self._matrices_by_id.get(matrix_id)
 
@@ -173,17 +204,29 @@ class FixtureStore:
     def filtering_terms(
         self, *, scopes: Optional[Sequence[str]] = None
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        from beacon.matrix_catalog_seed import merge_filtering_terms
+
         doc = self._filtering_terms_doc
         terms = list(doc.get("filteringTerms") or [])
         resources = list(doc.get("resources") or [])
+        matrix_terms, matrix_resources = self.matrix_filtering_terms()
+        terms = merge_filtering_terms(terms, matrix_terms)
+        resources_by_id = {
+            str(r.get("id") or ""): dict(r)
+            for r in (*resources, *matrix_resources)
+            if r.get("id")
+        }
+        resources = list(resources_by_id.values())
         if scopes:
             want = set(scopes)
             terms = [t for t in terms if want.intersection(t.get("scopes") or [])]
             keep = set()
             if "genomicFeature" in want:
-                keep.update({"so", "hgnc", "ncbigene", "ensembl"})
+                keep.update({"so", "go", "hgnc", "ncbigene", "ensembl", "symbol"})
             if "biosample" in want:
-                keep.update({"uberon", "efo"})
+                keep.update({"uberon", "efo", "obi", "mondo", "hp", "go", "ncit"})
+            if "matrix" in want:
+                keep.update({"so", "obi"})
             resources = [
                 r for r in resources if str(r.get("id") or "").lower() in keep
             ]
@@ -234,20 +277,13 @@ class FixtureStore:
                 if is_gene_public_id_filter(f):
                     ids = self._feature_ids_for_symbol_or_xref(f.id)
                     allow = ids if allow is None else (allow & ids)
-                elif f.kind == "alphanumeric" and f.id == "genomicFeature.symbol":
-                    ids = self._feature_ids_for_symbol_or_xref(f.value or "")
-                    if f.operator == "!":
-                        items = [
-                            feat
-                            for feat in items
-                            if feat.get("id") not in ids
-                            and (feat.get("genomicFeature") or {})
-                            .get("featureIdentifier", {})
-                            .get("id")
-                            not in ids
-                        ]
-                    else:
-                        allow = ids if allow is None else (allow & ids)
+                elif f.kind == "custom" and str(f.id).lower().startswith("symbol:"):
+                    from beacon.filters import symbol_custom_lookup_key
+
+                    ids = self._feature_ids_for_symbol_or_xref(
+                        symbol_custom_lookup_key(f)
+                    )
+                    allow = ids if allow is None else (allow & ids)
             if allow is not None:
                 if not allow:
                     return [], 0
@@ -298,6 +334,51 @@ class FixtureStore:
     def matrices_for_biosample(self, biosample_id: str) -> List[Dict[str, Any]]:
         ids = self.biosample_matrices.get(biosample_id) or []
         return [self._matrices_by_id[i] for i in ids if i in self._matrices_by_id]
+
+    def matrices_for_feature_page(
+        self,
+        feature_id: str,
+        *,
+        filters: Optional[Sequence[Any]] = None,
+        matrix_id_list: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 10,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Fixtures have no expression stats: filter by matrixIDList only."""
+        del filters  # no-op; fixtures carry no feature_expression_stats
+        feature = self.get_feature(feature_id)
+        if not feature:
+            return [], 0
+        ids = list(feature.get("matrixIds") or [])
+        if matrix_id_list:
+            wanted = _csv_set(matrix_id_list)
+            ids = [i for i in ids if i in wanted]
+        matrices = [self._matrices_by_id[i] for i in ids if i in self._matrices_by_id]
+        total = len(matrices)
+        if limit <= 0:
+            return [], total
+        return matrices[skip : skip + limit], total
+
+    def matrices_for_biosample_page(
+        self,
+        biosample_id: str,
+        *,
+        filters: Optional[Sequence[Any]] = None,
+        matrix_id_list: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 10,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Fixtures have no expression stats: filter by matrixIDList only."""
+        del filters  # no-op; fixtures carry no biosample_expression_stats
+        ids = list(self.biosample_matrices.get(biosample_id) or [])
+        if matrix_id_list:
+            wanted = _csv_set(matrix_id_list)
+            ids = [i for i in ids if i in wanted]
+        matrices = [self._matrices_by_id[i] for i in ids if i in self._matrices_by_id]
+        total = len(matrices)
+        if limit <= 0:
+            return [], total
+        return matrices[skip : skip + limit], total
 
     def features_for_matrix(self, matrix_id: str) -> List[Dict[str, Any]]:
         return [
@@ -491,15 +572,49 @@ class FixtureStore:
         feature_id_list: Optional[str] = None,
         biosample_id_list: Optional[str] = None,
         biosample_filters: Optional[Sequence[Any]] = None,
+        feature_filters: Optional[Sequence[Any]] = None,
+        expression_value_filters: Optional[Sequence[Any]] = None,
         min_value: Optional[float] = None,
         max_value: Optional[float] = None,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
         skip: int = 0,
         limit: Optional[int] = None,
-    ) -> Tuple[List[Dict[str, Any]], int]:
-        from beacon.filters import biosample_matches
+        page_token: Optional[str] = None,
+    ):
+        """No ID-list caps or combined-rank ordering (removed). Fixtures carry
+        no expression stats/percentile parquet, so ``feature_filters`` only
+        supports the normal SO/GO/symbol/gene-id feature filters, and a
+        percentile ``expression_value_filters`` entry yields an empty page.
+        Page tokens here are a simple base64 offset (fixtures-only shortcut).
+        """
+        import base64
+
+        from beacon.duckdb_store import (
+            MAX_PAGE_LIMIT,
+            ExpressionValuesPage,
+            normalize_expression_value_sort,
+        )
+        from beacon.filters import biosample_matches, feature_doc_matches
 
         feature_ids = self._resolve_feature_filter_ids(feature_id_list)
         biosample_ids = _csv_set(biosample_id_list)
+        if feature_filters:
+            matched: Set[str] = set()
+            for fid, feat in self._features_by_id.items():
+                if not feature_doc_matches(feat, feature_filters):
+                    continue
+                matched.add(fid)
+                native = (
+                    (feat.get("genomicFeature") or {})
+                    .get("featureIdentifier", {})
+                    .get("id")
+                )
+                if native:
+                    matched.add(str(native))
+            feature_ids = (feature_ids & matched) if feature_id_list else matched
+            if not feature_ids:
+                return ExpressionValuesPage([], 0)
         if biosample_filters:
             allowed = {
                 b["id"]
@@ -508,7 +623,39 @@ class FixtureStore:
             }
             biosample_ids = biosample_ids & allowed if biosample_ids else allowed
             if not biosample_ids:
-                return [], 0
+                return ExpressionValuesPage([], 0)
+
+        value_filters = []
+        for f in expression_value_filters or []:
+            if f.id in ("expression.percentileInFeature", "expression.percentileInBiosample"):
+                # Fixtures carry no percentile parquet: never matches.
+                return ExpressionValuesPage([], 0)
+            if f.id == "expression.value":
+                value_filters.append(f)
+
+        def _value_filters_match(value: Optional[float]) -> bool:
+            for f in value_filters:
+                try:
+                    fv = float(f.value)
+                except (TypeError, ValueError):
+                    return False
+                if value is None:
+                    return False
+                op = f.operator or "="
+                if op == "=" and value != fv:
+                    return False
+                if op == "!" and value == fv:
+                    return False
+                if op == ">" and not (value > fv):
+                    return False
+                if op == "<" and not (value < fv):
+                    return False
+                if op == ">=" and not (value >= fv):
+                    return False
+                if op == "<=" and not (value <= fv):
+                    return False
+            return True
+
         out = []
         for ev in self.expression_values:
             if ev.get("matrixId") != matrix_id:
@@ -518,17 +665,82 @@ class FixtureStore:
             if biosample_ids and ev.get("biosampleId") not in biosample_ids:
                 continue
             value = ev.get("value")
-            if min_value is not None and value is not None and value < min_value:
+            if min_value is not None and (value is None or value < min_value):
                 continue
-            if max_value is not None and value is not None and value > max_value:
+            if max_value is not None and (value is None or value > max_value):
+                continue
+            if value_filters and not _value_filters_match(value):
                 continue
             out.append(ev)
-        total = len(out)
-        if limit is None:
-            page = out[skip:]
+
+        sort_key, order_key = normalize_expression_value_sort(sort, order)
+        reverse = order_key == "desc"
+
+        if sort_key == "value":
+
+            def _value_sort_key(ev: Dict[str, Any]) -> Tuple[Any, ...]:
+                v = ev.get("value")
+                tie = (str(ev.get("featureId") or ""), str(ev.get("biosampleId") or ""))
+                if v is None:
+                    # Match DuckDB NULLS LAST for both asc and desc.
+                    return (1, 0.0) + tie
+                keyed = -float(v) if reverse else float(v)
+                return (0, keyed) + tie
+
+            out = sorted(out, key=_value_sort_key)
         else:
-            page = out[skip : skip + limit]
-        return page, total
+            out = sorted(
+                out,
+                key=lambda ev: (
+                    str(ev.get("featureId") or ""),
+                    str(ev.get("biosampleId") or ""),
+                ),
+                reverse=reverse,
+            )
+
+        total = len(out)
+        limit_v = MAX_PAGE_LIMIT if limit is None else max(0, int(limit))
+        skip_v = max(0, int(skip))
+        if page_token:
+            try:
+                padded = page_token + "=" * (-len(page_token) % 4)
+                skip_v = max(0, int(base64.urlsafe_b64decode(padded).decode("ascii")))
+            except Exception:
+                skip_v = max(0, int(skip))
+        if limit_v <= 0:
+            return ExpressionValuesPage([], total)
+        page = out[skip_v : skip_v + limit_v]
+
+        def _encode_skip(value: int) -> str:
+            return base64.urlsafe_b64encode(str(value).encode("ascii")).decode(
+                "ascii"
+            ).rstrip("=")
+
+        next_page = (
+            _encode_skip(skip_v + limit_v) if skip_v + len(page) < total else None
+        )
+        previous_page = (
+            _encode_skip(max(0, skip_v - limit_v)) if skip_v > 0 else None
+        )
+        return ExpressionValuesPage(page, total, next_page, previous_page)
+
+    def _ordered_feature_ids_for_rank(
+        self, feature_id_list: Optional[str]
+    ) -> List[str]:
+        from beacon.duckdb_store import _csv_tokens
+
+        ordered: List[str] = []
+        seen: Set[str] = set()
+        for token in _csv_tokens(feature_id_list):
+            resolved = self._resolve_feature_filter_ids(token)
+            preferred = [token] if token in resolved else []
+            rest = sorted(fid for fid in resolved if fid not in preferred)
+            for fid in preferred + rest:
+                if fid in seen:
+                    continue
+                seen.add(fid)
+                ordered.append(fid)
+        return ordered
 
     def _resolve_feature_filter_ids(self, feature_id_list: Optional[str]) -> Set[str]:
         """Accept genomic accessions, symbols, and/or feature wrapper ids."""
@@ -549,82 +761,6 @@ class FixtureStore:
                 if genomic:
                     resolved.add(genomic)
         return resolved
-
-    def expression_summary_for_matrix(
-        self,
-        matrix_id: str,
-        *,
-        feature_id_list: Optional[str] = None,
-        group_by: Optional[str] = None,
-        biosample_filters: Optional[Sequence[Any]] = None,
-        threshold: Optional[float] = None,
-    ) -> List[Dict[str, Any]]:
-        import statistics
-
-        from beacon.filters import biosample_matches
-
-        feature_ids = self._resolve_feature_filter_ids(feature_id_list)
-        if not feature_ids:
-            return []
-        values_by_key: Dict[tuple, List[tuple[float, str]]] = {}
-        for ev in self.expression_values:
-            if ev.get("matrixId") != matrix_id:
-                continue
-            if ev.get("featureId") not in feature_ids:
-                continue
-            bid = ev.get("biosampleId")
-            bio = self._biosamples_by_id.get(str(bid))
-            if biosample_filters and bio and not biosample_matches(bio, biosample_filters):
-                continue
-            if biosample_filters and not bio:
-                continue
-            group_key = "all"
-            if group_by and bio:
-                info = bio.get("info") or {}
-                if group_by == "tissue":
-                    detail = bio.get("sampleOriginDetail") or {}
-                    group_key = str(detail.get("label") or detail.get("id") or "unknown")
-                else:
-                    group_key = str(info.get(group_by) or bio.get(group_by) or "unknown")
-            key = (str(ev.get("featureId")), group_key)
-            val = ev.get("value")
-            if val is None:
-                continue
-            bid_str = str(bid) if bid is not None else ""
-            values_by_key.setdefault(key, []).append((float(val), bid_str))
-        out: List[Dict[str, Any]] = []
-        for (fid, gkey), pairs in sorted(values_by_key.items()):
-            if not pairs:
-                continue
-            vals = [p[0] for p in pairs]
-            min_v = min(vals)
-            max_v = max(vals)
-            min_bid = next((p[1] for p in pairs if p[0] == min_v and p[1]), None)
-            max_bid = next((p[1] for p in pairs if p[0] == max_v and p[1]), None)
-            rec = {
-                "id": f"{matrix_id}:{fid}:{gkey}",
-                "matrixId": matrix_id,
-                "featureId": fid,
-                "n": len(vals),
-                "mean": statistics.fmean(vals),
-                "median": statistics.median(vals),
-                "min": min_v,
-                "max": max_v,
-                "q1": statistics.quantiles(vals, n=4)[0] if len(vals) > 1 else vals[0],
-                "q3": statistics.quantiles(vals, n=4)[2] if len(vals) > 1 else vals[0],
-            }
-            if min_bid:
-                rec["minBiosampleId"] = min_bid
-            if max_bid:
-                rec["maxBiosampleId"] = max_bid
-            if threshold is not None:
-                rec["fractionAboveThreshold"] = sum(1 for v in vals if v >= threshold) / len(
-                    vals
-                )
-            if group_by:
-                rec["group"] = {"id": gkey, "label": gkey}
-            out.append(rec)
-        return out
 
 
 def _csv_set(value: Optional[str]) -> Set[str]:

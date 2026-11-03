@@ -33,42 +33,39 @@ class ApiExtensionsTest(unittest.TestCase):
         else:
             os.environ.pop("DATA_PACKAGE_PATH", None)
 
-    def test_matrices_filtering_terms_non_empty(self) -> None:
-        r = self.client.get("/matrices/filtering_terms")
+    def test_root_filtering_terms_include_matrix_scope(self) -> None:
+        r = self.client.get("/filtering_terms")
         self.assertEqual(r.status_code, 200)
         terms = r.json()["response"]["filteringTerms"]
         self.assertTrue(any(t["id"] == "matrix.unit" for t in terms))
         self.assertTrue(any(t.get("type") == "OBI" for t in terms))
-        self.assertTrue(any(t.get("type") == "SO" for t in terms))
+        self.assertTrue(
+            any("matrix" in (t.get("scopes") or []) for t in terms if t["id"] == "matrix.unit")
+        )
 
-    def test_matrix_features_filtering_terms_scoped(self) -> None:
+    def test_matrix_scoped_filtering_terms(self) -> None:
         matrix_id = "matrix-gene-expression-001"
-        r = self.client.get(f"/matrices/{matrix_id}/features/filtering_terms")
-        self.assertEqual(r.status_code, 200, r.text)
-        terms = r.json()["response"]["filteringTerms"]
-        self.assertTrue(any(t["id"] == "SO:0000704" for t in terms))
-        self.assertTrue(any(t["id"] == "genomicFeature.symbol" for t in terms))
-        global_r = self.client.get("/features/filtering_terms")
-        global_ids = {t["id"] for t in global_r.json()["response"]["filteringTerms"]}
-        for term in terms:
-            self.assertIn(term["id"], global_ids)
-
-    def test_matrix_biosamples_filtering_terms_scoped(self) -> None:
-        matrix_id = "matrix-gene-expression-001"
-        r = self.client.get(f"/matrices/{matrix_id}/biosamples/filtering_terms")
+        r = self.client.get(f"/matrices/{matrix_id}/filtering_terms")
         self.assertEqual(r.status_code, 200, r.text)
         terms = r.json()["response"]["filteringTerms"]
         ids = {t["id"] for t in terms}
+        self.assertIn("SO:0000704", ids)
+        self.assertIn("GO:0008150", ids)
+        resources = r.json()["response"].get("resources") or []
+        prefixes = {
+            str(res.get("nameSpacePrefix") or "").lower() for res in resources
+        }
+        self.assertIn("symbol", prefixes)
         self.assertTrue(
             "UBERON:0000474" in ids or "UBERON:0002107" in ids,
             msg=f"expected matrix tissues in {ids}",
         )
-        global_r = self.client.get("/biosamples/filtering_terms")
-        global_ids = {t["id"] for t in global_r.json()["response"]["filteringTerms"]}
-        self.assertTrue(global_ids.issuperset(ids))
+        root = self.client.get("/filtering_terms")
+        root_ids = {t["id"] for t in root.json()["response"]["filteringTerms"]}
+        self.assertTrue(root_ids.issuperset(ids))
 
-    def test_matrix_axis_filtering_terms_unknown_matrix(self) -> None:
-        r = self.client.get("/matrices/no-such-matrix/features/filtering_terms")
+    def test_matrix_scoped_filtering_terms_unknown_matrix(self) -> None:
+        r = self.client.get("/matrices/no-such-matrix/filtering_terms")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["response"]["filteringTerms"], [])
 
@@ -99,53 +96,6 @@ class ApiExtensionsTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         results = r.json()["response"]["resultSets"][0]["results"]
         self.assertTrue(len(results) >= 1)
-
-    def test_expression_summary_by_symbol_get(self) -> None:
-        r = self.client.get(
-            "/matrices/matrix-gene-expression-001/expression_summary",
-            params={"featureIDList": "TP53", "requestedGranularity": "record"},
-        )
-        self.assertEqual(r.status_code, 200, r.text)
-        body = r.json()
-        self.assertTrue(body["responseSummary"]["exists"])
-
-    def test_expression_summary_request_parameters_post(self) -> None:
-        r = self.client.post(
-            "/matrices/matrix-gene-expression-001/expression_summary",
-            json={
-                "query": {
-                    "requestedGranularity": "record",
-                    "requestParameters": {"featureIDList": "TP53"},
-                }
-            },
-        )
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertTrue(r.json()["responseSummary"]["exists"])
-
-    def test_expression_summary_batch_feature_id_list(self) -> None:
-        r = self.client.post(
-            "/matrices/matrix-gene-expression-001/expression_summary",
-            json={
-                "query": {
-                    "requestedGranularity": "record",
-                    "requestParameters": {"featureIDList": "TP53,BRCA1"},
-                }
-            },
-        )
-        self.assertEqual(r.status_code, 200, r.text)
-        body = r.json()
-        results = body["response"]["resultSets"][0]["results"]
-        feature_ids = {row["featureId"] for row in results}
-        self.assertGreaterEqual(len(feature_ids), 1)
-        self.assertTrue(feature_ids <= {"TP53", "BRCA1"} or feature_ids)
-
-    def test_expression_summary_empty_feature_id_list(self) -> None:
-        r = self.client.get(
-            "/matrices/matrix-gene-expression-001/expression_summary",
-            params={"requestedGranularity": "record"},
-        )
-        self.assertEqual(r.status_code, 400, r.text)
-        self.assertIn("featureIDList", r.json()["error"]["errorMessage"])
 
     def test_legacy_top_level_feature_id_list_rejected(self) -> None:
         r = self.client.post(
@@ -290,13 +240,7 @@ class ApiExtensionsTest(unittest.TestCase):
             "/matrices/matrix-gene-expression-001/features",
             json={
                 "query": {
-                    "filters": [
-                        {
-                            "id": "genomicFeature.symbol",
-                            "operator": "=",
-                            "value": "TP53",
-                        }
-                    ],
+                    "filters": [{"id": "symbol:TP53"}],
                     "pagination": {"skip": 0, "limit": 10},
                 }
             },

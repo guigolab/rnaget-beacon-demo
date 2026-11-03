@@ -18,7 +18,11 @@ export function filterChipDisplay(
   if (filter.kind === 'ontology' || filter.kind === 'custom') {
     const fromCatalog = catalog.get(filter.id.toLowerCase())
     const text = filter.label?.trim() || fromCatalog || filter.id
-    return { text, tooltip: filter.id }
+    const tooltip =
+      filter.kind === 'custom' && filter.id.toLowerCase().startsWith('symbol:')
+        ? 'Gene symbol'
+        : filter.id
+    return { text, tooltip }
   }
   if (filter.kind === 'symbol') {
     return { text: filter.value, tooltip: 'Gene symbol' }

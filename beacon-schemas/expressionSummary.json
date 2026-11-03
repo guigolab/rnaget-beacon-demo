@@ -1,43 +1,33 @@
 {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "additionalProperties": true,
-    "description": "Aggregate expression statistics for one genomic feature in one matrix, optionally split by a biosample group.",
-    "properties": {
-        "id": {
-            "description": "Internal identifier for this summary row.",
-            "type": "string"
-        },
-        "matrixId": {
-            "description": "Matrix this summary was computed from.",
-            "type": "string"
-        },
-        "featureId": {
-            "description": "Native feature accession (genomicFeature.featureIdentifier.id).",
-            "type": "string"
-        },
-        "n": {
-            "description": "Number of biosamples included in the aggregate.",
-            "minimum": 0,
-            "type": "integer"
-        },
-        "mean": {"type": ["number", "null"]},
-        "median": {"type": ["number", "null"]},
-        "q1": {"type": ["number", "null"]},
-        "q3": {"type": ["number", "null"]},
-        "min": {"type": ["number", "null"]},
-        "max": {"type": ["number", "null"]},
-        "minBiosampleId": {"type": "string"},
-        "maxBiosampleId": {"type": "string"},
-        "fractionAboveThreshold": {"type": "number"},
-        "group": {
-            "description": "Present when the request set groupBy.",
-            "properties": {
-                "id": {"type": "string"},
-                "label": {"type": "string"}
-            },
-            "type": "object"
-        }
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "Embedded per-feature (or per-biosample) min/max expression extrema for one matrix, attached as info.expressionSummary on feature/biosample records from feature_expression_stats / biosample_expression_stats parquet. Not a standalone Beacon entry-type endpoint. Feature rows may include minBiosampleId/maxBiosampleId; biosample rows may include minFeatureId/maxFeatureId.",
+  "type": "object",
+  "properties": {
+    "min": {
+      "description": "Minimum expression value observed for this feature or biosample in the matrix.",
+      "type": ["number", "null"]
     },
-    "required": ["id", "matrixId", "featureId", "n"],
-    "type": "object"
+    "max": {
+      "description": "Maximum expression value observed for this feature or biosample in the matrix.",
+      "type": ["number", "null"]
+    },
+    "minBiosampleId": {
+      "description": "Biosample id holding the minimum (feature-axis embed only).",
+      "type": "string"
+    },
+    "maxBiosampleId": {
+      "description": "Biosample id holding the maximum (feature-axis embed only).",
+      "type": "string"
+    },
+    "minFeatureId": {
+      "description": "Feature id holding the minimum (biosample-axis embed only).",
+      "type": "string"
+    },
+    "maxFeatureId": {
+      "description": "Feature id holding the maximum (biosample-axis embed only).",
+      "type": "string"
+    }
+  },
+  "required": []
 }

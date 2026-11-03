@@ -1,0 +1,35 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": true,
+    "description": "Aggregate expression statistics for one biosample in one matrix, optionally restricted to a feature set.",
+    "properties": {
+        "id": {
+            "description": "Internal identifier for this summary row.",
+            "type": "string"
+        },
+        "matrixId": {
+            "description": "Matrix this summary was computed from.",
+            "type": "string"
+        },
+        "biosampleId": {
+            "description": "Biosample identifier within the matrix.",
+            "type": "string"
+        },
+        "n": {
+            "description": "Number of features included in the aggregate.",
+            "minimum": 0,
+            "type": "integer"
+        },
+        "mean": {"type": ["number", "null"]},
+        "median": {"type": ["number", "null"]},
+        "q1": {"type": ["number", "null"]},
+        "q3": {"type": ["number", "null"]},
+        "min": {"type": ["number", "null"]},
+        "max": {"type": ["number", "null"]},
+        "minFeatureId": {"type": "string"},
+        "maxFeatureId": {"type": "string"},
+        "fractionAboveThreshold": {"type": "number"}
+    },
+    "required": ["id", "matrixId", "biosampleId", "n"],
+    "type": "object"
+}

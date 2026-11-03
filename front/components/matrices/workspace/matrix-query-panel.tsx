@@ -5,12 +5,7 @@ import { FilteringTermBrowser } from '@/components/shared/filtering-term-browser
 import { Button } from '@/components/ui/button'
 import { useFilteringTerms } from '@/hooks/use-filtering-terms'
 import type { MatrixQueryUpdate } from '@/hooks/use-matrix-query-state'
-import {
-  dedupeFilters,
-  filterKey,
-  buildFilterScopeIndex,
-  mergeFilterScopeIndexes,
-} from '@/lib/beacon'
+import { dedupeFilters, filterKey, buildFilterScopeIndex } from '@/lib/beacon'
 import { listMatrixFeatures } from '@/lib/beacon/client'
 import type { Matrix, UiFilter } from '@/lib/beacon'
 import type { Feature } from '@/lib/beacon/types'
@@ -19,7 +14,6 @@ import { browsableTerms, lensQueryPlaceholder } from '@/lib/lens-catalog'
 import {
   matrixHeatmapBiosampleExamples,
   matrixHeatmapFeatureExamples,
-  matrixHeatmapFilteringTermsPath,
 } from '@/lib/matrix-workspace'
 import {
   biosampleIdListCsv,
@@ -39,31 +33,11 @@ function shorten(id: string) {
   return id.length > 22 ? `${id.slice(0, 20)}…` : id
 }
 
-type AxisCount = {
-  loading: boolean
-  total: number | null
-}
-
 type MatrixQueryPanelProps = {
   matrix: Matrix
   query: MatrixWorkspaceQuery
   onPatch: (update: MatrixQueryUpdate) => void
   onClear: () => void
-  featureCount: AxisCount
-  biosampleCount: AxisCount
-}
-
-function AxisTotal({ noun, count }: { noun: string; count: AxisCount }) {
-  if (count.loading) {
-    return <p className="text-[11px] text-muted-foreground">Loading {noun}…</p>
-  }
-  if (count.total == null) return null
-  const label = count.total === 1 ? noun.replace(/s$/, '') : noun
-  return (
-    <p className="text-[11px] tabular-nums text-muted-foreground">
-      {count.total.toLocaleString()} {label}
-    </p>
-  )
 }
 
 function TermBrowse({
@@ -97,36 +71,26 @@ export function MatrixQueryPanel({
   query,
   onPatch,
   onClear,
-  featureCount,
-  biosampleCount,
 }: MatrixQueryPanelProps) {
   const matrixId = matrix.matrixId
-  const featurePath = matrixHeatmapFilteringTermsPath(matrixId, 'features')
-  const biosamplePath = matrixHeatmapFilteringTermsPath(matrixId, 'biosamples')
-  const featureTerms = useFilteringTerms(featurePath)
-  const biosampleTerms = useFilteringTerms(biosamplePath)
+  const catalog = useFilteringTerms(
+    `/matrices/${encodeURIComponent(matrixId)}/filtering_terms`
+  )
   const scopeIndex = useMemo(
-    () =>
-      mergeFilterScopeIndexes(
-        buildFilterScopeIndex(featureTerms.terms),
-        buildFilterScopeIndex(biosampleTerms.terms)
-      ),
-    [featureTerms.terms, biosampleTerms.terms]
+    () => buildFilterScopeIndex(catalog.terms),
+    [catalog.terms]
   )
-  const featureLabels = useMemo(() => catalogLabelById(featureTerms.terms), [featureTerms.terms])
-  const biosampleLabels = useMemo(
-    () => catalogLabelById(biosampleTerms.terms),
-    [biosampleTerms.terms]
-  )
+  const featureLabels = useMemo(() => catalogLabelById(catalog.terms), [catalog.terms])
+  const biosampleLabels = useMemo(() => catalogLabelById(catalog.terms), [catalog.terms])
   const featurePlaceholder = lensQueryPlaceholder(
     'feature',
-    featureTerms.terms,
-    featureTerms.resources
+    catalog.terms,
+    catalog.resources
   )
   const biosamplePlaceholder = lensQueryPlaceholder(
     'biosample',
-    biosampleTerms.terms,
-    biosampleTerms.resources
+    catalog.terms,
+    catalog.resources
   )
 
   const [featureText, setFeatureText] = useState('')
@@ -134,6 +98,11 @@ export function MatrixQueryPanel({
   const [featureError, setFeatureError] = useState('')
   const [biosampleError, setBiosampleError] = useState('')
   const [previewFeatures, setPreviewFeatures] = useState<Feature[]>([])
+  const [exprField, setExprField] = useState<'expression.median' | 'expression.value'>(
+    'expression.median'
+  )
+  const [exprValue, setExprValue] = useState('')
+  const [exprError, setExprError] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -152,14 +121,14 @@ export function MatrixQueryPanel({
   }, [matrixId])
 
   const featureExamples = useMemo(() => {
-    if (featureTerms.loading) return []
-    return matrixHeatmapFeatureExamples(featureTerms.terms, previewFeatures)
-  }, [featureTerms.loading, featureTerms.terms, previewFeatures])
+    if (catalog.loading) return []
+    return matrixHeatmapFeatureExamples(catalog.terms, previewFeatures)
+  }, [catalog.loading, catalog.terms, previewFeatures])
 
   const biosampleExamples = useMemo(() => {
-    if (biosampleTerms.loading) return []
-    return matrixHeatmapBiosampleExamples(biosampleTerms.terms)
-  }, [biosampleTerms.loading, biosampleTerms.terms])
+    if (catalog.loading) return []
+    return matrixHeatmapBiosampleExamples(catalog.terms)
+  }, [catalog.loading, catalog.terms])
 
   function applyFeatureFilter(filter: UiFilter) {
     onPatch((current) => {
@@ -168,6 +137,17 @@ export function MatrixQueryPanel({
           return current
         }
         return { genes: [...current.genes, filter.value] }
+      }
+      if (
+        filter.kind === 'custom' &&
+        filter.id.toLowerCase().startsWith('symbol:')
+      ) {
+        const symbol = filter.id.slice(filter.id.indexOf(':') + 1).trim()
+        if (!symbol) return current
+        if (current.genes.some((gene) => gene.toUpperCase() === symbol.toUpperCase())) {
+          return current
+        }
+        return { genes: [...current.genes, symbol] }
       }
       if (filter.kind === 'ontology' || filter.kind === 'custom') {
         return { featureFilters: dedupeFilters([...current.featureFilters, filter]) }
@@ -195,7 +175,7 @@ export function MatrixQueryPanel({
       let featureIds = current.featureIds
       let featureFilters = current.featureFilters
       for (const part of parts) {
-        const token = interpretFeatureQueryToken(part, featureTerms.terms, scopeIndex)
+        const token = interpretFeatureQueryToken(part, catalog.terms, scopeIndex)
         if (!token.ok) {
           invalid.push(part)
           message = token.message
@@ -229,7 +209,7 @@ export function MatrixQueryPanel({
       let biosampleIds = current.biosampleIds
       let biosampleFilters = current.biosampleFilters
       for (const part of parts) {
-        const token = interpretBiosampleQueryToken(part, biosampleTerms.terms, scopeIndex)
+        const token = interpretBiosampleQueryToken(part, catalog.terms, scopeIndex)
         if (!token.ok) {
           invalid.push(part)
           message = token.message
@@ -297,6 +277,54 @@ export function MatrixQueryPanel({
     }),
   ]
 
+  const expressionChips: QueryChip[] = query.expressionFilters.map((filter) => {
+    const display = filterChipDisplay(filter, featureLabels)
+    return {
+      key: filterKey(filter),
+      label: display.text,
+      title: display.tooltip,
+    }
+  })
+
+  function applyExpressionThreshold() {
+    const trimmed = exprValue.trim()
+    if (!trimmed) {
+      setExprError('Enter a number.')
+      return
+    }
+    const number = Number(trimmed)
+    if (!Number.isFinite(number)) {
+      setExprError('Enter a valid number.')
+      return
+    }
+    const filter: UiFilter = {
+      kind: 'expression',
+      id: exprField,
+      operator: '>=',
+      value: String(number),
+      label: `${exprField} >= ${number}`,
+    }
+    setExprError('')
+    setExprValue('')
+    if (exprField === 'expression.value') {
+      onPatch((current) => ({
+        expressionFilters: dedupeFilters([...current.expressionFilters, filter]),
+      }))
+      return
+    }
+    onPatch((current) => ({
+      featureFilters: dedupeFilters([...current.featureFilters, filter]),
+    }))
+  }
+
+  function removeExpressionChip(key: string) {
+    onPatch((current) => ({
+      expressionFilters: current.expressionFilters.filter(
+        (filter) => filterKey(filter) !== key
+      ),
+    }))
+  }
+
   function removeFeatureChip(key: string) {
     onPatch((current) => {
       if (key.startsWith('gene:')) {
@@ -334,37 +362,28 @@ export function MatrixQueryPanel({
   const featureTokens = featureIdListCsv(query)?.split(',').length ?? 0
   const biosampleTokens = biosampleIdListCsv(query)?.split(',').length ?? 0
   const capped = featureTokens >= 100 || biosampleTokens >= 100
-  const featureTermCount = browsableTerms(featureTerms.terms).length
-  const biosampleTermCount = browsableTerms(biosampleTerms.terms).length
+  const featureTermCount = browsableTerms(
+    catalog.terms.filter((term) => term.scopes?.includes('genomicFeature') ?? false)
+  ).length
+  const biosampleTermCount = browsableTerms(
+    catalog.terms.filter((term) => term.scopes?.includes('biosample') ?? false)
+  ).length
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] text-muted-foreground">Filters apply to this matrix only.</p>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={!matrixWorkspaceHasConstraints(query)}
-          onClick={onClear}
-        >
-          Clear
-        </Button>
-      </div>
-
-      <div className="space-y-2">
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(20rem,26rem)] lg:items-start">
+      <div className="min-w-0 space-y-1.5">
         <QueryChipInput
           id="matrix-feature-search-input"
           label="Features"
           chips={featureChips}
           text={featureText}
-          placeholder={featureTerms.loading ? 'Add filter…' : featurePlaceholder}
-          error={featureError || featureTerms.error}
+          placeholder={catalog.loading ? 'Add filter…' : featurePlaceholder}
+          error={featureError || catalog.error}
           examples={featureExamples.map((example) => ({
             label: example.label,
             onSelect: () => applyFeatureFilter(example.filter),
           }))}
-          suggestions={querySuggestions(featureTerms.terms, featureText, 'feature')}
+          suggestions={querySuggestions(catalog.terms, featureText, 'feature')}
           onTextChange={(value) => {
             setFeatureText(value)
             if (featureError) setFeatureError('')
@@ -377,34 +396,33 @@ export function MatrixQueryPanel({
             if (last) removeFeatureChip(last.key)
           }}
         />
-        <AxisTotal noun="features" count={featureCount} />
-        <TermBrowse count={featureTermCount} loading={featureTerms.loading}>
+        <TermBrowse count={featureTermCount} loading={catalog.loading}>
           <FilteringTermBrowser
             variant="embedded"
             scope="genomicFeature"
-            terms={featureTerms.terms}
-            resources={featureTerms.resources}
+            terms={catalog.terms}
+            resources={catalog.resources}
             activeFilters={query.featureFilters}
             onAddFilter={applyFeatureFilter}
-            loading={featureTerms.loading}
-            error={featureTerms.error}
+            loading={catalog.loading}
+            error={catalog.error}
           />
         </TermBrowse>
       </div>
 
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-1.5">
         <QueryChipInput
           id="matrix-biosample-filter-input"
           label="Biosamples"
           chips={biosampleChips}
           text={biosampleText}
-          placeholder={biosampleTerms.loading ? 'Add filter…' : biosamplePlaceholder}
-          error={biosampleError || biosampleTerms.error}
+          placeholder={catalog.loading ? 'Add filter…' : biosamplePlaceholder}
+          error={biosampleError || catalog.error}
           examples={biosampleExamples.map((example) => ({
             label: example.label,
             onSelect: () => applyBiosampleFilter(example.filter),
           }))}
-          suggestions={querySuggestions(biosampleTerms.terms, biosampleText, 'biosample')}
+          suggestions={querySuggestions(catalog.terms, biosampleText, 'biosample')}
           onTextChange={(value) => {
             setBiosampleText(value)
             if (biosampleError) setBiosampleError('')
@@ -417,29 +435,22 @@ export function MatrixQueryPanel({
             if (last) removeBiosampleChip(last.key)
           }}
         />
-        <AxisTotal noun="biosamples" count={biosampleCount} />
-        <TermBrowse count={biosampleTermCount} loading={biosampleTerms.loading}>
+        <TermBrowse count={biosampleTermCount} loading={catalog.loading}>
           <FilteringTermBrowser
             variant="embedded"
             scope="biosample"
-            terms={biosampleTerms.terms}
-            resources={biosampleTerms.resources}
+            terms={catalog.terms}
+            resources={catalog.resources}
             activeFilters={query.biosampleFilters}
             onAddFilter={applyBiosampleFilter}
-            loading={biosampleTerms.loading}
-            error={biosampleTerms.error}
+            loading={catalog.loading}
+            error={catalog.error}
           />
         </TermBrowse>
       </div>
 
-      {capped && (
-        <p className="text-[11px] text-muted-foreground">
-          Gene and id lists are capped at 100 tokens.
-        </p>
-      )}
-
-      {hasRange && range?.min != null && range.max != null && (
-        <div className="border-t border-border pt-3">
+      <div className="min-w-0 space-y-1.5 lg:border-l lg:border-border lg:pl-3">
+        {hasRange && range?.min != null && range.max != null ? (
           <MatrixRangeFilter
             matrixMin={range.min}
             matrixMax={range.max}
@@ -447,9 +458,117 @@ export function MatrixQueryPanel({
             minValue={query.minValue}
             maxValue={query.maxValue}
             onApply={(minValue, maxValue) => onPatch({ minValue, maxValue })}
+            trailing={
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-9 shrink-0 px-2.5 text-foreground disabled:opacity-60"
+                disabled={!matrixWorkspaceHasConstraints(query)}
+                onClick={onClear}
+              >
+                Clear
+              </Button>
+            }
           />
+        ) : (
+          <div className="space-y-1.5">
+            <span className="block text-[11px] font-medium text-muted-foreground">Value range</span>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+              <p className="text-[11px] text-muted-foreground">No value range for this matrix.</p>
+              <span className="mx-0.5 shrink-0 text-sm text-muted-foreground" aria-hidden>
+                |
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-9 shrink-0 px-2.5 text-foreground disabled:opacity-60"
+                disabled={!matrixWorkspaceHasConstraints(query)}
+                onClick={onClear}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        )}
+        <div className="space-y-1.5">
+          <span className="block text-[11px] font-medium text-muted-foreground">
+            Expression threshold
+          </span>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+            <select
+              aria-label="Expression field"
+              value={exprField}
+              onChange={(event) =>
+                setExprField(event.target.value as 'expression.median' | 'expression.value')
+              }
+              className="h-9 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+            >
+              <option value="expression.median">expression.median</option>
+              <option value="expression.value">expression.value</option>
+            </select>
+            <span className="font-mono text-xs text-muted-foreground" aria-hidden>
+              &gt;=
+            </span>
+            <input
+              aria-label="Expression threshold value"
+              value={exprValue}
+              inputMode="decimal"
+              placeholder="e.g. 10"
+              onChange={(event) => {
+                setExprValue(event.target.value)
+                if (exprError) setExprError('')
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  applyExpressionThreshold()
+                }
+              }}
+              className="h-9 w-[4.75rem] shrink-0 rounded-md border border-border bg-background px-2 text-right font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-9 px-2.5"
+              onClick={applyExpressionThreshold}
+            >
+              Add
+            </Button>
+          </div>
+          {expressionChips.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {expressionChips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground hover:bg-muted"
+                  title={chip.title}
+                  onClick={() => removeExpressionChip(chip.key)}
+                >
+                  {chip.label} ×
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="text-[10px] leading-snug text-muted-foreground">
+            Median filters feature rows; value filters cells. Range above is minValue/maxValue
+            sugar.
+          </p>
+          {exprError && (
+            <p className="text-[11px] text-destructive" role="status">
+              {exprError}
+            </p>
+          )}
         </div>
-      )}
+        {capped && (
+          <p className="text-[10px] text-muted-foreground">
+            Gene and id lists are capped at 100 tokens.
+          </p>
+        )}
+      </div>
     </div>
   )
 }

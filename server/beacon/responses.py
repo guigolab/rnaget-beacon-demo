@@ -26,15 +26,36 @@ def build_received_summary(
     granularity: Granularity = Granularity.record,
     entity_type: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
+    current_page: Optional[str] = None,
+    next_page: Optional[str] = None,
+    previous_page: Optional[str] = None,
 ) -> Dict[str, Any]:
+    pagination: Dict[str, Any] = {"skip": skip, "limit": limit}
+    if current_page is not None:
+        pagination["currentPage"] = current_page
+    if next_page is not None:
+        pagination["nextPage"] = next_page
+    if previous_page is not None:
+        pagination["previousPage"] = previous_page
+    # Allow callers to overlay page tokens via ``extra["pagination"]``.
+    if extra and isinstance(extra.get("pagination"), dict):
+        for key, value in extra["pagination"].items():
+            if value is not None:
+                pagination[key] = value
     summary: Dict[str, Any] = {
         "apiVersion": config.API_VERSION,
         "requestedSchemas": requested_schemas_for_entity(entity_type),
         "requestedGranularity": granularity.value,
-        "pagination": {"skip": skip, "limit": limit},
+        "pagination": pagination,
     }
     if extra:
-        summary.update({k: v for k, v in extra.items() if v is not None})
+        summary.update(
+            {
+                k: v
+                for k, v in extra.items()
+                if v is not None and k != "pagination"
+            }
+        )
     return summary
 
 
@@ -86,6 +107,7 @@ def build_resultsets_response(
     received: Optional[Dict[str, Any]] = None,
     total_count: Optional[int] = None,
     results_are_page: bool = False,
+    info: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     schema_id = config.SCHEMA_IDS[entity_type]
     total = len(results) if total_count is None else int(total_count)
@@ -146,11 +168,14 @@ def build_resultsets_response(
             "responseSummary": {"exists": exists, "numTotalResults": total},
         }
 
-    return {
+    body: Dict[str, Any] = {
         "meta": meta,
         "responseSummary": {"exists": exists, "numTotalResults": total},
         "response": {"resultSets": result_sets},
     }
+    if info:
+        body["info"] = info
+    return body
 
 
 def build_informational_response(

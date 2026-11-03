@@ -4,16 +4,21 @@ import type { ReactNode } from 'react'
 import { useMemo } from 'react'
 import { AlphanumericTermCollapse } from '@/components/shared/alphanumeric-term-collapse'
 import { NamespaceTermCollapse } from '@/components/shared/namespace-term-collapse'
-import { filterKey, type UiFilter } from '@/lib/beacon'
+import type { UiFilter } from '@/lib/beacon'
 import type { FilteringResource, FilteringTerm } from '@/lib/beacon/types'
+import { LensMutedEndpoints } from '@/components/shared/lens-muted-endpoints'
 import {
   browsableTerms,
   isHiddenFilteringTerm,
   isLookupPrefix,
   lookupExample,
-  termToUiFilter,
 } from '@/lib/lens-catalog'
-import { groupTermsByNamespaceScope, type BeaconScope } from '@/lib/scope-theme'
+import {
+  groupTermsByNamespaceScope,
+  resourceAllowedInScope,
+  type BeaconScope,
+  type NamespaceScopeGroup,
+} from '@/lib/scope-theme'
 
 type FilteringTermBrowserProps = {
   scope: BeaconScope
@@ -26,17 +31,20 @@ type FilteringTermBrowserProps = {
   variant?: 'sidebar' | 'embedded'
 }
 
-function activeTermIds(filters: UiFilter[]): Set<string> {
-  const ids = new Set<string>()
-  for (const filter of filters) {
-    if (filter.kind === 'ontology' || filter.kind === 'custom') {
-      ids.add(filter.id.toLowerCase())
-    }
-    if (filter.kind === 'alphanumeric' || filter.kind === 'sex') {
-      ids.add(filterKey(filter))
-    }
+function customNamespaceGroup(
+  scope: BeaconScope,
+  terms: FilteringTerm[]
+): NamespaceScopeGroup | null {
+  if (!terms.length) return null
+  return {
+    key: `custom|${scope}`,
+    namespaceType: 'custom',
+    namespaceLabel: 'custom',
+    scope,
+    terms,
+    count: terms.length,
+    valueCount: terms.length,
   }
-  return ids
 }
 
 export function FilteringTermBrowser({
@@ -84,6 +92,11 @@ export function FilteringTermBrowser({
     [scope, visible]
   )
 
+  const customGroup = useMemo(
+    () => customNamespaceGroup(scope, customTerms),
+    [customTerms, scope]
+  )
+
   const resourceByPrefix = useMemo(() => {
     const map = new Map<string, FilteringResource>()
     for (const resource of resources) {
@@ -97,17 +110,17 @@ export function FilteringTermBrowser({
     [ontologyGroups]
   )
 
-  const lookupResources = useMemo(
+  /** Scoped resources with no term group yet (lookups + ontology like GO). */
+  const resourceOnlyNamespaces = useMemo(
     () =>
       resources.filter(
         (resource) =>
-          isLookupPrefix(resource.nameSpacePrefix) &&
+          resourceAllowedInScope(scope, resource) &&
+          Boolean(resource.nameSpacePrefix) &&
           !collapsedPrefixes.has(resource.nameSpacePrefix ?? '')
       ),
-    [collapsedPrefixes, resources]
+    [collapsedPrefixes, resources, scope]
   )
-
-  const activeIds = useMemo(() => activeTermIds(activeFilters), [activeFilters])
 
   if (variant === 'embedded' && loading) {
     return <p className="text-xs text-muted-foreground">Loading terms…</p>
@@ -119,8 +132,8 @@ export function FilteringTermBrowser({
   const empty =
     ontologyGroups.length === 0 &&
     alphanumericTerms.length === 0 &&
-    customTerms.length === 0 &&
-    lookupResources.length === 0
+    !customGroup &&
+    resourceOnlyNamespaces.length === 0
 
   return (
     <ul className={variant === 'embedded' ? 'space-y-2' : 'space-y-2'}>
@@ -145,43 +158,38 @@ export function FilteringTermBrowser({
           />
         </li>
       ))}
-      {customTerms.map((term) => {
-        const filter = termToUiFilter(term)
-        const selected = activeIds.has(term.id.toLowerCase())
-        const label = term.label ?? term.id
+      {customGroup && (
+        <li key={customGroup.key}>
+          <NamespaceTermCollapse
+            group={customGroup}
+            scope={scope}
+            activeFilters={activeFilters}
+            onAddFilter={onAddFilter}
+          />
+        </li>
+      )}
+      {resourceOnlyNamespaces.map((resource) => {
+        const prefix = resource.nameSpacePrefix ?? ''
+        const hint = isLookupPrefix(prefix)
+          ? `type ${lookupExample(prefix)}`
+          : 'no catalogued terms · type CURIE in query'
         return (
-          <li key={term.id}>
-            <button
-              type="button"
-              disabled={selected}
-              title={selected ? `${label} · in query` : term.id}
-              className="block w-full min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2 text-left hover:bg-muted/50 disabled:cursor-default disabled:opacity-50"
-              onClick={() => onAddFilter(filter)}
-            >
-              <span className="block text-xs font-medium text-foreground">{label}</span>
-              <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground">
-                {term.id}
-              </span>
-            </button>
+          <li key={resource.id ?? prefix}>
+            <div className="min-w-0 rounded-md border border-dashed border-border bg-muted/30 px-2.5 py-2">
+              <p className="font-mono text-[11px] font-semibold text-foreground">
+                {prefix}
+              </p>
+              <p className="text-xs leading-snug text-muted-foreground">
+                {resource.name ?? resource.id}
+                <span className="text-muted-foreground/80">
+                  {' · '}
+                  {hint}
+                </span>
+              </p>
+            </div>
           </li>
         )
       })}
-      {lookupResources.map((resource) => (
-        <li key={resource.id ?? resource.nameSpacePrefix}>
-          <div className="min-w-0 rounded-md border border-border bg-muted/30 px-2.5 py-2">
-            <p className="font-mono text-[11px] font-semibold text-foreground">
-              {resource.nameSpacePrefix}
-            </p>
-            <p className="text-xs leading-snug text-muted-foreground">
-              {resource.name ?? resource.id}
-              <span className="text-muted-foreground/80">
-                {' · '}
-                type {lookupExample(resource.nameSpacePrefix ?? '')}
-              </span>
-            </p>
-          </div>
-        </li>
-      ))}
       {empty && <li className="text-xs text-muted-foreground">No terms in this catalog.</li>}
     </ul>
   )
@@ -204,9 +212,9 @@ export function FilteringTermSidebar({
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Namespaces
         </h2>
-        <p className="mt-1 truncate text-[11px] leading-relaxed text-muted-foreground/80" title={source}>
-          {source}
-        </p>
+        <div className="mt-1 min-w-0 truncate" title={source}>
+          <LensMutedEndpoints lines={[source]} />
+        </div>
         {loading && <p className="mt-3 text-xs text-muted-foreground">Loading…</p>}
         {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
         {!loading && !error && <div className="mt-3">{children}</div>}

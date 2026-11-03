@@ -220,31 +220,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /biosamples/filtering_terms:
-    get:
-      tags:
-      - Biosamples
-      summary: Biosamples Filtering Terms
-      operationId: biosamples_filtering_terms_biosamples_filtering_terms_get
-      responses:
-        '200':
-          description: Beacon filtering terms response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
-    post:
-      tags:
-      - Biosamples
-      summary: Biosamples Filtering Terms
-      operationId: biosamples_filtering_terms_biosamples_filtering_terms_post
-      responses:
-        '200':
-          description: Beacon filtering terms response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
   /biosamples/{id}:
     get:
       tags:
@@ -377,6 +352,22 @@ paths:
           - type: string
           - type: 'null'
           title: Requestedgranularity
+      - name: filters
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filters
+      - name: matrixIDList
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Matrixidlist
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -557,31 +548,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /features/filtering_terms:
-    get:
-      tags:
-      - Genomic features
-      summary: Features Filtering Terms
-      operationId: features_filtering_terms_features_filtering_terms_get
-      responses:
-        '200':
-          description: Beacon filtering terms response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
-    post:
-      tags:
-      - Genomic features
-      summary: Features Filtering Terms
-      operationId: features_filtering_terms_features_filtering_terms_post
-      responses:
-        '200':
-          description: Beacon filtering terms response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
   /features/{id}:
     get:
       tags:
@@ -714,6 +680,22 @@ paths:
           - type: string
           - type: 'null'
           title: Requestedgranularity
+      - name: filters
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filters
+      - name: matrixIDList
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Matrixidlist
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -894,31 +876,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /matrices/filtering_terms:
-    get:
-      tags:
-      - Matrices
-      summary: Matrices Filtering Terms
-      operationId: matrices_filtering_terms_matrices_filtering_terms_get
-      responses:
-        '200':
-          description: Beacon filtering terms response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
-    post:
-      tags:
-      - Matrices
-      summary: Matrices Filtering Terms
-      operationId: matrices_filtering_terms_matrices_filtering_terms_post
-      responses:
-        '200':
-          description: Beacon filtering terms response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
   /matrices/{id}:
     get:
       tags:
@@ -1177,12 +1134,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /matrices/{id}/features/filtering_terms:
+  /matrices/{id}/filtering_terms:
     post:
       tags:
       - Matrices
-      summary: Matrix Features Filtering Terms
-      operationId: matrix_features_filtering_terms_matrices__id__features_filtering_terms_post
+      summary: Matrix Scoped Filtering Terms
+      operationId: matrix_scoped_filtering_terms_matrices__id__filtering_terms_post
       parameters:
       - name: id
         in: path
@@ -1206,59 +1163,8 @@ paths:
     get:
       tags:
       - Matrices
-      summary: Matrix Features Filtering Terms
-      operationId: matrix_features_filtering_terms_matrices__id__features_filtering_terms_get
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Id
-      responses:
-        '200':
-          description: Beacon filtering terms response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /matrices/{id}/biosamples/filtering_terms:
-    post:
-      tags:
-      - Matrices
-      summary: Matrix Biosamples Filtering Terms
-      operationId: matrix_biosamples_filtering_terms_matrices__id__biosamples_filtering_terms_post
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Id
-      responses:
-        '200':
-          description: Beacon filtering terms response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    get:
-      tags:
-      - Matrices
-      summary: Matrix Biosamples Filtering Terms
-      operationId: matrix_biosamples_filtering_terms_matrices__id__biosamples_filtering_terms_get
+      summary: Matrix Scoped Filtering Terms
+      operationId: matrix_scoped_filtering_terms_matrices__id__filtering_terms_get
       parameters:
       - name: id
         in: path
@@ -1503,6 +1409,26 @@ paths:
           - type: number
           - type: 'null'
           title: Maxvalue
+      - name: sort
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/ExpressionValueSort'
+          default: id
+      - name: order
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/AxisOrder'
+          default: asc
+      - name: pageToken
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pagetoken
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1536,133 +1462,6 @@ paths:
       - Matrices
       summary: Post Expression Values
       operationId: post_expression_values_matrices__id__expression_values_post
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ExpressionValuesRequestBody'
-      responses:
-        '200':
-          description: Beacon success response (boolean, count, or resultSets by granularity)
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - $ref: '#/components/schemas/BeaconBooleanResponse'
-                - $ref: '#/components/schemas/BeaconCountResponse'
-                - $ref: '#/components/schemas/BeaconResultsetsResponse'
-        '400':
-          description: Beacon error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconErrorResponse'
-        '404':
-          description: Beacon error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconErrorResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /matrices/{id}/expression_summary:
-    get:
-      tags:
-      - Matrices
-      summary: Get Matrix Expression Summary
-      operationId: get_matrix_expression_summary_matrices__id__expression_summary_get
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Id
-      - name: featureIDList
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Featureidlist
-      - name: groupBy
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Groupby
-      - name: threshold
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: number
-          - type: 'null'
-          title: Threshold
-      - name: filters
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Filters
-      - name: requestedGranularity
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Requestedgranularity
-      responses:
-        '200':
-          description: Beacon success response (boolean, count, or resultSets by granularity)
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - $ref: '#/components/schemas/BeaconBooleanResponse'
-                - $ref: '#/components/schemas/BeaconCountResponse'
-                - $ref: '#/components/schemas/BeaconResultsetsResponse'
-        '400':
-          description: Beacon error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconErrorResponse'
-        '404':
-          description: Beacon error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconErrorResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    post:
-      tags:
-      - Matrices
-      summary: Post Matrix Expression Summary
-      operationId: post_matrix_expression_summary_matrices__id__expression_summary_post
       parameters:
       - name: id
         in: path
@@ -1872,6 +1671,16 @@ components:
       - id
       title: CustomFilter
       type: object
+    ExpressionValueSort:
+      type: string
+      enum:
+      - id
+      - value
+      title: ExpressionValueSort
+      description: 'Sort key for /matrices/{id}/expression_values.
+
+
+        ``id`` (feature_id, biosample_id; default) or ``value`` (the cell value).'
     ExpressionValuesRequestBody:
       properties:
         meta:
@@ -1885,7 +1694,7 @@ components:
       additionalProperties: false
       type: object
       title: ExpressionValuesRequestBody
-      description: POST body for matrix expression_values / expression_summary.
+      description: POST body for matrix expression_values.
     FilteringTermsPayload:
       properties:
         filteringTerms:
@@ -1981,6 +1790,24 @@ components:
           - type: 'null'
           default: 10
           title: Limit
+        currentPage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Currentpage
+        nextPage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Nextpage
+        previousPage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Previouspage
       title: Pagination
       type: object
     ResponseMeta:
@@ -2108,14 +1935,13 @@ components:
           nullable: true
           description: 'Page of entity records. Item schema depends on setType: matrix
             → Matrix, feature → GenomicFeatureWrapper, biosample → Biosample, expressionValue
-            → ExpressionValue, expressionSummary → ExpressionSummary.'
+            → ExpressionValue.'
           items:
             oneOf:
             - $ref: '#/components/schemas/Matrix'
             - $ref: '#/components/schemas/GenomicFeatureWrapper'
             - $ref: '#/components/schemas/Biosample'
             - $ref: '#/components/schemas/ExpressionValue'
-            - $ref: '#/components/schemas/ExpressionSummary'
       required:
       - id
       - setType
@@ -2718,66 +2544,4 @@ components:
       - matrixId
       - id
       title: Expression value
-      type: object
-    ExpressionSummary:
-      additionalProperties: true
-      description: Aggregate expression statistics for one genomic feature in one
-        matrix, optionally split by a biosample group.
-      properties:
-        id:
-          description: Internal identifier for this summary row.
-          type: string
-        matrixId:
-          description: Matrix this summary was computed from.
-          type: string
-        featureId:
-          description: Native feature accession (genomicFeature.featureIdentifier.id).
-          type: string
-        n:
-          description: Number of biosamples included in the aggregate.
-          minimum: 0
-          type: integer
-        mean:
-          type:
-          - number
-          - 'null'
-        median:
-          type:
-          - number
-          - 'null'
-        q1:
-          type:
-          - number
-          - 'null'
-        q3:
-          type:
-          - number
-          - 'null'
-        min:
-          type:
-          - number
-          - 'null'
-        max:
-          type:
-          - number
-          - 'null'
-        minBiosampleId:
-          type: string
-        maxBiosampleId:
-          type: string
-        fractionAboveThreshold:
-          type: number
-        group:
-          description: Present when the request set groupBy.
-          properties:
-            id:
-              type: string
-            label:
-              type: string
-          type: object
-      required:
-      - id
-      - matrixId
-      - featureId
-      - n
       type: object

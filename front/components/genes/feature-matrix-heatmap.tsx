@@ -1,24 +1,30 @@
 'use client'
 
 import { Popover } from '@base-ui/react/popover'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   FeatureHeatmapPopoverContent,
   type HeatmapPopoverInspect,
 } from '@/components/genes/feature-heatmap-popover-content'
-import { MatrixUnitToggle } from '@/components/genes/matrix-unit-toggle'
-import { useFeatureExpressionGrid } from '@/hooks/use-feature-expression-grid'
-import { resolveUnitBucket, useMatricesByIds } from '@/hooks/use-matrices-by-ids'
-import type { Matrix, UiFilter } from '@/lib/beacon'
+import { BandHeatmapLegend } from '@/components/shared/band-heatmap-legend'
+import { useFeatureBandGrid } from '@/hooks/use-feature-band-grid'
+import { useMatricesByIds } from '@/hooks/use-matrices-by-ids'
+import type { UiFilter } from '@/lib/beacon'
 import type { Feature } from '@/lib/beacon/types'
+import {
+  bandFill,
+  bandLabel,
+  bandShortLabel,
+  bandTextColor,
+} from '@/lib/expression-band'
 import { featureDisplayLabel } from '@/lib/gene-lens'
-import { COLOR_MISSING, COLOR_TEXT_DARK } from '@/components/heatmap-colors'
-import { formatHeatmapValue, heatFill, heatTextColor } from '@/lib/heatmap-expression'
 import {
   HEATMAP_CELL_CLASS,
   HEATMAP_FEATURE_COL_CLASS,
   HEATMAP_FEW_BIOSAMPLE_MAX,
 } from '@/lib/heatmap-table'
+import { matrixUnitLabel } from '@/lib/comparability'
+import { COLOR_MISSING, COLOR_TEXT_DARK } from '@/components/heatmap-colors'
 
 type FeatureMatrixHeatmapProps = {
   features: Feature[]
@@ -26,10 +32,7 @@ type FeatureMatrixHeatmapProps = {
   selectedFeatureId: string | null
   activeFilters: UiFilter[]
   onAddFilter: (filter: UiFilter) => void
-  unitKey: string | null
-  onUnitKeyChange: (key: string) => void
 }
-
 
 function shortMatrixLabel(id: string): string {
   if (id.length <= 14) return id
@@ -50,19 +53,16 @@ export function FeatureMatrixHeatmap({
   selectedFeatureId,
   activeFilters,
   onAddFilter,
-  unitKey,
-  onUnitKeyChange,
 }: FeatureMatrixHeatmapProps) {
   const popoverHandle = useMemo(() => Popover.createHandle(), [])
-  const { pendingCount: expressionPending, error, matrixIds, getCell } =
-    useFeatureExpressionGrid(features)
+  const { pendingCount: bandPending, error, matrixIds, getCell } =
+    useFeatureBandGrid(features, focusMatrix)
   const {
     matrices,
-    buckets,
     pendingCount: matricesPending,
     error: matricesError,
   } = useMatricesByIds(matrixIds)
-  const dataPending = expressionPending + matricesPending > 0
+  const dataPending = bandPending + matricesPending > 0
   const [inspect, setInspect] = useState<HeatmapPopoverInspect | null>(null)
 
   const matrixById = useMemo(
@@ -73,56 +73,8 @@ export function FeatureMatrixHeatmap({
     () => new Map(features.map((f) => [f.id, f])),
     [features]
   )
-  const featureKey = useMemo(
-    () => features.map((f) => f.id).join('|'),
-    [features]
-  )
 
-  const activeBucket = useMemo(
-    () => resolveUnitBucket(buckets, unitKey),
-    [buckets, unitKey]
-  )
-
-  const columns = useMemo(() => {
-    const ids =
-      activeBucket?.matrices
-        .map((m) => m.matrixId)
-        .filter((id): id is string => Boolean(id)) ?? []
-    const sorted = [...ids].sort((a, b) => a.localeCompare(b))
-    if (focusMatrix) return sorted.filter((id) => id === focusMatrix)
-    return sorted
-  }, [activeBucket, focusMatrix])
-
-  const columnKey = columns.join('|')
-  const scaleBoundsRef = useRef<{ min: number; max: number } | null>(null)
-
-  useEffect(() => {
-    scaleBoundsRef.current = null
-  }, [featureKey, columnKey])
-
-  const { scaleMin, scaleMax } = useMemo(() => {
-    const values: number[] = []
-    for (const feature of features) {
-      for (const matrixId of columns) {
-        const median = getCell(feature.id, matrixId)?.median
-        if (median != null && Number.isFinite(median)) values.push(median)
-      }
-    }
-    if (!values.length) {
-      const b = scaleBoundsRef.current
-      return b
-        ? { scaleMin: b.min, scaleMax: b.max }
-        : { scaleMin: 0, scaleMax: 1 }
-    }
-    const nextMin = Math.min(...values)
-    const nextMax = Math.max(...values)
-    const prev = scaleBoundsRef.current
-    const merged = prev
-      ? { min: Math.min(prev.min, nextMin), max: Math.max(prev.max, nextMax) }
-      : { min: nextMin, max: nextMax }
-    scaleBoundsRef.current = merged
-    return { scaleMin: merged.min, scaleMax: merged.max }
-  }, [features, columns, getCell, featureKey, columnKey])
+  const columns = matrixIds
 
   function openInspect(next: HeatmapPopoverInspect) {
     setInspect(next)
@@ -165,8 +117,7 @@ export function FeatureMatrixHeatmap({
                         ? matrixById.get(inspect.matrixId)
                         : undefined
                   }
-                  median={popoverCell?.median}
-                  summary={popoverCell?.summary}
+                  band={popoverCell?.band}
                   activeFilters={activeFilters}
                   onAddFilter={onAddFilter}
                   matrixContextFeature={
@@ -196,18 +147,13 @@ export function FeatureMatrixHeatmap({
       <div className="overflow-x-auto rounded-lg border border-border bg-muted/20">
         <div className="border-b border-border bg-muted/40 px-3 py-2">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <MatrixUnitToggle
-              className="min-w-0 flex-1"
-              buckets={buckets}
-              activeKey={activeBucket?.key ?? null}
-              onChange={onUnitKeyChange}
-            />
+            <BandHeatmapLegend className="min-w-0 flex-1" />
             {dataPending && (
               <span
                 className="shrink-0 text-[11px] text-muted-foreground"
                 aria-live="polite"
               >
-                Updating values…
+                Updating bands…
               </span>
             )}
           </div>
@@ -236,25 +182,29 @@ export function FeatureMatrixHeatmap({
               >
                 Feature
               </th>
-              {columns.map((matrixId) => (
-                <th
-                  key={matrixId}
-                  className="sticky top-0 z-[20] border-b border-border bg-muted px-0.5 py-1 text-center"
-                >
-                  <Popover.Trigger
-                    handle={popoverHandle}
-                    id={triggerId({ kind: 'matrix-header', matrixId })}
-                    type="button"
-                    title={matrixId}
-                    className={`w-full rounded-md px-1 py-1.5 font-mono text-[10px] font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground ${
-                      fewColumnLayout ? '' : 'max-w-[4.25rem]'
-                    }`}
-                    onClick={() => openInspect({ kind: 'matrix-header', matrixId })}
+              {columns.map((matrixId) => {
+                const matrix = matrixById.get(matrixId)
+                const unitTip = matrix ? matrixUnitLabel(matrix) : undefined
+                return (
+                  <th
+                    key={matrixId}
+                    className="sticky top-0 z-[20] border-b border-border bg-muted px-0.5 py-1 text-center"
                   >
-                    <span className="block truncate">{shortMatrixLabel(matrixId)}</span>
-                  </Popover.Trigger>
-                </th>
-              ))}
+                    <Popover.Trigger
+                      handle={popoverHandle}
+                      id={triggerId({ kind: 'matrix-header', matrixId })}
+                      type="button"
+                      title={unitTip ? `${matrixId} · ${unitTip}` : matrixId}
+                      className={`w-full rounded-md px-1 py-1.5 font-mono text-[10px] font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground ${
+                        fewColumnLayout ? '' : 'max-w-[4.25rem]'
+                      }`}
+                      onClick={() => openInspect({ kind: 'matrix-header', matrixId })}
+                    >
+                      <span className="block truncate">{shortMatrixLabel(matrixId)}</span>
+                    </Popover.Trigger>
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>
@@ -284,18 +234,14 @@ export function FeatureMatrixHeatmap({
                   </th>
                   {columns.map((matrixId) => {
                     const cell = getCell(feature.id, matrixId)
-                    const value = cell?.median
-                    const hasValue = value != null && Number.isFinite(value)
-                    const bg = hasValue
-                      ? heatFill(value, scaleMin, scaleMax)
-                      : COLOR_MISSING
-                    const color = hasValue
-                      ? heatTextColor(value, scaleMin, scaleMax)
-                      : COLOR_TEXT_DARK
+                    const band = cell?.band
+                    const ready = band != null
+                    const bg = ready ? bandFill(band) : COLOR_MISSING
+                    const color = ready ? bandTextColor(band) : COLOR_TEXT_DARK
 
                     return (
                       <td key={matrixId} className="border-b border-border/60 p-0.5">
-                        {hasValue ? (
+                        {ready ? (
                           <Popover.Trigger
                             handle={popoverHandle}
                             id={triggerId({
@@ -304,7 +250,7 @@ export function FeatureMatrixHeatmap({
                               matrixId,
                             })}
                             type="button"
-                            title={`${featureDisplayLabel(feature)} · ${formatHeatmapValue(value!)}`}
+                            title={`${featureDisplayLabel(feature)} · ${bandLabel(band)}`}
                             className={`${HEATMAP_CELL_CLASS} ring-offset-background transition-[background-color,color,transform,box-shadow] duration-300 hover:ring-2 hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
                             style={{ backgroundColor: bg, color }}
                             onClick={() =>
@@ -315,7 +261,7 @@ export function FeatureMatrixHeatmap({
                               })
                             }
                           >
-                            {formatHeatmapValue(value)}
+                            {bandShortLabel(band)}
                           </Popover.Trigger>
                         ) : (
                           <span
@@ -323,7 +269,7 @@ export function FeatureMatrixHeatmap({
                             style={{ backgroundColor: bg, color }}
                             aria-hidden
                           >
-                            —
+                            …
                           </span>
                         )}
                       </td>
@@ -337,7 +283,7 @@ export function FeatureMatrixHeatmap({
       </div>
       {!dataPending && columns.length === 0 && (
         <p className="text-xs text-muted-foreground">
-          No matrices in this unit view
+          No matrices for these features
           {focusMatrix ? ' (check matrix scope)' : ''}.
         </p>
       )}

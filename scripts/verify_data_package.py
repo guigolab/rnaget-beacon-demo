@@ -46,9 +46,29 @@ def _check_stats_parquet(
     cols = set(table.column_names)
     required_cols = [id_col, "min_value", "max_value"]
     if id_col == "feature_id":
-        required_cols.extend(["min_biosample_id", "max_biosample_id"])
+        required_cols.extend(
+            [
+                "min_biosample_id",
+                "max_biosample_id",
+                "n",
+                "nonzero_count",
+                "detected_fraction",
+                "mean",
+                "median",
+                "band",
+                "profile",
+                "enriched_in",
+            ]
+        )
     else:
-        required_cols.extend(["min_feature_id", "max_feature_id"])
+        required_cols.extend(
+            [
+                "min_feature_id",
+                "max_feature_id",
+                "detected_genes",
+                "detected_genes_band",
+            ]
+        )
     for required in required_cols:
         if required not in cols:
             errs.append(f"{matrix_id}: {label} missing column {required}")
@@ -175,6 +195,26 @@ def main(argv: List[str] | None = None) -> int:
                     label="biosample_expression_stats",
                 )
             )
+        # Percentile files are optional (built at fetch time, not in CI packages).
+        for pct_name, id_cols in (
+            ("percentile_in_feature.parquet", ("feature_id", "biosample_id", "pct")),
+            ("percentile_in_biosample.parquet", ("feature_id", "biosample_id", "pct")),
+        ):
+            pct_path = matrix_dir / pct_name
+            if not pct_path.is_file():
+                continue
+            try:
+                import pyarrow.parquet as pq
+
+                pct_table = pq.read_table(pct_path)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{mid}: {pct_name} unreadable: {exc}")
+                continue
+            if pct_table.num_rows <= 0:
+                errors.append(f"{mid}: {pct_name} has zero rows")
+            for col in id_cols:
+                if col not in pct_table.column_names:
+                    errors.append(f"{mid}: {pct_name} missing column {col}")
         merged_expr = matrix_dir / "expression.parquet"
         expr = matrix_dir / "expression"
         parts = sorted(expr.glob("part-*.parquet")) if expr.is_dir() else []
@@ -537,7 +577,7 @@ def main(argv: List[str] | None = None) -> int:
                     errors.append(f"filteringTerm {term.get('id')!r} missing {req}")
                     break
             tid = str(term.get("id") or "")
-            if tid in ("resource:gencode", "GEO:sample"):
+            if tid in ("resource:gencode", "GEO:sample", "genomicFeature.symbol"):
                 errors.append(
                     f"filteringTerms must not include deprecated facet {tid!r}"
                 )
@@ -574,6 +614,8 @@ def main(argv: List[str] | None = None) -> int:
                 errors.append(
                     "filtering_terms resources missing ncbigene (xrefs present)"
                 )
+            if "symbol" not in res_ids:
+                errors.append("filtering_terms resources missing symbol")
         meta_ft = manifest.get("filteringTerms")
         if isinstance(meta_ft, dict) and "termCount" in meta_ft:
             if meta_ft.get("termCount") != len(ft_terms):
@@ -581,6 +623,34 @@ def main(argv: List[str] | None = None) -> int:
                     f"manifest.filteringTerms.termCount={meta_ft.get('termCount')} "
                     f"!= filteringTerms length={len(ft_terms)}"
                 )
+
+        # Per-matrix catalogs (produced by fetch_data_package / build_all_filtering_terms)
+        by_matrix_dir = root / "filtering_terms" / "by_matrix"
+        matrix_ids = [
+            str(e.get("matrix_id") or "").strip()
+            for e in (manifest.get("matrices") or [])
+            if e.get("matrix_id")
+        ]
+        if matrix_ids and not by_matrix_dir.is_dir():
+            errors.append("missing filtering_terms/by_matrix directory")
+        elif by_matrix_dir.is_dir():
+            for mid in matrix_ids:
+                safe = mid.replace("/", "_")
+                path = by_matrix_dir / f"{safe}.json"
+                if not path.is_file():
+                    errors.append(f"missing matrix filtering_terms for {mid}")
+                    continue
+                with path.open(encoding="utf-8") as fh:
+                    mdoc = json.load(fh)
+                if not isinstance(mdoc.get("filteringTerms"), list):
+                    errors.append(f"matrix filtering_terms {mid} missing filteringTerms")
+                mres = {
+                    str(r.get("id") or "").lower()
+                    for r in (mdoc.get("resources") or [])
+                    if isinstance(r, dict)
+                }
+                if not mres:
+                    errors.append(f"matrix filtering_terms {mid} has empty resources")
 
     # Package-root feature / biosample indexes (after build_feature_indexes)
     index_paths = {

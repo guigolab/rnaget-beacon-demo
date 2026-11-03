@@ -4,16 +4,6 @@ import type { Feature, FilteringTerm, UiFilter } from '@/lib/beacon/types'
 const PREFERRED_FEATURE_TYPES = ['SO:0001217', 'SO:0002127']
 const SAMPLE_STATUS_IDS = new Set(['EFO:0009654', 'EFO:0009655'])
 
-export function matrixHeatmapFilteringTermsPath(
-  matrixId: string,
-  axis: 'features' | 'biosamples'
-): string {
-  const enc = encodeURIComponent(matrixId)
-  return axis === 'features'
-    ? `/matrices/${enc}/features/filtering_terms`
-    : `/matrices/${enc}/biosamples/filtering_terms`
-}
-
 function pushOntology(
   examples: Array<{ label: string; filter: UiFilter }>,
   term: FilteringTerm
@@ -42,7 +32,10 @@ export function matrixHeatmapFeatureExamples(
     const key = symbol.toUpperCase()
     if (seen.has(key)) continue
     seen.add(key)
-    examples.push({ label: symbol, filter: { kind: 'symbol', value: symbol } })
+    examples.push({
+      label: symbol,
+      filter: { kind: 'custom', id: `symbol:${symbol}`, label: symbol },
+    })
   }
 
   const biotypes = terms.filter(

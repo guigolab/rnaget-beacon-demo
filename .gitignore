@@ -7,3 +7,4 @@ scripts/.venv/
 scripts/.cache/
 # Repo-root demo/local packages only (keep scripts/data/ maps tracked).
 /data/
+graphify-out/

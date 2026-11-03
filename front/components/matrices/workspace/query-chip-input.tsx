@@ -42,12 +42,12 @@ export function QueryChipInput({
   onBackspaceEmpty,
 }: QueryChipInputProps) {
   return (
-    <div className="space-y-2">
-      <label htmlFor={id} className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="text-[11px] font-medium text-muted-foreground">
         {label}
       </label>
-      <div className="rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-ring/30">
-        <div className="flex min-h-11 flex-wrap items-center gap-1.5 px-2 py-1.5">
+      <div className="rounded-md border border-border bg-background focus-within:ring-2 focus-within:ring-ring/30">
+        <div className="flex min-h-9 flex-wrap items-center gap-1.5 px-2 py-1">
           {chips.map((chip) => (
             <FilterChipButton
               key={chip.key}

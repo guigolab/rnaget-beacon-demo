@@ -42,7 +42,13 @@ const preview: Feature[] = [
 
 const gtexFeatures = matrixHeatmapFeatureExamples(gtexFeatureTerms, preview)
 assert.deepEqual(
-  gtexFeatures.filter((example) => example.filter.kind === 'symbol').map((example) => example.label),
+  gtexFeatures
+    .filter(
+      (example) =>
+        example.filter.kind === 'custom' &&
+        example.filter.id.toLowerCase().startsWith('symbol:')
+    )
+    .map((example) => example.label),
   ['MT-ND4', 'MT-CO3']
 )
 assert.ok(!gtexFeatures.some((example) => ontologyId(example.filter) === 'SO:0000704'))

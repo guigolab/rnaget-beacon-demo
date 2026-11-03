@@ -120,11 +120,18 @@ jobs:
       - name: Build feature/biosample indexes
         run: python scripts/build_feature_indexes.py --package dist/data-package
 
-      - name: Build filtering terms catalog
-        run: python scripts/build_filtering_terms.py --package dist/data-package
-
       - name: Build expression stats
+        # Extended feature/biosample stats (bands, profiles, detection).
+        # Percentile parquet files are intentionally NOT built here — they roughly
+        # double package size and would blow the 2 GiB GitHub Release asset limit.
+        # scripts/fetch_data_package.py builds them after download/merge.
         run: python scripts/build_expression_stats.py --package dist/data-package
+
+      - name: Build filtering_terms catalogs
+        # Same entrypoint as fetch_data_package post-process; avoid re-merge/stats.
+        # Root catalogs include categorical expression.* terms; per-matrix catalogs
+        # add continuous expression.* fields (percentile terms appear only after fetch).
+        run: python scripts/build_matrix_filtering_terms.py --with-root --package dist/data-package
 
       - name: Disk usage after hydrate
         run: |

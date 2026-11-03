@@ -26,7 +26,7 @@ export function GeneFeatureQueryBar({
   onChange,
   probe,
   scopeIndex,
-  termsPath = '/features/filtering_terms',
+  termsPath = '/filtering_terms',
 }: GeneFeatureQueryBarProps) {
   const { terms, resources, error, loading } = useFilteringTerms(termsPath)
   const labelCatalog = useMemo(() => catalogLabelById(terms), [terms])

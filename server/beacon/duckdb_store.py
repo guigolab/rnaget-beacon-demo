@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
 import os
 import re
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import duckdb
+
+from beacon.filters import (
+    EXPRESSION_BIOSAMPLE_ALPHANUMERIC,
+    EXPRESSION_FEATURE_ALPHANUMERIC,
+    EXPRESSION_VALUE_ALPHANUMERIC,
+    axis_filter_scope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +59,75 @@ BIOSAMPLE_HYDRATE_COLS: Tuple[str, ...] = (
 )
 
 AXIS_SORT_VALUES = frozenset({"id", "expression.min", "expression.max"})
+# ``id`` (feature_id, biosample_id) is the default; ``value`` sorts by the cell value.
+EXPRESSION_VALUE_SORT_VALUES = frozenset({"id", "value"})
 AXIS_ORDER_VALUES = frozenset({"asc", "desc"})
+
+
+def _csv_tokens(value: Optional[str]) -> List[str]:
+    if not value:
+        return []
+    return [part.strip() for part in str(value).split(",") if part.strip()]
+
+
+def expression_values_limit_cap(
+    feature_id_list: Optional[str],
+    biosample_id_list: Optional[str],
+) -> Optional[int]:
+    """Deprecated: expression_values page sizes are no longer capped by ID-list
+    shape. Kept for backward compatibility; always returns ``None``.
+    """
+    del feature_id_list, biosample_id_list
+    return None
+
+
+def apply_expression_values_limit_cap(
+    limit: Optional[int],
+    feature_id_list: Optional[str] = None,
+    biosample_id_list: Optional[str] = None,
+) -> Optional[int]:
+    """Deprecated no-op cap (the 20/10 one-sided-list caps were removed).
+
+    Still clamps to ``MAX_PAGE_LIMIT`` and non-negative, like other pages.
+    """
+    del feature_id_list, biosample_id_list
+    if limit is None:
+        return None
+    return max(0, min(int(limit), MAX_PAGE_LIMIT))
+
+
+def list_position_rank_sql(
+    column_sql: str, ordered_ids: Sequence[str]
+) -> Tuple[str, List[Any]]:
+    """CASE expression mapping ``column_sql`` to 0-based list position."""
+    if not ordered_ids:
+        return "0", []
+    parts: List[str] = []
+    params: List[Any] = []
+    for index, raw in enumerate(ordered_ids):
+        token = str(raw)
+        parts.append(f"WHEN CAST({column_sql} AS VARCHAR) = ? THEN {index}")
+        params.append(token)
+    return (
+        f"(CASE {' '.join(parts)} ELSE {len(ordered_ids)} END)",
+        params,
+    )
+
+
+def combined_list_rank_sort_key(
+    feature_rank: int, biosample_rank: int
+) -> Tuple[int, int, int, int]:
+    """Primary key for both-list queries: neither axis wins alone.
+
+    Sort by sum of ranks, then |feature - biosample| (prefer diagonal),
+    then each side for stability.
+    """
+    return (
+        feature_rank + biosample_rank,
+        abs(feature_rank - biosample_rank),
+        feature_rank,
+        biosample_rank,
+    )
 
 
 def normalize_axis_sort(
@@ -64,6 +142,21 @@ def normalize_axis_sort(
     return s, o
 
 
+def normalize_expression_value_sort(
+    sort: Optional[str] = None, order: Optional[str] = None
+) -> Tuple[str, str]:
+    """Expression values sort by ``id`` (feature_id, biosample_id; default) or
+    ``value`` (the cell value); ``order`` controls direction either way.
+    """
+    s = (sort or "id").strip()
+    o = (order or "asc").strip().lower()
+    if s not in EXPRESSION_VALUE_SORT_VALUES:
+        s = "id"
+    if o not in AXIS_ORDER_VALUES:
+        o = "asc"
+    return s, o
+
+
 def degrade_axis_sort_if_no_stats(
     sort_key: str, *, has_stats: bool
 ) -> str:
@@ -71,6 +164,50 @@ def degrade_axis_sort_if_no_stats(
     if sort_key.startswith("expression.") and not has_stats:
         return "id"
     return sort_key
+
+
+@dataclass
+class ExpressionValuesPage:
+    """Result of an expression_values page fetch (cursor + offset paging)."""
+
+    results: List[Dict[str, Any]]
+    total: int
+    next_page: Optional[str] = None
+    previous_page: Optional[str] = None
+
+    def __iter__(self):
+        """Allow ``results, total = store.expression_values_for_matrix(...)``."""
+        return iter((self.results, self.total))
+
+
+_PAGE_TOKEN_VERSION = 1
+
+
+def encode_page_token(payload: Dict[str, Any]) -> str:
+    """Opaque base64url (no padding) JSON page token."""
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def decode_page_token(token: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Decode a page token; returns ``None`` if malformed (never raises)."""
+    if not token:
+        return None
+    try:
+        padded = token + "=" * (-len(str(token)) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+        payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+def compute_filter_hash(*parts: Any) -> str:
+    """Stable short hash of the query shape a page token was minted under."""
+    raw = json.dumps(parts, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha1(raw).hexdigest()[:16]
 
 
 def _csv_set(value: Optional[str]) -> Set[str]:
@@ -204,6 +341,8 @@ class DuckDBStore:
         self._bio_views: Dict[str, str] = {}
         self._feat_stats_views: Dict[str, str] = {}
         self._bio_stats_views: Dict[str, str] = {}
+        self._pct_feat_views: Dict[str, str] = {}
+        self._pct_bio_views: Dict[str, str] = {}
         self._all_features_view: Optional[str] = None
         self._all_biosamples_view: Optional[str] = None
         self._has_gene_lookup: bool = False
@@ -365,6 +504,21 @@ class DuckDBStore:
                     f"CREATE VIEW {bsv} AS SELECT * FROM read_parquet('{_sql_path(bio_stats)}')"
                 )
                 self._bio_stats_views[mid] = bsv
+            # Optional fetch-time percentile files (not shipped in CI packages).
+            pct_feat = matrix_dir / "percentile_in_feature.parquet"
+            if pct_feat.is_file():
+                pfv = f"pct_feat_{key}"
+                self._execute(
+                    f"CREATE VIEW {pfv} AS SELECT * FROM read_parquet('{_sql_path(pct_feat)}')"
+                )
+                self._pct_feat_views[mid] = pfv
+            pct_bio = matrix_dir / "percentile_in_biosample.parquet"
+            if pct_bio.is_file():
+                pbv = f"pct_bio_{key}"
+                self._execute(
+                    f"CREATE VIEW {pbv} AS SELECT * FROM read_parquet('{_sql_path(pct_bio)}')"
+                )
+                self._pct_bio_views[mid] = pbv
 
         # Global feature catalog view (SQL-backed; not loaded into Python).
         if self._feat_views:
@@ -956,7 +1110,7 @@ class DuckDBStore:
                 present_ids=present,
                 alphanumeric={},
                 scope="genomicFeature",
-                keep_symbol_term=bool(self._feature_counts.get(matrix_id)),
+                keep_symbol_resource=bool(self._feature_counts.get(matrix_id)),
             )
         else:
             present, alphanumeric = self._biosample_axis_facets(matrix_id)
@@ -966,10 +1120,46 @@ class DuckDBStore:
                 present_ids=present,
                 alphanumeric=alphanumeric,
                 scope="biosample",
-                keep_symbol_term=False,
+                keep_symbol_resource=False,
             )
         self._axis_terms_cache[(matrix_id, axis)] = result
         return result
+
+    def _matrix_filtering_terms_path(self, matrix_id: str) -> Path:
+        safe = str(matrix_id).replace("/", "_")
+        return self.package_path / "filtering_terms" / "by_matrix" / f"{safe}.json"
+
+    def matrix_scoped_filtering_terms(
+        self, matrix_id: str
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        from beacon.matrix_axis_catalog import merge_matrix_scoped_filtering_terms
+
+        if not self.get_matrix(matrix_id):
+            return [], []
+        packaged = self._matrix_filtering_terms_path(matrix_id)
+        if packaged.is_file():
+            try:
+                with packaged.open(encoding="utf-8") as fh:
+                    doc = json.load(fh)
+                return (
+                    list(doc.get("filteringTerms") or []),
+                    list(doc.get("resources") or []),
+                )
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "Failed to load packaged matrix filtering_terms %s: %s",
+                    packaged,
+                    exc,
+                )
+        feat_terms, feat_resources = self.matrix_axis_filtering_terms(
+            matrix_id, "features"
+        )
+        bio_terms, bio_resources = self.matrix_axis_filtering_terms(
+            matrix_id, "biosamples"
+        )
+        return merge_matrix_scoped_filtering_terms(
+            feat_terms, feat_resources, bio_terms, bio_resources
+        )
 
     def get_matrix(self, matrix_id: str) -> Optional[Dict[str, Any]]:
         return self._matrices_by_id.get(matrix_id)
@@ -987,6 +1177,20 @@ class DuckDBStore:
             "iriPrefix": "http://purl.obolibrary.org/obo/SO_",
             "url": "http://purl.obolibrary.org/obo/so.obo",
         },
+        "go": {
+            "id": "go",
+            "name": "Gene Ontology",
+            "nameSpacePrefix": "GO",
+            "iriPrefix": "http://purl.obolibrary.org/obo/GO_",
+            "url": "http://purl.obolibrary.org/obo/go.owl",
+        },
+        "obi": {
+            "id": "obi",
+            "name": "Ontology for Biomedical Investigations",
+            "nameSpacePrefix": "OBI",
+            "iriPrefix": "http://purl.obolibrary.org/obo/OBI_",
+            "url": "http://purl.obolibrary.org/obo/obi.owl",
+        },
         "uberon": {
             "id": "uberon",
             "name": "Uberon",
@@ -1000,6 +1204,27 @@ class DuckDBStore:
             "nameSpacePrefix": "EFO",
             "iriPrefix": "http://www.ebi.ac.uk/efo/EFO_",
             "url": "https://www.ebi.ac.uk/efo/efo.owl",
+        },
+        "mondo": {
+            "id": "mondo",
+            "name": "Mondo Disease Ontology",
+            "nameSpacePrefix": "MONDO",
+            "iriPrefix": "http://purl.obolibrary.org/obo/MONDO_",
+            "url": "http://purl.obolibrary.org/obo/mondo.owl",
+        },
+        "hp": {
+            "id": "hp",
+            "name": "Human Phenotype Ontology",
+            "nameSpacePrefix": "HP",
+            "iriPrefix": "http://purl.obolibrary.org/obo/HP_",
+            "url": "http://purl.obolibrary.org/obo/hp.owl",
+        },
+        "ncit": {
+            "id": "ncit",
+            "name": "NCI Thesaurus",
+            "nameSpacePrefix": "NCIT",
+            "iriPrefix": "http://purl.obolibrary.org/obo/NCIT_",
+            "url": "https://evs.nci.nih.gov/ftp1/NCI_Thesaurus",
         },
         "hgnc": {
             "id": "hgnc",
@@ -1021,6 +1246,13 @@ class DuckDBStore:
             "nameSpacePrefix": "ENSEMBL",
             "iriPrefix": "https://www.ensembl.org/id/",
             "url": "https://www.ensembl.org",
+        },
+        "symbol": {
+            "id": "symbol",
+            "name": "Gene symbol",
+            "nameSpacePrefix": "symbol",
+            "iriPrefix": "https://www.genenames.org/tools/search/#!/?query=",
+            "url": "https://www.genenames.org",
         },
     }
 
@@ -1088,7 +1320,7 @@ class DuckDBStore:
                 if not oid:
                     continue
                 pref = str(oid).split(":", 1)[0].upper()
-                if pref not in ("UBERON", "EFO"):
+                if pref not in ("UBERON", "EFO", "OBI", "MONDO", "HP", "GO", "NCIT"):
                     continue
                 needed_resources.add(pref.lower())
                 add_term(
@@ -1175,10 +1407,15 @@ class DuckDBStore:
                     """
                 )
                 for tid, tlabel in rows:
-                    if tid and str(tid).upper().startswith("SO:"):
+                    if not tid:
+                        continue
+                    tid_s = str(tid)
+                    pref = tid_s.split(":", 1)[0].upper()
+                    if pref in ("SO", "GO"):
+                        needed_resources.add(pref.lower())
                         add_term(
-                            type_="SO",
-                            id_=str(tid),
+                            type_=pref,
+                            id_=tid_s,
                             label=str(tlabel) if tlabel else None,
                             scopes=["genomicFeature"],
                         )
@@ -1205,12 +1442,8 @@ class DuckDBStore:
                     needed_resources.add("ensembl")
                 if str(resource).lower() in ("ncbigene", "ncbi"):
                     needed_resources.add("ncbigene")
-            add_term(
-                type_="alphanumeric",
-                id_="genomicFeature.symbol",
-                label="Gene symbol",
-                scopes=["genomicFeature"],
-            )
+            # Symbol is a lookup namespace (no per-gene term dump).
+            needed_resources.add("symbol")
 
         # Gene-id namespaces from lookup prefixes (no value dump)
         if self._has_gene_lookup:
@@ -1234,15 +1467,41 @@ class DuckDBStore:
                         needed_resources.add("ensembl")
             except duckdb.Error as exc:
                 logger.warning("gene_lookup prefix scan failed: %s", exc)
+            try:
+                sym_rows, _ = self._fetchall(
+                    """
+                    SELECT 1 FROM gene_lookup
+                    WHERE lookup_kind = 'symbol'
+                    LIMIT 1
+                    """
+                )
+                if sym_rows:
+                    needed_resources.add("symbol")
+            except duckdb.Error as exc:
+                logger.debug("gene_lookup symbol presence check skipped: %s", exc)
 
         filtering_terms = sorted(terms.values(), key=lambda t: (t["id"], t["type"]))
         by_scope: Dict[str, List[str]] = {"biosample": [], "genomicFeature": []}
         for t in filtering_terms:
             for scope in t.get("scopes") or []:
                 by_scope.setdefault(scope, []).append(t["id"])
+        resource_order = (
+            "so",
+            "go",
+            "obi",
+            "uberon",
+            "efo",
+            "mondo",
+            "hp",
+            "ncit",
+            "hgnc",
+            "ncbigene",
+            "ensembl",
+            "symbol",
+        )
         resources = [
             dict(self._FT_RESOURCE_DEFS[rid])
-            for rid in ("so", "uberon", "efo", "hgnc", "ncbigene", "ensembl")
+            for rid in resource_order
             if rid in needed_resources and rid in self._FT_RESOURCE_DEFS
         ]
         return {
@@ -1255,9 +1514,21 @@ class DuckDBStore:
     def filtering_terms(
         self, *, scopes: Optional[Sequence[str]] = None
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        from beacon.matrix_catalog_seed import merge_filtering_terms
+
         doc = self._filtering_terms_doc or {}
         terms = list(doc.get("filteringTerms") or [])
         resources = list(doc.get("resources") or [])
+        # Ensure matrix-scoped facets are present even if filtering_terms.json
+        # was built without them (matches FixtureStore behavior).
+        matrix_terms, matrix_resources = self.matrix_filtering_terms()
+        terms = merge_filtering_terms(terms, matrix_terms)
+        resources_by_id = {
+            str(r.get("id") or ""): dict(r)
+            for r in (*resources, *matrix_resources)
+            if r.get("id")
+        }
+        resources = list(resources_by_id.values())
         if scopes:
             want = set(scopes)
             terms = [
@@ -1271,12 +1542,27 @@ class DuckDBStore:
                 if ":" in tid:
                     keep_ids.add(tid.split(":", 1)[0].lower())
                 typ = str(t.get("type") or "").lower()
-                if typ in ("so", "uberon", "efo"):
+                if typ in (
+                    "so",
+                    "go",
+                    "uberon",
+                    "efo",
+                    "obi",
+                    "mondo",
+                    "hp",
+                    "ncit",
+                ):
                     keep_ids.add(typ)
             if "genomicFeature" in want:
-                keep_ids.update({"hgnc", "ncbigene", "ensembl", "so"})
+                keep_ids.update(
+                    {"hgnc", "ncbigene", "ensembl", "so", "go", "symbol"}
+                )
             if "biosample" in want:
-                keep_ids.update({"uberon", "efo"})
+                keep_ids.update(
+                    {"uberon", "efo", "obi", "mondo", "hp", "go", "ncit"}
+                )
+            if "matrix" in want:
+                keep_ids.update({"so", "obi"})
             resources = [
                 r
                 for r in resources
@@ -1322,6 +1608,8 @@ class DuckDBStore:
         from beacon.filters import (
             is_feature_ontology_filter,
             is_gene_public_id_filter,
+            is_symbol_custom_filter,
+            symbol_custom_lookup_key,
         )
 
         clauses: List[str] = []
@@ -1354,25 +1642,15 @@ class DuckDBStore:
                     return "FALSE", [], True
                 clauses.append(frag)
                 params.extend(fparams)
-            elif f.kind == "alphanumeric" and f.id == "genomicFeature.symbol":
-                keys = [f.value or ""]
-                frag, fparams = self._gene_lookup_exists_sql(keys)
-                if f.operator == "!":
-                    if frag == "FALSE":
-                        continue
-                    clauses.append(
-                        frag.replace(
-                            "CAST(feature_id AS VARCHAR) IN (",
-                            "CAST(feature_id AS VARCHAR) NOT IN (",
-                            1,
-                        )
-                    )
-                    params.extend(fparams)
-                else:
-                    if frag == "FALSE":
-                        return "FALSE", [], True
-                    clauses.append(frag)
-                    params.extend(fparams)
+            elif is_symbol_custom_filter(f):
+                key = symbol_custom_lookup_key(f)
+                if not key:
+                    return "FALSE", [], True
+                frag, fparams = self._gene_lookup_exists_sql([key])
+                if frag == "FALSE":
+                    return "FALSE", [], True
+                clauses.append(frag)
+                params.extend(fparams)
             elif f.kind == "custom" and f.id.startswith("resource:"):
                 resource = f.id.split(":", 1)[1]
                 clauses.append("CAST(resource AS VARCHAR) = ?")
@@ -1382,6 +1660,194 @@ class DuckDBStore:
         if not clauses:
             return "", [], False
         return " AND ".join(clauses), params, False
+
+    def _expression_feature_filter_sql(
+        self, filters: Sequence[Any], *, alias: Optional[str] = None
+    ) -> Tuple[str, List[Any], bool]:
+        """AND fragment for expression.* feature filters against a feat_stats view.
+
+        ``alias`` prefixes stats columns (e.g. ``s`` for a LEFT JOIN); omit it
+        for a bare reference to the stats view's own columns (subquery/IN use).
+        Returns (sql, params, empty_forced); empty_forced means a malformed
+        custom value (e.g. a non-numeric detected bucket) that can never match.
+        """
+
+        def _col(name: str) -> str:
+            return f"{alias}.{name}" if alias else name
+
+        clauses: List[str] = []
+        params: List[Any] = []
+        for f in filters:
+            if f.kind == "alphanumeric" and f.id in EXPRESSION_FEATURE_ALPHANUMERIC:
+                col = {
+                    "expression.median": "median",
+                    "expression.mean": "mean",
+                    "expression.max": "max_value",
+                    "expression.detectedFraction": "detected_fraction",
+                }[f.id]
+                op = f.operator or "="
+                sql_op = "!=" if op == "!" else op
+                try:
+                    value = float(f.value)
+                except (TypeError, ValueError):
+                    return "FALSE", [], True
+                clauses.append(f"{_col(col)} {sql_op} ?")
+                params.append(value)
+            elif f.kind == "custom" and f.id.startswith("expression.percentile."):
+                clauses.append(f"{_col('band')} = ?")
+                params.append(f.id[len("expression.percentile.") :])
+            elif f.kind == "custom" and f.id.startswith("expression.profile:"):
+                clauses.append(f"{_col('profile')} = ?")
+                params.append(f.id.split(":", 1)[1])
+            elif f.kind == "custom" and f.id.startswith("expression.detected:>="):
+                raw = f.id.split(":", 1)[1]
+                pct_s = raw[2:] if raw.startswith(">=") else raw
+                pct_s = pct_s.rstrip("%")
+                try:
+                    pct = float(pct_s)
+                except ValueError:
+                    return "FALSE", [], True
+                clauses.append(f"{_col('detected_fraction')} >= ?")
+                params.append(pct / 100.0)
+            elif f.kind == "custom" and f.id.startswith("expression.enrichedIn:"):
+                clauses.append(f"{_col('enriched_in')} = ?")
+                params.append(f.id.split(":", 1)[1])
+            else:
+                raise ValueError(f"unhandled expression feature filter: {f.id}")
+        if not clauses:
+            return "", [], False
+        return " AND ".join(clauses), params, False
+
+    def _expression_biosample_filter_sql(
+        self, filters: Sequence[Any], *, alias: Optional[str] = None
+    ) -> Tuple[str, List[Any], bool]:
+        """AND fragment for expression.* biosample filters against a bio_stats view."""
+
+        def _col(name: str) -> str:
+            return f"{alias}.{name}" if alias else name
+
+        clauses: List[str] = []
+        params: List[Any] = []
+        for f in filters:
+            if f.kind == "alphanumeric" and f.id in EXPRESSION_BIOSAMPLE_ALPHANUMERIC:
+                op = f.operator or "="
+                sql_op = "!=" if op == "!" else op
+                try:
+                    value = float(f.value)
+                except (TypeError, ValueError):
+                    return "FALSE", [], True
+                clauses.append(f"{_col('detected_genes')} {sql_op} ?")
+                params.append(value)
+            elif f.kind == "custom" and f.id.startswith(
+                "expression.detectedGenesPercentile."
+            ):
+                clauses.append(f"{_col('detected_genes_band')} = ?")
+                params.append(f.id[len("expression.detectedGenesPercentile.") :])
+            else:
+                raise ValueError(f"unhandled expression biosample filter: {f.id}")
+        if not clauses:
+            return "", [], False
+        return " AND ".join(clauses), params, False
+
+    def _expression_feature_match_subquery_sql(
+        self, filters: Sequence[Any]
+    ) -> Tuple[Optional[str], List[Any]]:
+        """UNION ALL subquery (selecting ``wrapper_id``) of features matching
+        expression.* filters on ANY ONE of their matrices (same matrix for all
+        given filters). Returns (None, []) when nothing can match.
+        """
+        frag, params, empty = self._expression_feature_filter_sql(filters, alias="s")
+        if empty or not frag:
+            return None, []
+        parts: List[str] = []
+        all_params: List[Any] = []
+        for mid, stats_view in self._feat_stats_views.items():
+            feat_view = self._feat_views.get(mid)
+            if not feat_view:
+                continue
+            parts.append(
+                f"SELECT f.wrapper_id AS wrapper_id FROM {feat_view} f "
+                f"JOIN {stats_view} s "
+                "ON CAST(f.feature_id AS VARCHAR) = CAST(s.feature_id AS VARCHAR) "
+                f"WHERE {frag}"
+            )
+            all_params.extend(params)
+        if not parts:
+            return None, []
+        return " UNION ALL ".join(parts), all_params
+
+    def _expression_biosample_match_subquery_sql(
+        self, filters: Sequence[Any]
+    ) -> Tuple[Optional[str], List[Any]]:
+        """UNION ALL subquery (selecting ``biosample_id``) of biosamples matching
+        expression.* filters on ANY ONE of their matrices.
+        """
+        frag, params, empty = self._expression_biosample_filter_sql(filters, alias="s")
+        if empty or not frag:
+            return None, []
+        parts: List[str] = []
+        all_params: List[Any] = []
+        for mid, stats_view in self._bio_stats_views.items():
+            bio_view = self._bio_views.get(mid)
+            if not bio_view:
+                continue
+            parts.append(
+                f"SELECT b.biosample_id AS biosample_id FROM {bio_view} b "
+                f"JOIN {stats_view} s "
+                "ON CAST(b.biosample_id AS VARCHAR) = CAST(s.biosample_id AS VARCHAR) "
+                f"WHERE {frag}"
+            )
+            all_params.extend(params)
+        if not parts:
+            return None, []
+        return " UNION ALL ".join(parts), all_params
+
+    @staticmethod
+    def _split_expression_feature_filters(
+        filters: Optional[Sequence[Any]],
+    ) -> Tuple[List[Any], List[Any]]:
+        """Return (other_filters, expression_feature_filters)."""
+        from beacon.filters import is_expression_custom_feature
+
+        other: List[Any] = []
+        expr: List[Any] = []
+        for f in filters or []:
+            if (f.kind == "alphanumeric" and f.id in EXPRESSION_FEATURE_ALPHANUMERIC) or (
+                f.kind == "custom" and is_expression_custom_feature(f)
+            ):
+                expr.append(f)
+            else:
+                other.append(f)
+        return other, expr
+
+    @staticmethod
+    def _split_expression_biosample_filters(
+        filters: Optional[Sequence[Any]],
+    ) -> Tuple[List[Any], List[Any]]:
+        """Return (other_filters, expression_biosample_filters)."""
+        from beacon.filters import is_expression_custom_biosample
+
+        other: List[Any] = []
+        expr: List[Any] = []
+        for f in filters or []:
+            if (f.kind == "alphanumeric" and f.id in EXPRESSION_BIOSAMPLE_ALPHANUMERIC) or (
+                f.kind == "custom" and is_expression_custom_biosample(f)
+            ):
+                expr.append(f)
+            else:
+                other.append(f)
+        return other, expr
+
+    @staticmethod
+    def _reject_matrix_only_expression_filters(filters: Optional[Sequence[Any]]) -> None:
+        """Raise ValueError if a root-only-invalid continuous expression filter is present."""
+        from beacon.filters import is_matrix_only_expression_filter
+
+        for f in filters or []:
+            if is_matrix_only_expression_filter(f):
+                raise ValueError(
+                    f"matrix-only expression filter is not valid at root scope: {f.id}"
+                )
 
     def _attach_feature_matrix_ids(self, rows: List[Dict[str, Any]]) -> None:
         """Fill matrix_ids on feature index rows via feature_matrix (page-scoped)."""
@@ -1412,12 +1878,14 @@ class DuckDBStore:
         limit: int = 10,
         filters: Optional[Sequence[Any]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
+        self._reject_matrix_only_expression_filters(filters)
+        other_filters, expr_filters = self._split_expression_feature_filters(filters)
         if self._has_feature_indexes and self._feature_index_view:
             return self._list_features_page_indexed(
-                skip=skip, limit=limit, filters=filters
+                skip=skip, limit=limit, filters=other_filters, expr_filters=expr_filters
             )
         return self._list_features_page_union(
-            skip=skip, limit=limit, filters=filters
+            skip=skip, limit=limit, filters=other_filters, expr_filters=expr_filters
         )
 
     def _list_features_page_indexed(
@@ -1426,12 +1894,13 @@ class DuckDBStore:
         skip: int,
         limit: int,
         filters: Optional[Sequence[Any]],
+        expr_filters: Optional[Sequence[Any]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         view = self._feature_index_view
         assert view is not None
         limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
         skip = max(0, int(skip))
-        where_sql = ""
+        where_clauses: List[str] = []
         params: List[Any] = []
         if filters:
             frag, fparams, empty = self._feature_filter_sql(
@@ -1440,8 +1909,18 @@ class DuckDBStore:
             if empty:
                 return [], 0
             if frag:
-                where_sql = f"WHERE {frag}"
+                where_clauses.append(frag)
                 params.extend(fparams)
+        if expr_filters:
+            sub_sql, sub_params = self._expression_feature_match_subquery_sql(
+                expr_filters
+            )
+            if sub_sql is None:
+                return [], 0
+            where_clauses.append(f"wrapper_id IN ({sub_sql})")
+            params.extend(sub_params)
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        if filters or expr_filters:
             one = self._fetchone(
                 f"SELECT COUNT(*) FROM {view} {where_sql}",
                 params if params else None,
@@ -1490,21 +1969,32 @@ class DuckDBStore:
         skip: int,
         limit: int,
         filters: Optional[Sequence[Any]],
+        expr_filters: Optional[Sequence[Any]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         view = self._all_features_view
         if not view:
             return [], 0
         limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
         skip = max(0, int(skip))
-        where_sql = ""
+        where_clauses: List[str] = []
         params: List[Any] = []
         if filters:
             frag, fparams, empty = self._feature_filter_sql(filters)
             if empty:
                 return [], 0
             if frag:
-                where_sql = f"WHERE {frag}"
+                where_clauses.append(frag)
                 params.extend(fparams)
+        if expr_filters:
+            sub_sql, sub_params = self._expression_feature_match_subquery_sql(
+                expr_filters
+            )
+            if sub_sql is None:
+                return [], 0
+            where_clauses.append(f"wrapper_id IN ({sub_sql})")
+            params.extend(sub_params)
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        if filters or expr_filters:
             one = self._fetchone(
                 f"SELECT COUNT(DISTINCT wrapper_id) FROM {view} {where_sql}",
                 params if params else None,
@@ -1615,8 +2105,11 @@ class DuckDBStore:
         filters: Sequence[Any],
         *,
         available_cols: Optional[Set[str]] = None,
+        matrix_id: Optional[str] = None,
     ) -> Tuple[str, List[Any], bool]:
         """Return (AND sql without leading AND, params, empty_forced) for biosamples."""
+        from beacon.filters import is_expression_custom_biosample
+
         clauses: List[str] = []
         params: List[Any] = []
         cols = available_cols or set()
@@ -1664,6 +2157,22 @@ class DuckDBStore:
                 else:
                     clauses.append(f"CAST({col} AS DOUBLE) {op} ?")
                     params.append(float(f.value))
+            elif (
+                f.kind == "alphanumeric" and f.id in EXPRESSION_BIOSAMPLE_ALPHANUMERIC
+            ) or (f.kind == "custom" and is_expression_custom_biosample(f)):
+                stats_view = self._bio_stats_views.get(matrix_id) if matrix_id else None
+                if not stats_view:
+                    clauses.append("1=0")
+                    continue
+                frag, fparams, empty = self._expression_biosample_filter_sql([f])
+                if empty or not frag:
+                    clauses.append("1=0")
+                    continue
+                clauses.append(
+                    "CAST(biosample_id AS VARCHAR) IN ("
+                    f"SELECT CAST(biosample_id AS VARCHAR) FROM {stats_view} WHERE {frag})"
+                )
+                params.extend(fparams)
             elif f.kind == "ontology":
                 or_parts: List[str] = []
                 oid = f.id
@@ -1714,12 +2223,14 @@ class DuckDBStore:
         limit: int = 10,
         filters: Optional[Sequence[Any]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
+        self._reject_matrix_only_expression_filters(filters)
+        other_filters, expr_filters = self._split_expression_biosample_filters(filters)
         if self._has_biosample_indexes and self._biosamples_global_view:
             return self._list_biosamples_page_indexed(
-                skip=skip, limit=limit, filters=filters
+                skip=skip, limit=limit, filters=other_filters, expr_filters=expr_filters
             )
         return self._list_biosamples_page_union(
-            skip=skip, limit=limit, filters=filters
+            skip=skip, limit=limit, filters=other_filters, expr_filters=expr_filters
         )
 
     def _list_biosamples_page_indexed(
@@ -1728,12 +2239,13 @@ class DuckDBStore:
         skip: int,
         limit: int,
         filters: Optional[Sequence[Any]],
+        expr_filters: Optional[Sequence[Any]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         view = self._biosamples_global_view
         assert view is not None
         limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
         skip = max(0, int(skip))
-        where_sql = ""
+        where_clauses: List[str] = []
         params: List[Any] = []
         if filters:
             frag, fparams, empty = self._biosample_filter_sql(
@@ -1742,15 +2254,24 @@ class DuckDBStore:
             if empty:
                 return [], 0
             if frag:
-                where_sql = f"WHERE {frag}"
+                where_clauses.append(frag)
                 params.extend(fparams)
-        if filters or self._global_biosample_count is None:
+        if expr_filters:
+            sub_sql, sub_params = self._expression_biosample_match_subquery_sql(
+                expr_filters
+            )
+            if sub_sql is None:
+                return [], 0
+            where_clauses.append(f"biosample_id IN ({sub_sql})")
+            params.extend(sub_params)
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        if filters or expr_filters or self._global_biosample_count is None:
             one = self._fetchone(
                 f"SELECT COUNT(*) FROM {view} {where_sql}",
                 params if params else None,
             )
             total = int(one[0]) if one else 0
-            if not filters:
+            if not filters and not expr_filters:
                 self._global_biosample_count = total
         else:
             total = self._global_biosample_count
@@ -1782,13 +2303,14 @@ class DuckDBStore:
         skip: int,
         limit: int,
         filters: Optional[Sequence[Any]],
+        expr_filters: Optional[Sequence[Any]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         view = self._all_biosamples_view
         if not view:
             return [], 0
         limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
         skip = max(0, int(skip))
-        where_sql = ""
+        where_clauses: List[str] = []
         params: List[Any] = []
         if filters:
             frag, fparams, empty = self._biosample_filter_sql(
@@ -1797,8 +2319,17 @@ class DuckDBStore:
             if empty:
                 return [], 0
             if frag:
-                where_sql = f"WHERE {frag}"
+                where_clauses.append(frag)
                 params.extend(fparams)
+        if expr_filters:
+            sub_sql, sub_params = self._expression_biosample_match_subquery_sql(
+                expr_filters
+            )
+            if sub_sql is None:
+                return [], 0
+            where_clauses.append(f"biosample_id IN ({sub_sql})")
+            params.extend(sub_params)
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         # Deduplicate by biosample_id across matrices.
         count_sql = f"""
             SELECT COUNT(*) FROM (
@@ -1907,6 +2438,164 @@ class DuckDBStore:
         ids = self._biosample_matrices.get(biosample_id) or []
         return [self._matrices_by_id[i] for i in ids if i in self._matrices_by_id]
 
+    def matrices_for_feature_page(
+        self,
+        feature_id: str,
+        *,
+        filters: Optional[Sequence[Any]] = None,
+        matrix_id_list: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 10,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Matrices linked to a feature, optionally filtered by expression.*
+        feature filters (evaluated per-matrix against that matrix's stats for
+        this feature) and/or matrix-scoped filters (``matrix.*`` / OBI / SO).
+        """
+        from beacon.filters import feature_doc_matches, is_expression_custom_feature
+        from beacon.matrix_catalog import matrix_matches
+
+        feature = self.get_feature(feature_id)
+        if not feature:
+            return [], 0
+        matrix_ids = list(feature.get("matrixIds") or [])
+        if matrix_id_list:
+            wanted = _csv_set(matrix_id_list)
+            matrix_ids = [m for m in matrix_ids if m in wanted]
+
+        native_id = str(
+            (feature.get("genomicFeature") or {}).get("featureIdentifier", {}).get("id")
+            or feature_id
+        )
+
+        expr_filters: List[Any] = []
+        matrix_filters: List[Any] = []
+        other_feature_filters: List[Any] = []
+        for f in filters or []:
+            if (f.kind == "alphanumeric" and f.id in EXPRESSION_FEATURE_ALPHANUMERIC) or (
+                f.kind == "custom" and is_expression_custom_feature(f)
+            ):
+                expr_filters.append(f)
+            elif f.kind in ("alphanumeric", "ontology") and axis_filter_scope(f) == "matrix":
+                matrix_filters.append(f)
+            else:
+                other_feature_filters.append(f)
+
+        if other_feature_filters and not feature_doc_matches(
+            feature, other_feature_filters
+        ):
+            return [], 0
+
+        kept: List[Dict[str, Any]] = []
+        expr_frag: Optional[str] = None
+        expr_params: List[Any] = []
+        if expr_filters:
+            expr_frag, expr_params, empty = self._expression_feature_filter_sql(
+                expr_filters
+            )
+            if empty or not expr_frag:
+                return [], 0
+        for mid in matrix_ids:
+            matrix = self._matrices_by_id.get(mid)
+            if not matrix:
+                continue
+            if matrix_filters and not matrix_matches(matrix, matrix_filters):
+                continue
+            if expr_frag is not None:
+                stats_view = self._feat_stats_views.get(mid)
+                if not stats_view:
+                    continue
+                row = self._fetchone(
+                    f"SELECT 1 FROM {stats_view} "
+                    f"WHERE CAST(feature_id AS VARCHAR) = ? AND {expr_frag}",
+                    [native_id] + expr_params,
+                )
+                if not row:
+                    continue
+            kept.append(matrix)
+        total = len(kept)
+        limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
+        skip = max(0, int(skip))
+        if limit <= 0:
+            return [], total
+        return kept[skip : skip + limit], total
+
+    def matrices_for_biosample_page(
+        self,
+        biosample_id: str,
+        *,
+        filters: Optional[Sequence[Any]] = None,
+        matrix_id_list: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 10,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Matrices linked to a biosample, optionally filtered by expression.*
+        biosample filters (per-matrix) and/or matrix-scoped filters.
+        """
+        from beacon.filters import biosample_matches, is_expression_custom_biosample
+        from beacon.matrix_catalog import matrix_matches
+
+        biosample = self.get_biosample(biosample_id)
+        if not biosample:
+            return [], 0
+        matrix_ids = list(
+            biosample.get("matrixIds") or self._biosample_matrices.get(biosample_id) or []
+        )
+        if matrix_id_list:
+            wanted = _csv_set(matrix_id_list)
+            matrix_ids = [m for m in matrix_ids if m in wanted]
+
+        expr_filters: List[Any] = []
+        matrix_filters: List[Any] = []
+        other_biosample_filters: List[Any] = []
+        for f in filters or []:
+            if (f.kind == "alphanumeric" and f.id in EXPRESSION_BIOSAMPLE_ALPHANUMERIC) or (
+                f.kind == "custom" and is_expression_custom_biosample(f)
+            ):
+                expr_filters.append(f)
+            elif f.kind in ("alphanumeric", "ontology") and axis_filter_scope(f) == "matrix":
+                matrix_filters.append(f)
+            else:
+                other_biosample_filters.append(f)
+
+        if other_biosample_filters and not biosample_matches(
+            biosample, other_biosample_filters
+        ):
+            return [], 0
+
+        kept: List[Dict[str, Any]] = []
+        expr_frag: Optional[str] = None
+        expr_params: List[Any] = []
+        if expr_filters:
+            expr_frag, expr_params, empty = self._expression_biosample_filter_sql(
+                expr_filters
+            )
+            if empty or not expr_frag:
+                return [], 0
+        for mid in matrix_ids:
+            matrix = self._matrices_by_id.get(mid)
+            if not matrix:
+                continue
+            if matrix_filters and not matrix_matches(matrix, matrix_filters):
+                continue
+            if expr_frag is not None:
+                stats_view = self._bio_stats_views.get(mid)
+                if not stats_view:
+                    continue
+                row = self._fetchone(
+                    f"SELECT 1 FROM {stats_view} "
+                    f"WHERE CAST(biosample_id AS VARCHAR) = ? AND {expr_frag}",
+                    [biosample_id] + expr_params,
+                )
+                if not row:
+                    continue
+            kept.append(matrix)
+        total = len(kept)
+        limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
+        skip = max(0, int(skip))
+        if limit <= 0:
+            return [], total
+        return kept[skip : skip + limit], total
+
     def features_for_matrix(self, matrix_id: str) -> List[Dict[str, Any]]:
         """Legacy full list — prefer features_for_matrix_page."""
         page, _ = self.features_for_matrix_page(
@@ -1937,7 +2626,7 @@ class DuckDBStore:
         return degrade_axis_sort_if_no_stats(sort_key, has_stats=has_stats), order_key
 
     def _matrix_feature_filter_sql(
-        self, view: str, filters: Sequence[Any]
+        self, view: str, filters: Sequence[Any], *, matrix_id: Optional[str] = None
     ) -> Tuple[str, List[Any], bool]:
         """Feature-scoped filters against one matrix ``features`` view.
 
@@ -1946,15 +2635,32 @@ class DuckDBStore:
         """
         from beacon.filters import (
             gene_public_id_lookup_keys,
+            is_expression_custom_feature,
             is_feature_ontology_filter,
             is_gene_public_id_filter,
+            is_symbol_custom_filter,
+            symbol_custom_lookup_key,
         )
 
         cols = self._view_columns(view)
         clauses: List[str] = []
         params: List[Any] = []
         for filt in filters:
-            if is_feature_ontology_filter(filt):
+            if (filt.kind == "alphanumeric" and filt.id in EXPRESSION_FEATURE_ALPHANUMERIC) or (
+                filt.kind == "custom" and is_expression_custom_feature(filt)
+            ):
+                stats_view = self._feat_stats_views.get(matrix_id) if matrix_id else None
+                if not stats_view:
+                    return "FALSE", [], True
+                frag, fparams, empty = self._expression_feature_filter_sql([filt])
+                if empty or not frag:
+                    return "FALSE", [], True
+                clauses.append(
+                    "CAST(feature_id AS VARCHAR) IN ("
+                    f"SELECT CAST(feature_id AS VARCHAR) FROM {stats_view} WHERE {frag})"
+                )
+                params.extend(fparams)
+            elif is_feature_ontology_filter(filt):
                 parts: List[str] = []
                 if not cols or "feature_type_id" in cols:
                     parts.append("CAST(feature_type_id AS VARCHAR) = ?")
@@ -1977,25 +2683,15 @@ class DuckDBStore:
                     return "FALSE", [], True
                 clauses.append(frag)
                 params.extend(fparams)
-            elif filt.kind == "alphanumeric" and filt.id == "genomicFeature.symbol":
-                keys = [filt.value or ""]
-                frag, fparams = self._gene_lookup_exists_sql(keys)
-                if filt.operator == "!":
-                    if frag == "FALSE":
-                        continue
-                    clauses.append(
-                        frag.replace(
-                            "CAST(feature_id AS VARCHAR) IN (",
-                            "CAST(feature_id AS VARCHAR) NOT IN (",
-                            1,
-                        )
-                    )
-                    params.extend(fparams)
-                else:
-                    if frag == "FALSE":
-                        return "FALSE", [], True
-                    clauses.append(frag)
-                    params.extend(fparams)
+            elif is_symbol_custom_filter(filt):
+                key = symbol_custom_lookup_key(filt)
+                if not key:
+                    return "FALSE", [], True
+                frag, fparams = self._gene_lookup_exists_sql([key])
+                if frag == "FALSE":
+                    return "FALSE", [], True
+                clauses.append(frag)
+                params.extend(fparams)
             elif filt.kind == "custom" and str(filt.id).startswith("resource:"):
                 if cols and "resource" not in cols:
                     return "FALSE", [], True
@@ -2024,7 +2720,7 @@ class DuckDBStore:
         params: List[Any] = []
         if feature_filters:
             frag, fparams, empty = self._matrix_feature_filter_sql(
-                view, feature_filters
+                view, feature_filters, matrix_id=matrix_id
             )
             if empty:
                 return True, "", []
@@ -2216,13 +2912,17 @@ class DuckDBStore:
         return page
 
     def _matrix_bio_filter_clause(
-        self, bio_view: str, filters: Optional[Sequence[Any]]
+        self,
+        bio_view: str,
+        filters: Optional[Sequence[Any]],
+        *,
+        matrix_id: Optional[str] = None,
     ) -> Tuple[str, List[Any]]:
         if not filters:
             return "", []
         cols = self._view_columns(bio_view)
         frag, params, _empty = self._biosample_filter_sql(
-            filters, available_cols=cols
+            filters, available_cols=cols, matrix_id=matrix_id
         )
         if not frag:
             return "", []
@@ -2270,7 +2970,7 @@ class DuckDBStore:
         if not bio_view:
             return True, "", []
         where_sql, where_params = self._matrix_bio_filter_clause(
-            bio_view, biosample_filters
+            bio_view, biosample_filters, matrix_id=matrix_id
         )
         params: List[Any] = list(where_params)
         parts: List[str] = []
@@ -2311,7 +3011,7 @@ class DuckDBStore:
         if filters:
             cols = self._view_columns(bio_view)
             frag, params, forced_empty = self._biosample_filter_sql(
-                filters, available_cols=cols
+                filters, available_cols=cols, matrix_id=matrix_id
             )
             if forced_empty:
                 return True, "", []
@@ -2444,6 +3144,24 @@ class DuckDBStore:
             out.append(self._with_expression_summary(doc, row, kind="biosample"))
         return out, int(total)
 
+    def _ordered_feature_ids_for_rank(
+        self, feature_id_list: Optional[str], matrix_id: Optional[str] = None
+    ) -> List[str]:
+        """Preserve CSV token order; expand each token to resolved feature ids."""
+        ordered: List[str] = []
+        seen: Set[str] = set()
+        for token in _csv_tokens(feature_id_list):
+            resolved = self._resolve_feature_filter_ids(token, matrix_id)
+            # Prefer the native/token id itself when present, then stable extras.
+            preferred = [token] if token in resolved else []
+            rest = sorted(fid for fid in resolved if fid not in preferred)
+            for fid in preferred + rest:
+                if fid in seen:
+                    continue
+                seen.add(fid)
+                ordered.append(fid)
+        return ordered
+
     def _resolve_feature_filter_ids(
         self, feature_id_list: Optional[str], matrix_id: Optional[str] = None
     ) -> Set[str]:
@@ -2516,6 +3234,31 @@ class DuckDBStore:
 
         return resolved
 
+    @staticmethod
+    def _expression_values_order_by(
+        sort_key: str, *, value_asc: bool, ties_asc: bool
+    ) -> str:
+        """Build ORDER BY for expression_values.
+
+        Display order for ``sort=value`` is always
+        ``value {asc|desc} NULLS LAST, feature_id ASC, biosample_id ASC``.
+        Reverse (previousPage) fetches invert *both* the value direction and
+        the tie-breakers so LIMIT returns the prior page under ties.
+        """
+        value_sql = "ASC" if value_asc else "DESC"
+        tie_sql = "ASC" if ties_asc else "DESC"
+        if sort_key == "value":
+            return (
+                f"value {value_sql} NULLS LAST, "
+                f"CAST(feature_id AS VARCHAR) {tie_sql}, "
+                f"CAST(biosample_id AS VARCHAR) {tie_sql}"
+            )
+        # id sort: both columns share the same direction.
+        return (
+            f"CAST(feature_id AS VARCHAR) {value_sql}, "
+            f"CAST(biosample_id AS VARCHAR) {value_sql}"
+        )
+
     def expression_values_for_matrix(
         self,
         matrix_id: str,
@@ -2523,17 +3266,53 @@ class DuckDBStore:
         feature_id_list: Optional[str] = None,
         biosample_id_list: Optional[str] = None,
         biosample_filters: Optional[Sequence[Any]] = None,
+        feature_filters: Optional[Sequence[Any]] = None,
+        expression_value_filters: Optional[Sequence[Any]] = None,
         min_value: Optional[float] = None,
         max_value: Optional[float] = None,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
         skip: int = 0,
         limit: Optional[int] = None,
-    ) -> Tuple[List[Dict[str, Any]], int]:
-        """Return (page_rows, total_count) with filters pushed into DuckDB."""
+        page_token: Optional[str] = None,
+    ) -> ExpressionValuesPage:
+        """Return a page of expression cells with filters pushed into DuckDB.
+
+        Default order is ``feature_id ASC, biosample_id ASC``; ``sort="value"``
+        orders by the cell value instead (``order`` controls direction either
+        way). No caps are applied based on ID-list shape and there is no
+        combined-rank ordering: both are intersections / independent AND
+        filters now. ``page_token`` (opaque, from a previous response's
+        ``nextPage``/``previousPage``) takes precedence over ``skip`` for
+        keyset pagination.
+        """
         view = self._expr_views.get(matrix_id)
         if not view:
-            return [], 0
+            return ExpressionValuesPage([], 0)
 
         feature_ids = self._resolve_feature_filter_ids(feature_id_list, matrix_id)
+        if feature_filters:
+            f_view = self._feat_views.get(matrix_id)
+            if not f_view:
+                return ExpressionValuesPage([], 0)
+            frag, fparams, empty = self._matrix_feature_filter_sql(
+                f_view, feature_filters, matrix_id=matrix_id
+            )
+            if empty:
+                return ExpressionValuesPage([], 0)
+            if frag:
+                rows, _ = self._fetchall(
+                    f"SELECT DISTINCT CAST(feature_id AS VARCHAR) FROM {f_view} "
+                    f"WHERE {frag}",
+                    fparams,
+                )
+                matched_ids = {r[0] for r in rows if r and r[0] is not None}
+                feature_ids = (
+                    (feature_ids & matched_ids) if feature_id_list else matched_ids
+                )
+                if not feature_ids:
+                    return ExpressionValuesPage([], 0)
+
         cohort_requested = bool(biosample_filters or biosample_id_list)
         cohort_sql = ""
         cohort_params: List[Any] = []
@@ -2544,223 +3323,196 @@ class DuckDBStore:
                 biosample_id_list=biosample_id_list,
             )
             if empty_cohort:
-                return [], 0
-        filtered = bool(
-            feature_ids
-            or cohort_sql
-            or min_value is not None
-            or max_value is not None
-        )
+                return ExpressionValuesPage([], 0)
 
         where = ["1=1"]
         params: List[Any] = []
         if feature_ids:
             placeholders = ", ".join(["?"] * len(feature_ids))
-            where.append(f"feature_id IN ({placeholders})")
+            where.append(f"CAST(feature_id AS VARCHAR) IN ({placeholders})")
             params.extend(sorted(feature_ids))
         if cohort_sql:
             where.append(f"CAST(biosample_id AS VARCHAR) IN ({cohort_sql})")
             params.extend(cohort_params)
         if min_value is not None:
             where.append("value >= ?")
-            params.append(min_value)
+            params.append(float(min_value))
         if max_value is not None:
             where.append("value <= ?")
-            params.append(max_value)
+            params.append(float(max_value))
+
+        for f in expression_value_filters or []:
+            if f.id == "expression.value":
+                op = f.operator or "="
+                sql_op = "!=" if op == "!" else op
+                try:
+                    v = float(f.value)
+                except (TypeError, ValueError):
+                    raise ValueError("expression.value requires a numeric value")
+                where.append(f"value {sql_op} ?")
+                params.append(v)
+            elif f.id in ("expression.percentileInFeature", "expression.percentileInBiosample"):
+                pct_views = (
+                    self._pct_feat_views
+                    if f.id == "expression.percentileInFeature"
+                    else self._pct_bio_views
+                )
+                pct_view = pct_views.get(matrix_id)
+                if not pct_view:
+                    # Percentile files are optional (fetch-time only) — no file
+                    # means no cells can satisfy a percentile filter.
+                    return ExpressionValuesPage([], 0)
+                op = f.operator or "="
+                sql_op = "!=" if op == "!" else op
+                try:
+                    v = float(f.value)
+                except (TypeError, ValueError):
+                    raise ValueError(f"{f.id} requires a numeric value")
+                where.append(
+                    "(CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR)) IN ("
+                    "SELECT CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR) "
+                    f"FROM {pct_view} WHERE pct {sql_op} ?)"
+                )
+                params.append(v)
+            else:
+                raise ValueError(f"unhandled expression value filter: {f.id}")
 
         where_sql = " AND ".join(where)
-        skip = max(0, min(int(skip), MAX_SKIP))
+        sort_key, order_key = normalize_expression_value_sort(sort, order)
+        display_asc = order_key == "asc"
 
-        if not filtered:
-            total = self._expression_row_total(matrix_id)
-            if total is None:
-                one = self._fetchone(
-                    f"SELECT COUNT(*) FROM {view} WHERE {where_sql}", params
-                )
-                total = int(one[0]) if one else 0
-            if limit is None:
-                limit = min(int(total), MAX_PAGE_LIMIT)
-            else:
-                limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
-            if limit <= 0:
-                return [], int(total)
-            page_sql = f"""
-                SELECT matrix_id, feature_id, biosample_id, value
-                FROM {view}
-                WHERE {where_sql}
-                LIMIT ? OFFSET ?
-            """
-            rows, _ = self._fetchall(page_sql, list(params) + [limit, skip])
+        filter_hash = compute_filter_hash(
+            matrix_id,
+            sorted(feature_ids) if feature_ids else None,
+            cohort_sql,
+            cohort_params,
+            min_value,
+            max_value,
+            [(f.id, f.operator, f.value) for f in (expression_value_filters or [])],
+            sort_key,
+            order_key,
+        )
+
+        token_payload = decode_page_token(page_token)
+        if token_payload is not None and token_payload.get("fh") != filter_hash:
+            raise ValueError(
+                "pageToken does not match the current filters/sort; "
+                "re-issue the request without a page token"
+            )
+
+        forward = token_payload is None or token_payload.get("dir") != "prev"
+        # Display order for value-sort keeps ASC ties; reverse fetch inverts
+        # value direction *and* ties so LIMIT walks the prior page correctly.
+        if sort_key == "value":
+            value_asc = display_asc if forward else (not display_asc)
+            ties_asc = forward
         else:
-            if limit is None:
-                limit = MAX_PAGE_LIMIT
+            value_asc = display_asc if forward else (not display_asc)
+            ties_asc = value_asc
+        value_cmp = ">" if value_asc else "<"
+        tie_cmp = ">" if ties_asc else "<"
+
+        keyset_sql = ""
+        keyset_params: List[Any] = []
+        if token_payload is not None:
+            tf = token_payload.get("f")
+            tb = token_payload.get("b")
+            tv = token_payload.get("v")
+            if sort_key == "value":
+                if tv is None:
+                    keyset_sql = (
+                        "(value IS NULL AND "
+                        "(CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR)) "
+                        f"{tie_cmp} (?, ?))"
+                    )
+                    keyset_params = [tf, tb]
+                else:
+                    # NULLS LAST: only include the null tail when walking
+                    # forward. Previous-page reverse fetch must not jump to
+                    # nulls ahead of earlier non-null rows.
+                    null_tail = " OR value IS NULL" if forward else ""
+                    keyset_sql = (
+                        f"(value {value_cmp} ? OR (value = ? AND "
+                        "(CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR)) "
+                        f"{tie_cmp} (?, ?)){null_tail})"
+                    )
+                    keyset_params = [tv, tv, tf, tb]
             else:
-                limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
-            if limit <= 0:
-                one = self._fetchone(
-                    f"SELECT COUNT(*) FROM {view} WHERE {where_sql}", params
+                keyset_sql = (
+                    "(CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR)) "
+                    f"{value_cmp} (?, ?)"
                 )
-                total = int(one[0]) if one else 0
-                return [], total
-            # One pass: window count plus the ordered page.
-            page_sql = f"""
-                SELECT matrix_id, feature_id, biosample_id, value,
-                       COUNT(*) OVER() AS _total
-                FROM {view}
-                WHERE {where_sql}
-                ORDER BY feature_id, biosample_id
-                LIMIT ? OFFSET ?
-            """
-            rows, _ = self._fetchall(page_sql, list(params) + [limit, skip])
-            if rows:
-                total = int(rows[0][-1])
-                rows = [row[:-1] for row in rows]
-            else:
-                one = self._fetchone(
-                    f"SELECT COUNT(*) FROM {view} WHERE {where_sql}", params
-                )
-                total = int(one[0]) if one else 0
-                rows = []
-        out: List[Dict[str, Any]] = []
-        for matrix_id_v, feature_id, biosample_id, value in rows:
-            mid = str(matrix_id_v)
+                keyset_params = [tf, tb]
+
+        limit = MAX_PAGE_LIMIT if limit is None else max(0, min(int(limit), MAX_PAGE_LIMIT))
+
+        one = self._fetchone(f"SELECT COUNT(*) FROM {view} WHERE {where_sql}", params)
+        total = int(one[0]) if one else 0
+
+        if limit <= 0:
+            return ExpressionValuesPage([], total)
+
+        fetch_where_sql = where_sql
+        fetch_params = list(params)
+        if keyset_sql:
+            fetch_where_sql = f"{where_sql} AND {keyset_sql}"
+            fetch_params = fetch_params + keyset_params
+
+        skip_v = 0 if token_payload is not None else max(0, min(int(skip), MAX_SKIP))
+        order_by_sql = self._expression_values_order_by(
+            sort_key, value_asc=value_asc, ties_asc=ties_asc
+        )
+        page_sql = f"""
+            SELECT CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR), value
+            FROM {view}
+            WHERE {fetch_where_sql}
+            ORDER BY {order_by_sql}
+            LIMIT ? OFFSET ?
+        """
+        raw_rows, _ = self._fetchall(page_sql, fetch_params + [limit + 1, skip_v])
+        has_extra = len(raw_rows) > limit
+        raw_rows = raw_rows[:limit]
+        if not forward:
+            raw_rows = list(reversed(raw_rows))
+
+        results: List[Dict[str, Any]] = []
+        for feature_id, biosample_id, value in raw_rows:
             fid = str(feature_id)
             bid = str(biosample_id)
-            out.append(
+            results.append(
                 {
-                    "id": f"{mid}:{fid}:{bid}",
-                    "matrixId": mid,
+                    "id": f"{matrix_id}:{fid}:{bid}",
+                    "matrixId": matrix_id,
                     "featureId": fid,
                     "biosampleId": bid,
                     "value": float(value) if value is not None else None,
                 }
             )
-        return out, int(total)
 
-    def _expression_group_by_sql(
-        self, bio_view: str, group_by: Optional[str]
-    ) -> Optional[str]:
-        if not group_by:
-            return None
-        cols = self._view_columns(bio_view)
-        col_map = {
-            "sex": "sex",
-            "condition": "condition",
-            "age_bracket": "age_bracket",
-            "tissue": "ontology_label",
-            "biosampleStatus": "biosample_status_label",
-        }
-        if group_by in col_map:
-            name = col_map[group_by]
-            if cols and name not in cols:
-                return None
-            return f"CAST(b.{name} AS VARCHAR)"
-        if group_by == "phenotype":
-            if cols and "phenotype_labels" in cols:
-                return "CAST(b.phenotype_labels[1] AS VARCHAR)"
-            if cols and "phenotype_ids" in cols:
-                return "CAST(b.phenotype_ids[1] AS VARCHAR)"
-            if not cols:
-                return (
-                    "COALESCE("
-                    "CAST(b.phenotype_labels[1] AS VARCHAR), "
-                    "CAST(b.phenotype_ids[1] AS VARCHAR)"
-                    ")"
-                )
-            return None
-        return None
-
-    def expression_summary_for_matrix(
-        self,
-        matrix_id: str,
-        *,
-        feature_id_list: Optional[str] = None,
-        group_by: Optional[str] = None,
-        biosample_filters: Optional[Sequence[Any]] = None,
-        threshold: Optional[float] = None,
-    ) -> List[Dict[str, Any]]:
-        view = self._expr_views.get(matrix_id)
-        bio_view = self._bio_views.get(matrix_id)
-        if not view or not bio_view:
-            return []
-        feature_ids = sorted(
-            self._resolve_feature_filter_ids(feature_id_list, matrix_id)
-        )
-        if not feature_ids:
-            return []
-        if len(feature_ids) > MAX_ID_LIST_TOKENS:
-            raise ValueError(
-                f"resolved featureIDList exceeds {MAX_ID_LIST_TOKENS} entries"
+        def _token_for(row: Dict[str, Any], direction: str) -> str:
+            return encode_page_token(
+                {
+                    "f": row["featureId"],
+                    "b": row["biosampleId"],
+                    "v": row["value"],
+                    "dir": direction,
+                    "ord": order_key,
+                    "sort": sort_key,
+                    "fh": filter_hash,
+                }
             )
-        bio_where, bio_params = self._matrix_bio_filter_clause(
-            bio_view, biosample_filters
-        )
-        if bio_where:
-            one = self._fetchone(
-                f"SELECT 1 FROM {bio_view}{bio_where} LIMIT 1",
-                bio_params if bio_params else None,
-            )
-            if one is None:
-                return []
-        group_col = self._expression_group_by_sql(bio_view, group_by)
-        join_filter = bio_where.replace(" WHERE ", " AND ", 1) if bio_where else ""
-        group_select = f", {group_col} AS group_key" if group_col else ""
-        group_by_sql = (
-            " GROUP BY e.feature_id, group_key" if group_col else " GROUP BY e.feature_id"
-        )
-        thr_sql = ""
-        thr_params: List[Any] = []
-        if threshold is not None:
-            thr_sql = ", SUM(CASE WHEN e.value >= ? THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) AS fractionAboveThreshold"
-            thr_params = [threshold]
-        placeholders = ", ".join(["?"] * len(feature_ids))
-        sql = f"""
-            SELECT
-              e.feature_id AS featureId,
-              COUNT(*)::INTEGER AS n,
-              AVG(e.value) AS mean,
-              quantile_cont(e.value, 0.5) AS median,
-              quantile_cont(e.value, 0.25) AS q1,
-              quantile_cont(e.value, 0.75) AS q3,
-              MIN(e.value) AS min,
-              MAX(e.value) AS max,
-              arg_min(e.biosample_id, e.value) AS minBiosampleId,
-              arg_max(e.biosample_id, e.value) AS maxBiosampleId
-              {thr_sql}
-              {group_select}
-            FROM {view} e
-            INNER JOIN {bio_view} b
-              ON CAST(e.biosample_id AS VARCHAR) = CAST(b.biosample_id AS VARCHAR)
-            WHERE e.feature_id IN ({placeholders})
-            {join_filter}
-            {group_by_sql}
-            ORDER BY e.feature_id{', group_key' if group_col else ''}
-        """
-        params: List[Any] = list(feature_ids) + bio_params + thr_params
-        rows, cols = self._fetchall(sql, params)
-        out: List[Dict[str, Any]] = []
-        for tup in rows:
-            row = dict(zip(cols, tup))
-            rec: Dict[str, Any] = {
-                "id": f"{matrix_id}:{row.get('featureId')}:{row.get('group_key') or 'all'}",
-                "matrixId": matrix_id,
-                "featureId": str(row.get("featureId")),
-                "n": int(row.get("n") or 0),
-                "mean": float(row["mean"]) if row.get("mean") is not None else None,
-                "median": float(row["median"]) if row.get("median") is not None else None,
-                "q1": float(row["q1"]) if row.get("q1") is not None else None,
-                "q3": float(row["q3"]) if row.get("q3") is not None else None,
-                "min": float(row["min"]) if row.get("min") is not None else None,
-                "max": float(row["max"]) if row.get("max") is not None else None,
-            }
-            if row.get("minBiosampleId") is not None:
-                rec["minBiosampleId"] = str(row["minBiosampleId"])
-            if row.get("maxBiosampleId") is not None:
-                rec["maxBiosampleId"] = str(row["maxBiosampleId"])
-            if threshold is not None and row.get("fractionAboveThreshold") is not None:
-                rec["fractionAboveThreshold"] = float(row["fractionAboveThreshold"])
-            if group_col and row.get("group_key") is not None:
-                rec["group"] = {"id": str(row["group_key"]), "label": str(row["group_key"])}
-            out.append(rec)
-        return out
 
+        next_page: Optional[str] = None
+        previous_page: Optional[str] = None
+        if results:
+            if forward:
+                if has_extra:
+                    next_page = _token_for(results[-1], "next")
+                if token_payload is not None:
+                    previous_page = _token_for(results[0], "prev")
+            else:
+                if has_extra:
+                    previous_page = _token_for(results[0], "prev")
+                next_page = _token_for(results[-1], "next")
+
+        return ExpressionValuesPage(results, total, next_page, previous_page)

@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  filterKey,
   isAbortError,
-  listExpressionValues,
+  iterateExpressionValues,
   type Biosample,
   type ExpressionValue,
   type Feature,
+  type UiFilter,
 } from '@/lib/beacon'
 import { mapPool } from '@/lib/async-pool'
 import { planCellWindowRequests, type CellWindowRequest } from '@/lib/matrix-cell-window'
@@ -53,28 +55,27 @@ async function fetchWindowRequest(
   request: CellWindowRequest,
   minValue: number | undefined,
   maxValue: number | undefined,
+  filters: UiFilter[] | undefined,
   signal: AbortSignal
 ): Promise<ExpressionValue[]> {
   const rows: ExpressionValue[] = []
   const expected = Math.max(request.featureIds.length * request.biosampleIds.length, 1)
-  let skip = 0
-  while (rows.length < expected) {
+  const pageLimit = Math.min(1000, expected)
+  for await (const page of iterateExpressionValues(matrixId, {
+    limit: pageLimit,
+    featureIDList: request.featureIds.join(','),
+    biosampleIDList: request.biosampleIds.join(','),
+    minValue,
+    maxValue,
+    filters,
+    sort: 'value',
+    order: 'desc',
+    signal,
+  })) {
     if (signal.aborted) break
-    const limit = Math.min(1000, expected - rows.length)
-    const page = await listExpressionValues(matrixId, {
-      skip,
-      limit,
-      featureIDList: request.featureIds.join(','),
-      biosampleIDList: request.biosampleIds.join(','),
-      minValue,
-      maxValue,
-      signal,
-    })
-    if (!page.results.length) break
-    rows.push(...page.results)
-    skip += page.results.length
-    if (page.total != null && skip >= page.total) break
-    if (page.results.length < limit) break
+    if (!page.length) break
+    rows.push(...page)
+    if (rows.length >= expected) break
   }
   return rows
 }
@@ -85,10 +86,12 @@ export function useMatrixCellValues(input: {
   biosamples: Biosample[]
   minValue?: number
   maxValue?: number
+  filters?: UiFilter[]
   enabled?: boolean
 }) {
   const enabled = input.enabled !== false && input.features.length > 0 && input.biosamples.length > 0
-  const dataKey = `${input.matrixId}\u0000${input.minValue ?? ''}\u0000${input.maxValue ?? ''}`
+  const filtersKey = (input.filters ?? []).map((filter) => filterKey(filter)).join('|')
+  const dataKey = `${input.matrixId}\u0000${input.minValue ?? ''}\u0000${input.maxValue ?? ''}\u0000${filtersKey}`
   const windowKey = `${input.features.map((feature) => feature.id).join('|')}::${input.biosamples
     .map((sample) => sample.id)
     .join('|')}`
@@ -169,6 +172,7 @@ export function useMatrixCellValues(input: {
           request,
           input.minValue,
           input.maxValue,
+          input.filters,
           controller.signal
         )
       )
@@ -195,7 +199,17 @@ export function useMatrixCellValues(input: {
       cancelled = true
       controller.abort()
     }
-  }, [attempt, dataKey, enabled, input.matrixId, input.maxValue, input.minValue, windowKey])
+  }, [
+    attempt,
+    dataKey,
+    enabled,
+    filtersKey,
+    input.filters,
+    input.matrixId,
+    input.maxValue,
+    input.minValue,
+    windowKey,
+  ])
 
   const retry = useCallback(() => setAttempt((n) => n + 1), [])
 

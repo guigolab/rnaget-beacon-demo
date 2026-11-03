@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { EndpointNote } from '@/components/ui-kit'
+import { LensMutedEndpoints } from '@/components/shared/lens-muted-endpoints'
 import { DetailScalarGrid } from '@/components/shared/detail/detail-scalar-grid'
 import { DetailScrollBody } from '@/components/shared/detail/detail-scroll-body'
 import { DetailSection } from '@/components/shared/detail/detail-section'
@@ -57,7 +57,7 @@ export function BiosampleDetailBody({
 
   useEffect(() => {
     let cancelled = false
-    getFilteringTerms('/biosamples/filtering_terms')
+    getFilteringTerms('/filtering_terms')
       .then((terms) => {
         if (!cancelled) setResources(terms.resources)
       })
@@ -200,9 +200,13 @@ export function BiosampleDetailBody({
         />
       )}
       {density === 'drawer' && (
-        <EndpointNote>
-          {`GET /biosamples/${sample.id} · GET /biosamples/${sample.id}/matrices`}
-        </EndpointNote>
+        <LensMutedEndpoints
+          className="mt-2"
+          lines={[
+            `GET /biosamples/${sample.id}`,
+            `GET /biosamples/${sample.id}/matrices`,
+          ]}
+        />
       )}
     </>
   )

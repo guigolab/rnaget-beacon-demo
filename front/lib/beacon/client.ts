@@ -2,7 +2,9 @@ import { needsPost, scopeOf, tokenToFilter } from './filters'
 import { collectionQuery, type QueryOptions } from './query'
 import type { MatrixQuery } from './filters'
 import type {
+  BeaconConfiguration,
   BeaconInfo,
+  BeaconMap,
   BeaconMeta,
   BeaconResult,
   Biosample,
@@ -13,6 +15,7 @@ import type {
   FilteringTerm,
   Granularity,
   Matrix,
+  ServiceInfo,
   UiFilter,
 } from './types'
 import { recordBeaconCall } from './recorder'
@@ -95,15 +98,43 @@ async function beaconFetch(path: string, init?: RequestInit): Promise<unknown> {
   return data
 }
 
+function extractNextPage(data: unknown, meta: BeaconMeta): string | undefined {
+  const fromReceived = meta.receivedRequestSummary?.pagination?.nextPage
+  if (typeof fromReceived === 'string' && fromReceived.trim()) {
+    return fromReceived.trim()
+  }
+  const envelope = (data ?? {}) as {
+    response?: {
+      info?: { nextPage?: unknown; pagination?: { nextPage?: unknown } }
+      pagination?: { nextPage?: unknown }
+      resultSets?: Array<{ info?: { nextPage?: unknown } }>
+    }
+    meta?: BeaconMeta
+  }
+  const candidates = [
+    envelope.response?.info?.nextPage,
+    envelope.response?.info?.pagination?.nextPage,
+    envelope.response?.pagination?.nextPage,
+    envelope.response?.resultSets?.[0]?.info?.nextPage,
+    envelope.meta?.receivedRequestSummary?.pagination?.nextPage,
+  ]
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return undefined
+}
+
 export function parseResultset<T>(data: unknown): BeaconResult<T> {
   const envelope = (data ?? {}) as ResultEnvelope<T>
   const results = envelope.response?.resultSets?.[0]?.results ?? []
+  const meta = envelope.meta ?? {}
   return {
     exists: envelope.responseSummary?.exists ?? results.length > 0,
     total: envelope.responseSummary?.numTotalResults,
     results,
-    meta: envelope.meta ?? {},
-    returnedGranularity: envelope.meta?.returnedGranularity,
+    meta,
+    returnedGranularity: meta.returnedGranularity,
+    nextPage: extractNextPage(data, meta),
   }
 }
 
@@ -128,8 +159,16 @@ export async function getInformational<T>(path: string): Promise<T> {
   return data.response
 }
 
+export function getRootInfo(): Promise<BeaconInfo> {
+  return getInformational<BeaconInfo>('/')
+}
+
 export function getInfo(): Promise<BeaconInfo> {
   return getInformational<BeaconInfo>('/info')
+}
+
+export async function getServiceInfo(): Promise<ServiceInfo> {
+  return (await beaconFetch('/service-info')) as ServiceInfo
 }
 
 export async function getEntryTypes(): Promise<Record<string, EntryTypeInfo>> {
@@ -137,6 +176,14 @@ export async function getEntryTypes(): Promise<Record<string, EntryTypeInfo>> {
     '/entry_types'
   )
   return body.entryTypes ?? {}
+}
+
+export function getBeaconMap(): Promise<BeaconMap> {
+  return getInformational<BeaconMap>('/map')
+}
+
+export function getBeaconConfiguration(): Promise<BeaconConfiguration> {
+  return getInformational<BeaconConfiguration>('/configuration')
 }
 
 export type FilteringTermsResult = {
@@ -189,47 +236,6 @@ export function listMatrices(
     granularity: opts?.granularity ?? 'record',
     signal: opts?.signal,
   })
-}
-
-export type ExpressionSummary = {
-  id: string
-  matrixId: string
-  featureId: string
-  n: number
-  mean?: number
-  median?: number
-  min?: number
-  max?: number
-  q1?: number
-  q3?: number
-  fractionAboveThreshold?: number
-  minBiosampleId?: string
-  maxBiosampleId?: string
-  group?: { id: string; label: string }
-}
-
-export function listMatrixExpressionSummary(
-  matrixId: string,
-  params: {
-    featureIDList: string
-    groupBy?: string
-    threshold?: number
-    filters?: UiFilter[]
-  }
-) {
-  return queryCollection<ExpressionSummary>(
-    `/matrices/${encodeURIComponent(matrixId)}/expression_summary`,
-    {
-      granularity: 'record',
-      limit: 500,
-      filters: params.filters,
-      requestParameters: {
-        featureIDList: params.featureIDList,
-        groupBy: params.groupBy,
-        threshold: params.threshold,
-      },
-    }
-  )
 }
 
 export async function getMatrix(id: string, signal?: AbortSignal): Promise<Matrix | null> {
@@ -388,39 +394,168 @@ export function listMatrixBiosamples(
   )
 }
 
+export type ExpressionValueSort = 'value'
+export type ExpressionValueOrder = 'asc' | 'desc'
+
+export type RelatedMatricesOpts = {
+  filters?: UiFilter[]
+  matrixIDList?: string
+  skip?: number
+  limit?: number
+  granularity?: Granularity
+  signal?: AbortSignal
+}
+
+export function listFeatureMatrices(featureId: string, opts: RelatedMatricesOpts = {}) {
+  const hasIdList = Boolean(opts.matrixIDList?.trim())
+  const post = needsPost(opts.filters) || hasIdList
+  return queryCollection<Matrix>(
+    `/features/${encodeURIComponent(featureId)}/matrices`,
+    {
+      granularity: opts.granularity ?? 'record',
+      skip: opts.skip ?? 0,
+      limit: opts.limit ?? 50,
+      filters: opts.filters,
+      signal: opts.signal,
+      ...(post
+        ? {
+            requestParameters: {
+              matrixIDList: opts.matrixIDList,
+            },
+          }
+        : {}),
+    }
+  )
+}
+
+export function listBiosampleMatrices(biosampleId: string, opts: RelatedMatricesOpts = {}) {
+  const hasIdList = Boolean(opts.matrixIDList?.trim())
+  const post = needsPost(opts.filters) || hasIdList
+  return queryCollection<Matrix>(
+    `/biosamples/${encodeURIComponent(biosampleId)}/matrices`,
+    {
+      granularity: opts.granularity ?? 'record',
+      skip: opts.skip ?? 0,
+      limit: opts.limit ?? 50,
+      filters: opts.filters,
+      signal: opts.signal,
+      ...(post
+        ? {
+            requestParameters: {
+              matrixIDList: opts.matrixIDList,
+            },
+          }
+        : {}),
+    }
+  )
+}
+
 export function listExpressionValues(
   matrixId: string,
   params: {
     skip?: number
     limit?: number
+    pageToken?: string
     featureIDList?: string
     biosampleIDList?: string
     minValue?: number
     maxValue?: number
+    /** Beacon expression_values sort key — only ``value`` is supported. */
+    sort?: ExpressionValueSort
+    order?: ExpressionValueOrder
     filters?: UiFilter[]
     granularity?: Granularity
     signal?: AbortSignal
   }
 ) {
-  const biosampleFilters = (params.filters ?? []).filter(
-    (filter) => scopeOf(filter) === 'biosample'
-  )
+  const filters = (params.filters ?? []).filter((filter) => {
+    const scope = scopeOf(filter)
+    return (
+      scope === 'biosample' ||
+      scope === 'feature' ||
+      scope === 'expressionValue'
+    )
+  })
+  const hasIdList = Boolean(params.featureIDList || params.biosampleIDList)
+  const hasRange = params.minValue != null || params.maxValue != null
+  const hasSort = Boolean(params.sort || params.order)
+  const post =
+    needsPost(filters) ||
+    hasIdList ||
+    hasRange ||
+    hasSort ||
+    Boolean(params.pageToken?.trim())
   return queryCollection<ExpressionValue>(
     `/matrices/${encodeURIComponent(matrixId)}/expression_values`,
     {
       granularity: params.granularity ?? 'record',
       skip: params.skip ?? 0,
       limit: params.limit ?? 10,
-      filters: biosampleFilters.length ? biosampleFilters : undefined,
+      pageToken: params.pageToken,
+      filters: filters.length ? filters : undefined,
       signal: params.signal,
-      requestParameters: {
-        featureIDList: params.featureIDList,
-        biosampleIDList: params.biosampleIDList,
-        minValue: params.minValue,
-        maxValue: params.maxValue,
-      },
+      ...(post
+        ? {
+            requestParameters: {
+              featureIDList: params.featureIDList,
+              biosampleIDList: params.biosampleIDList,
+              minValue: params.minValue,
+              maxValue: params.maxValue,
+              sort: params.sort,
+              order: params.order,
+            },
+          }
+        : {
+            search: {
+              sort: params.sort,
+              order: params.order,
+            },
+          }),
     }
   )
+}
+
+/**
+ * Walk expression_values pages using `nextPage` tokens when present,
+ * falling back to skip/limit offset pagination.
+ */
+export async function* iterateExpressionValues(
+  matrixId: string,
+  params: {
+    limit?: number
+    featureIDList?: string
+    biosampleIDList?: string
+    minValue?: number
+    maxValue?: number
+    sort?: ExpressionValueSort
+    order?: ExpressionValueOrder
+    filters?: UiFilter[]
+    granularity?: Granularity
+    signal?: AbortSignal
+  } = {}
+): AsyncGenerator<ExpressionValue[], void, undefined> {
+  const limit = params.limit ?? 100
+  let pageToken: string | undefined
+  let skip = 0
+  for (;;) {
+    if (params.signal?.aborted) return
+    const page = await listExpressionValues(matrixId, {
+      ...params,
+      limit,
+      skip: pageToken ? 0 : skip,
+      pageToken,
+    })
+    if (!page.results.length) return
+    yield page.results
+    if (page.nextPage) {
+      pageToken = page.nextPage
+      continue
+    }
+    pageToken = undefined
+    skip += page.results.length
+    if (page.total != null && skip >= page.total) return
+    if (page.results.length < limit) return
+  }
 }
 
 export function listRelatedMatrices(
@@ -429,12 +564,10 @@ export function listRelatedMatrices(
   skip = 0,
   limit = 50
 ) {
-  const root = kind === 'feature' ? 'features' : 'biosamples'
-  return queryCollection<Matrix>(`/${root}/${encodeURIComponent(id)}/matrices`, {
-    granularity: 'record',
-    skip,
-    limit,
-  })
+  if (kind === 'feature') {
+    return listFeatureMatrices(id, { skip, limit })
+  }
+  return listBiosampleMatrices(id, { skip, limit })
 }
 
 export type ResolvedCohort<T> = {

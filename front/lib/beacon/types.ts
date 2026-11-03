@@ -5,9 +5,11 @@ export type OntologyFilter = {
   scope?: string
 }
 
+export type AlphanumericOperator = '=' | '!' | '<' | '>' | '<=' | '>='
+
 export type AlphanumericFilter = {
   id: string
-  operator: '=' | '!'
+  operator: AlphanumericOperator
   value: string
   scope?: string
 }
@@ -24,7 +26,16 @@ export type UiFilter =
   | { kind: 'symbol'; value: string }
   | { kind: 'sex'; value: string }
   | { kind: 'alphanumeric'; id: string; value: string; label?: string }
+  /** Continuous expression.* terms that require an operator (e.g. expression.median). */
+  | {
+      kind: 'expression'
+      id: string
+      operator?: string
+      value?: string
+      label?: string
+    }
   | { kind: 'matrixUnit'; value: string }
+  /** Includes categorical expression.* ids such as expression.percentile.80-100. */
   | { kind: 'custom'; id: string; label?: string }
 
 export type FilteringTerm = {
@@ -51,10 +62,17 @@ export type BeaconMeta = {
   returnedSchemas?: Array<{ id?: string; name?: string }>
 }
 
+export type PaginationSummary = {
+  skip?: number
+  limit?: number
+  nextPage?: string
+  previousPage?: string
+}
+
 export type ReceivedRequestSummary = {
   apiVersion?: string
   requestedGranularity?: Granularity
-  pagination?: { skip?: number; limit?: number }
+  pagination?: PaginationSummary
   filters?: Array<{
     id?: string
     operator?: string
@@ -70,6 +88,8 @@ export type BeaconResult<T> = {
   results: T[]
   meta: BeaconMeta
   returnedGranularity?: Granularity
+  /** Opaque page token when the server returns keyset pagination. */
+  nextPage?: string
 }
 
 export type BeaconInfo = {
@@ -81,11 +101,56 @@ export type BeaconInfo = {
   organization?: { id?: string; name?: string } | string
 }
 
+export type ServiceInfo = {
+  id?: string
+  name?: string
+  type?: { group?: string; artifact?: string; version?: string }
+  description?: string
+  organization?: { name?: string; url?: string }
+  version?: string
+  environment?: string
+}
+
+export type EntryTypeSchemaRef = {
+  id?: string
+  name?: string
+  referenceToSchemaDefinition?: string
+  schemaVersion?: string
+}
+
 export type EntryTypeInfo = {
   id?: string
   name?: string
   description?: string
   partOfSpecification?: string
+  defaultSchema?: EntryTypeSchemaRef
+  ontologyTermForThisType?: OntologyTerm
+}
+
+export type BeaconMapEndpoint = {
+  returnedEntryType?: string
+  url?: string
+}
+
+export type BeaconMapEndpointSet = {
+  entryType?: string
+  rootUrl?: string
+  singleEntryUrl?: string
+  filteringTermsUrl?: string
+  endpoints?: Record<string, BeaconMapEndpoint>
+}
+
+export type BeaconMap = {
+  endpointSets?: Record<string, BeaconMapEndpointSet>
+}
+
+export type BeaconConfiguration = {
+  maturityAttributes?: { productionStatus?: string }
+  securityAttributes?: {
+    defaultGranularity?: Granularity | string
+    securityLevels?: string[]
+  }
+  entryTypes?: Record<string, EntryTypeInfo>
 }
 
 export type Matrix = {
@@ -114,6 +179,21 @@ export type GenomicInterval = {
   }
 }
 
+/** Embedded info.expressionSummary from packaged expression stats (not a summary endpoint). */
+export type ExpressionSummaryInfo = {
+  min?: number
+  max?: number
+  /** Feature-axis embed: biosample holding the min/max. */
+  minBiosampleId?: string
+  maxBiosampleId?: string
+  /** Biosample-axis embed: feature holding the min/max. */
+  minFeatureId?: string
+  maxFeatureId?: string
+}
+
+/** @deprecated Prefer ExpressionSummaryInfo */
+export type FeatureExpressionSummaryInfo = ExpressionSummaryInfo
+
 export type Feature = {
   id: string
   genomicFeature?: {
@@ -125,6 +205,10 @@ export type Feature = {
     genomicInterval?: GenomicInterval
   }
   matrixIds?: string[]
+  /** Present on nested `/matrices/{id}/features` when expression stats are packaged. */
+  info?: {
+    expressionSummary?: ExpressionSummaryInfo
+  }
 }
 
 export type OntologyTerm = { id?: string; label?: string }
@@ -167,6 +251,8 @@ export type Biosample = {
     timepoint?: string
     rin?: number
     ischemic_time_min?: number
+    /** Present on nested `/matrices/{id}/biosamples` when expression stats are packaged. */
+    expressionSummary?: ExpressionSummaryInfo
   }
 }
 

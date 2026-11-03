@@ -109,10 +109,6 @@ export function PageIntro({
   return <PageHeader title={title} description={description} />
 }
 
-export function EndpointNote({ children }: { children: ReactNode }) {
-  return <p className="mt-2 font-mono text-xs text-muted-foreground">{children}</p>
-}
-
 export function Chip({ children }: { children: ReactNode }) {
   return (
     <span className="border border-border bg-background px-2 py-0.5 text-xs text-foreground">

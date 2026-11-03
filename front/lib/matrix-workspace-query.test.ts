@@ -12,7 +12,7 @@ import {
 import type { FilteringTerm } from '@/lib/beacon/types'
 
 const params = new URLSearchParams(
-  'symbol=TP53&genes=tp53,BRCA1&featureIds=ENSG00000141510&recordKind=biosample&recordId=sample-1&matrix.unit=TPM&minValue=1'
+  'filters=symbol:TP53&genes=tp53,BRCA1&featureIds=ENSG00000141510&recordKind=biosample&recordId=sample-1&matrix.unit=TPM&minValue=1'
 )
 const query = parseMatrixWorkspaceQuery(params)
 
@@ -21,15 +21,33 @@ assert.deepEqual(query.featureIds, ['ENSG00000141510'])
 assert.equal(query.minValue, 1)
 assert.equal(query.featureFilters.length, 0)
 assert.equal(query.biosampleFilters.length, 0)
+assert.equal(query.expressionFilters.length, 0)
+
+const exprParams = new URLSearchParams(
+  'filters=expression.median:>=:10,expression.value:>=:5'
+)
+const exprQuery = parseMatrixWorkspaceQuery(exprParams)
+assert.equal(exprQuery.featureFilters.length, 1)
+assert.equal(exprQuery.featureFilters[0].kind, 'expression')
+assert.equal(exprQuery.expressionFilters.length, 1)
+assert.equal(exprQuery.expressionFilters[0].kind, 'expression')
+const exprWritten = matrixWorkspaceSearchParams(exprQuery)
+assert.match(exprWritten.get('filters') ?? '', /expression\.median:>=:10/)
+assert.match(exprWritten.get('filters') ?? '', /expression\.value:>=:5/)
 
 const withRecord = matrixWorkspaceQueryKey(query)
 const withoutRecord = matrixWorkspaceQueryKey(
-  parseMatrixWorkspaceQuery(new URLSearchParams('symbol=TP53&genes=BRCA1&featureIds=ENSG00000141510&minValue=1'))
+  parseMatrixWorkspaceQuery(
+    new URLSearchParams(
+      'filters=symbol:TP53&genes=BRCA1&featureIds=ENSG00000141510&minValue=1'
+    )
+  )
 )
 assert.equal(withRecord, withoutRecord)
 
 const written = matrixWorkspaceSearchParams(query, params)
-assert.equal(written.get('symbol'), 'TP53,BRCA1')
+assert.equal(written.get('filters'), 'symbol:TP53,symbol:BRCA1')
+assert.equal(written.get('symbol'), null)
 assert.equal(written.get('genes'), null)
 assert.equal(written.get('matrix.unit'), null)
 assert.equal(written.get('recordKind'), 'biosample')

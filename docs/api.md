@@ -54,13 +54,12 @@ Filled from export/hydrate when data exists; clinical biosample fields and gene 
 
 Informational catalogs:
 
-- `GET|POST /filtering_terms` — all scopes
-- `GET|POST /features/filtering_terms` — `genomicFeature` facets
-- `GET|POST /biosamples/filtering_terms` — `biosample` facets
-- `GET|POST /matrices/{id}/features/filtering_terms` — facets observed on features in that matrix
-- `GET|POST /matrices/{id}/biosamples/filtering_terms` — facets observed on biosamples in that matrix
+- `GET|POST /filtering_terms` — all scopes (`genomicFeature`, `biosample`, `matrix`); clients filter by `scopes`
+- `GET|POST /matrices/{id}/filtering_terms` — terms observed on that matrix’s features and biosamples (both scopes)
 
-The package ships `filtering_terms.json` (SO/GO feature facets; UBERON/EFO/OBI/MONDO/HP/NCIT biosample facets; matrix assay facets; alphanumeric field ids; `resources[]` including `hgnc` / `ncbigene` / `ensembl` / `go` / `mondo` when used). Individual HGNC/NCBIGene values are **not** listed.
+Dropped: `/features/filtering_terms`, `/biosamples/filtering_terms`, `/matrices/filtering_terms`, and `/matrices/{id}/{features|biosamples}/filtering_terms`.
+
+Catalogs are built by `scripts/fetch_data_package.py` (root `filtering_terms.json` plus `filtering_terms/by_matrix/{matrixId}.json`). They include SO/GO feature facets; UBERON/EFO/OBI/MONDO/HP/NCIT biosample facets; matrix assay facets; alphanumeric field ids; and `resources[]` for namespaces in use (`so`, `go`, `uberon`, `efo`, `obi`, `mondo`, `hp`, `ncit`, `hgnc`, `ncbigene`, `ensembl`, `symbol`). Individual HGNC/NCBIGene/ENSEMBL values and gene symbols are **not** listed as terms.
 
 Apply filters on list endpoints (`GET|POST /features`, `GET|POST /biosamples`):
 
@@ -70,19 +69,20 @@ Apply filters on list endpoints (`GET|POST /features`, `GET|POST /biosamples`):
 | Ontology biosample | `{"id":"UBERON:0002107"}` | Match `sampleOriginDetail`, `biosampleStatus`, `sampleOriginType`, `sampleProcessing`, phenotype, or measurement assay id |
 | Ontology GO (features) | `{"id":"GO:0008150"}` | Match `featureType` or `ontologyTerms` |
 | Gene public id | `{"id":"HGNC:11998"}` | Resolve via `gene_lookup` / xrefs; miss → empty page |
-| Symbol | `{"id":"genomicFeature.symbol","operator":"=","value":"TP53"}` | Lookup; miss → empty page |
+| Symbol (custom) | `{"id":"symbol:TP53"}` | Lookup via aliases / `gene_lookup`; miss → empty page |
 | Unknown prefix / field | — | HTTP 400 |
 
 POST body: `{"query":{"filters":[…],"pagination":{"skip":0,"limit":10}}}`. GET ontology filters: `?filters=SO:0000704,HGNC:11998`. Alphanumeric filters need an operator, so GET uses `field:op:value` (for example `sex:=:female` or `rin:>=:7`). POST remains the general form.
 
 ## Request behavior
 
-- `skip` is an **item** offset. Beacon's text says "pages"; this server keeps the usual item offset and does not return `currentPage` / `nextPage` tokens.
+- `skip` is an **item** offset for most list endpoints. For `expression_values`, the server also returns opaque `pagination.nextPage` / `previousPage` tokens (Beacon PageToken); prefer those over deep `skip` when present. Pass the token as `pageToken` (GET) or `query.pagination.nextPage` / `previousPage` (POST).
 - `limit=0` means "as many as the server allows" and is applied as 1000, which is also the maximum page size. The applied limit is echoed in `receivedRequestSummary.pagination`.
 - Expression value queries reject `skip` above 100000. Feature, biosample, and matrix listings do not use that cap.
 - `query.includeResultsetResponses` accepts `ALL`, `HIT`, `MISS`, or `NONE` (Beacon v2). It is echoed in `receivedRequestSummary`. `NONE` omits result sets; `HIT` includes the result set only when it exists; `MISS` includes it only when it does not.
 - Ontology filters match the term id exactly. `includeDescendantTerms` is not applied (the package has no ontology closure). Responses echo `includeDescendantTerms: false` and `similarity: "exact"`.
-- `GET /matrices/{id}/expression_summary` requires `featureIDList`. A summary over every gene in a matrix is not computed.
+- Nested `/matrices/{id}/features` and `/matrices/{id}/biosamples` accept expression axis filters (`expression.median`, `expression.percentile.*`, …), optional ID lists, and `sort` / `order` on packaged stats. Cell retrieval is `/matrices/{id}/expression_values` (optional `featureIDList` / `biosampleIDList`, `minValue` / `maxValue`, and cell-scoped `expression.value` / percentile filters). There is no separate heatmap or expression_summary route.
+- `/features/{id}/matrices` accepts membership filters such as `expression.percentile.80-100` (and optional `matrixIDList`).
 - `biosampleStatus` is `EFO:0009654` (`reference sample`) when the source does not classify the sample. That includes GTEx post-mortem tissue.
 - `GET /service-info` returns a GA4GH Service Info document (no Beacon `meta` / `response` envelope).
 - `receivedRequestSummary.apiVersion` uses the same value as `meta.apiVersion` (including the `v` prefix).

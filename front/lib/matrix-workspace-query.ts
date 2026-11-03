@@ -6,8 +6,11 @@ import {
   isCustomId,
   isFeatureLensFilter,
   isOntologyId,
+  isSymbolCustomId,
   parseCatalogSearch,
   scopeOf,
+  symbolCustomFilter,
+  symbolFromCustomId,
   tokenToFilter,
 } from '@/lib/beacon/filters'
 import type { FilteringTerm, UiFilter } from '@/lib/beacon/types'
@@ -22,6 +25,8 @@ export type MatrixWorkspaceQuery = {
   featureIds: string[]
   biosampleFilters: UiFilter[]
   biosampleIds: string[]
+  /** Cell-scoped expression.* alphanumeric filters (e.g. expression.value). */
+  expressionFilters: UiFilter[]
   minValue?: number
   maxValue?: number
   sort: MatrixFeatureSort
@@ -60,8 +65,9 @@ export function emptyMatrixWorkspaceQuery(): MatrixWorkspaceQuery {
     featureIds: [],
     biosampleFilters: [],
     biosampleIds: [],
-    sort: 'id',
-    order: 'asc',
+    expressionFilters: [],
+    sort: 'expression.max',
+    order: 'desc',
   }
 }
 
@@ -73,12 +79,21 @@ export function parseMatrixWorkspaceQuery(
   const { filters } = parseCatalogSearch(params)
   const featureFilters: UiFilter[] = []
   const biosampleFilters: UiFilter[] = []
+  const expressionFilters: UiFilter[] = []
   const genes: string[] = []
   const seenGenes = new Set<string>()
 
   for (const filter of filters) {
     if (filter.kind === 'symbol') {
       pushUnique(genes, seenGenes, filter.value, TOKEN_CAP)
+      continue
+    }
+    if (filter.kind === 'custom' && isSymbolCustomId(filter.id)) {
+      pushUnique(genes, seenGenes, symbolFromCustomId(filter.id), TOKEN_CAP)
+      continue
+    }
+    if (scopeOf(filter, index) === 'expressionValue') {
+      expressionFilters.push(filter)
       continue
     }
     if (scopeOf(filter, index) === 'biosample') {
@@ -105,9 +120,13 @@ export function parseMatrixWorkspaceQuery(
   }
 
   const sortRaw = params.get('sort')
+  // Feature-id sort is no longer offered in the UI; treat missing/legacy `id` as highest max.
   const sort: MatrixFeatureSort =
-    sortRaw === 'expression.max' || sortRaw === 'expression.min' ? sortRaw : 'id'
-  const order: MatrixFeatureOrder = params.get('order') === 'desc' ? 'desc' : 'asc'
+    sortRaw === 'expression.min' ? 'expression.min' : 'expression.max'
+  const orderRaw = params.get('order')
+  const defaultOrder: MatrixFeatureOrder = sort === 'expression.min' ? 'asc' : 'desc'
+  const order: MatrixFeatureOrder =
+    orderRaw === 'asc' || orderRaw === 'desc' ? orderRaw : defaultOrder
 
   return {
     featureFilters: dedupeFilters(featureFilters),
@@ -115,6 +134,7 @@ export function parseMatrixWorkspaceQuery(
     featureIds,
     biosampleFilters: dedupeFilters(biosampleFilters),
     biosampleIds,
+    expressionFilters: dedupeFilters(expressionFilters),
     minValue: optionalNumber(params.get('minValue')),
     maxValue: optionalNumber(params.get('maxValue')),
     sort,
@@ -130,6 +150,7 @@ export function matrixWorkspaceQueryKey(query: MatrixWorkspaceQuery): string {
     featureIds: query.featureIds,
     biosampleFilters: query.biosampleFilters.map(filterKey),
     biosampleIds: query.biosampleIds,
+    expressionFilters: query.expressionFilters.map(filterKey),
     minValue: query.minValue ?? null,
     maxValue: query.maxValue ?? null,
     sort: query.sort,
@@ -144,6 +165,7 @@ export function matrixWorkspaceHasConstraints(query: MatrixWorkspaceQuery): bool
     query.featureIds.length > 0 ||
     query.biosampleFilters.length > 0 ||
     query.biosampleIds.length > 0 ||
+    query.expressionFilters.length > 0 ||
     query.minValue != null ||
     query.maxValue != null
   )
@@ -157,7 +179,8 @@ export function matrixWorkspaceSearchParams(
     filters: [
       ...query.featureFilters,
       ...query.biosampleFilters,
-      ...query.genes.map((value) => ({ kind: 'symbol' as const, value })),
+      ...query.expressionFilters,
+      ...query.genes.map((value) => symbolCustomFilter(value)),
     ],
     granularity: 'record',
   })
@@ -168,8 +191,9 @@ export function matrixWorkspaceSearchParams(
   if (query.biosampleIds.length) params.set('biosampleIds', query.biosampleIds.join(','))
   if (query.minValue != null) params.set('minValue', String(query.minValue))
   if (query.maxValue != null) params.set('maxValue', String(query.maxValue))
-  if (query.sort !== 'id') params.set('sort', query.sort)
-  if (query.order !== 'asc') params.set('order', query.order)
+  if (query.sort !== 'expression.max') params.set('sort', query.sort)
+  const defaultOrder: MatrixFeatureOrder = query.sort === 'expression.min' ? 'asc' : 'desc'
+  if (query.order !== defaultOrder) params.set('order', query.order)
   if (preserve) {
     for (const key of [RECORD_KIND_PARAM, RECORD_ID_PARAM]) {
       const value = preserve.get(key)
@@ -245,6 +269,9 @@ export function interpretFeatureQueryToken(
       return { ok: false, message: `${typed.id} is not a filter for this matrix.` }
     }
     if (typed.kind === 'symbol') return { ok: true, kind: 'gene', value: typed.value }
+    if (typed.kind === 'custom' && isSymbolCustomId(typed.id)) {
+      return { ok: true, kind: 'gene', value: symbolFromCustomId(typed.id) }
+    }
     return { ok: true, kind: 'filter', filter: withLabel(typed, terms) }
   }
 

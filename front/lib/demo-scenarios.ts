@@ -9,19 +9,19 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
   {
     id: 'alb-gtex',
     label: 'ALB · liver vs adipose',
-    href: '/features/?symbol=ALB',
+    href: '/features/?filters=symbol:ALB',
     description: 'GTEx tissue contrast for albumin.',
   },
   {
     id: 'ace2-geo',
     label: 'ACE2 · cornea COVID',
-    href: '/features/?symbol=ACE2&matrix=GSE164073',
+    href: '/features/?filters=symbol:ACE2&matrix=GSE164073',
     description: 'GEO GSE164073 eye infection series.',
   },
   {
     id: 'gtex-heatmap',
     label: 'ALB · GTEx heatmap',
-    href: '/features/?symbol=ALB&unit=TPM',
+    href: '/features/?filters=symbol:ALB&unit=TPM',
     description: 'Cross-matrix compare via features heatmap (compatible TPM unit).',
   },
   {

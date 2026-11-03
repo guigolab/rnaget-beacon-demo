@@ -11,7 +11,7 @@ BIOSAMPLE_ONTOLOGY_PREFIXES = frozenset(
     {"UBERON", "EFO", "OBI", "GO", "MONDO", "HP", "NCIT"}
 )
 GENE_PUBLIC_ID_PREFIXES = frozenset({"HGNC", "NCBIGENE", "ENSEMBL"})
-ALPHANUMERIC_FEATURE_FIELDS = frozenset({"genomicFeature.symbol"})
+ALPHANUMERIC_FEATURE_FIELDS: frozenset[str] = frozenset()
 ALPHANUMERIC_BIOSAMPLE_FIELDS = frozenset(
     {"sex", "age_bracket", "condition", "timepoint"}
 )
@@ -20,6 +20,8 @@ MATRIX_ALPHANUMERIC_FIELDS = frozenset(
     {
         "matrix.unit",
         "matrix.scale",
+        "matrix.annotation",
+        # Legacy split ids (accepted for matching; catalogs emit matrix.annotation).
         "matrix.annotation.source",
         "matrix.annotation.version",
         "matrix.assembly.name",
@@ -29,6 +31,63 @@ MATRIX_ALPHANUMERIC_FIELDS = frozenset(
 )
 CUSTOM_BIOSAMPLE_IDS: frozenset[str] = frozenset()
 ALPHANUMERIC_OPS = frozenset({"=", "!", "<", ">", "<=", ">="})
+
+# Matrix-only continuous expression.* terms (require a path-bound matrix).
+EXPRESSION_FEATURE_ALPHANUMERIC = frozenset(
+    {
+        "expression.median",
+        "expression.mean",
+        "expression.max",
+        "expression.detectedFraction",
+    }
+)
+EXPRESSION_BIOSAMPLE_ALPHANUMERIC = frozenset(
+    {
+        "expression.detectedGenes",
+    }
+)
+EXPRESSION_VALUE_ALPHANUMERIC = frozenset(
+    {
+        "expression.value",
+        "expression.percentileInFeature",
+        "expression.percentileInBiosample",
+    }
+)
+# Precomputed categorical expression.* custom terms (valid at root and matrix scope).
+EXPRESSION_FEATURE_CUSTOM_PREFIXES = (
+    "expression.percentile.",
+    "expression.profile:",
+    "expression.detected:>=",
+    "expression.enrichedIn:",
+)
+EXPRESSION_BIOSAMPLE_CUSTOM_PREFIXES = ("expression.detectedGenesPercentile.",)
+
+
+def matrix_annotation_filter_value(
+    source: Optional[str], version: Optional[str]
+) -> Optional[str]:
+    """Merge annotation source + version into one facet value (e.g. gencodeV24)."""
+    src = (source or "").strip()
+    ver = (version or "").strip()
+    if not src and not ver:
+        return None
+    if not ver:
+        return src
+    if not src:
+        return ver
+    if ver[0].isalpha():
+        return f"{src}{ver[0].upper()}{ver[1:]}"
+    return f"{src}{ver}"
+
+
+def is_symbol_custom_filter_id(fid: str) -> bool:
+    return fid.lower().startswith("symbol:")
+
+
+def symbol_id_lookup_key(fid: str) -> str:
+    if ":" not in fid:
+        return ""
+    return fid.split(":", 1)[1].strip()
 
 
 @dataclass(frozen=True)
@@ -113,11 +172,20 @@ def normalize_filters(raw: Optional[Sequence[Any]]) -> List[NormalizedFilter]:
             or fid in ALPHANUMERIC_BIOSAMPLE_FIELDS
             or fid in NUMERIC_BIOSAMPLE_FIELDS
             or fid in MATRIX_ALPHANUMERIC_FIELDS
+            or fid in EXPRESSION_FEATURE_ALPHANUMERIC
+            or fid in EXPRESSION_BIOSAMPLE_ALPHANUMERIC
+            or fid in EXPRESSION_VALUE_ALPHANUMERIC
         ):
             raise ValueError(
                 f"alphanumeric filter {fid!r} requires operator and value"
             )
-        if fid.startswith("resource:") or fid in CUSTOM_BIOSAMPLE_IDS:
+        if (
+            fid.lower().startswith("symbol:")
+            or fid.startswith("resource:")
+            or fid in CUSTOM_BIOSAMPLE_IDS
+            or fid.startswith(EXPRESSION_FEATURE_CUSTOM_PREFIXES)
+            or fid.startswith(EXPRESSION_BIOSAMPLE_CUSTOM_PREFIXES)
+        ):
             out.append(
                 NormalizedFilter(
                     kind="custom",
@@ -152,6 +220,9 @@ def _token_to_raw_filter(token: str) -> Dict[str, Any]:
         | ALPHANUMERIC_BIOSAMPLE_FIELDS
         | NUMERIC_BIOSAMPLE_FIELDS
         | MATRIX_ALPHANUMERIC_FIELDS
+        | EXPRESSION_FEATURE_ALPHANUMERIC
+        | EXPRESSION_BIOSAMPLE_ALPHANUMERIC
+        | EXPRESSION_VALUE_ALPHANUMERIC
     )
     for op in _GET_FILTER_OPS:
         marker = f":{op}:"
@@ -178,23 +249,60 @@ def parse_get_filters_csv(raw: Optional[str]) -> List[NormalizedFilter]:
 BIOSAMPLE_OBI_ORIGIN = frozenset({"OBI:0001876", "OBI:0001479"})
 
 
+def is_expression_custom_feature(f: NormalizedFilter) -> bool:
+    """``expression.percentile.``/``profile:``/``detected:>=``/``enrichedIn:`` custom ids."""
+    return any(f.id.startswith(p) for p in EXPRESSION_FEATURE_CUSTOM_PREFIXES)
+
+
+def is_expression_custom_biosample(f: NormalizedFilter) -> bool:
+    """``expression.detectedGenesPercentile.`` custom ids."""
+    return any(f.id.startswith(p) for p in EXPRESSION_BIOSAMPLE_CUSTOM_PREFIXES)
+
+
+def is_matrix_only_expression_filter(f: NormalizedFilter) -> bool:
+    """Continuous expression.* terms that require a path-bound matrix.
+
+    Categorical custom terms (percentile/profile/detected/enrichedIn/
+    detectedGenesPercentile) are allowed at root; only the alphanumeric
+    continuous terms are matrix-only.
+    """
+    if f.id in (
+        EXPRESSION_FEATURE_ALPHANUMERIC
+        | EXPRESSION_BIOSAMPLE_ALPHANUMERIC
+        | EXPRESSION_VALUE_ALPHANUMERIC
+    ):
+        return True
+    return False
+
+
 def axis_filter_scope(filt: NormalizedFilter) -> str:
     """Classify a filter for matrix feature/biosample axis routes.
 
-    Returns ``feature``, ``biosample``, ``matrix``, or ``unknown``.
-    SO/GO and gene public ids are feature-scoped (same as the matrix workspace).
+    Returns ``feature``, ``biosample``, ``matrix``, ``expressionValue``, or
+    ``unknown``. SO/GO and gene public ids are feature-scoped (same as the
+    matrix workspace).
     """
     if filt.kind == "alphanumeric":
-        if filt.id in ALPHANUMERIC_FEATURE_FIELDS:
+        if filt.id in ALPHANUMERIC_FEATURE_FIELDS or filt.id in EXPRESSION_FEATURE_ALPHANUMERIC:
             return "feature"
-        if filt.id in ALPHANUMERIC_BIOSAMPLE_FIELDS or filt.id in NUMERIC_BIOSAMPLE_FIELDS:
+        if (
+            filt.id in ALPHANUMERIC_BIOSAMPLE_FIELDS
+            or filt.id in NUMERIC_BIOSAMPLE_FIELDS
+            or filt.id in EXPRESSION_BIOSAMPLE_ALPHANUMERIC
+        ):
             return "biosample"
+        if filt.id in EXPRESSION_VALUE_ALPHANUMERIC:
+            return "expressionValue"
         if filt.id in MATRIX_ALPHANUMERIC_FIELDS:
             return "matrix"
         return "unknown"
     if filt.kind == "custom":
-        if filt.id.startswith("resource:"):
+        if filt.id.lower().startswith("symbol:") or filt.id.startswith("resource:"):
             return "feature"
+        if is_expression_custom_feature(filt):
+            return "feature"
+        if is_expression_custom_biosample(filt):
+            return "biosample"
         return "unknown"
     if filt.id.startswith("NCBIGene:"):
         return "feature"
@@ -241,6 +349,95 @@ def split_matrix_axis_filters(
     return (feature, biosample), None
 
 
+def split_expression_value_filters(
+    filters: Sequence[NormalizedFilter],
+) -> Tuple[
+    Optional[Tuple[List[NormalizedFilter], List[NormalizedFilter], List[NormalizedFilter]]],
+    Optional[str],
+]:
+    """Split filters for ``/matrices/{id}/expression_values`` into
+    (feature, biosample, expressionValue) scopes. Matrix-scoped filters are
+    rejected: they select matrices, not cells inside one.
+    """
+    feature: List[NormalizedFilter] = []
+    biosample: List[NormalizedFilter] = []
+    expr_value: List[NormalizedFilter] = []
+    for filt in filters:
+        scope = axis_filter_scope(filt)
+        if scope == "feature":
+            feature.append(filt)
+        elif scope == "biosample":
+            biosample.append(filt)
+        elif scope == "expressionValue":
+            expr_value.append(filt)
+        elif scope == "matrix":
+            return None, (
+                f"matrix-scoped filter {filt.id!r} is not supported on expression_values"
+            )
+        else:
+            return None, f"unsupported filter for expression_values: {filt.id}"
+    err = validate_filters_for_entity(feature, entity="feature")
+    if err:
+        return None, err
+    err = validate_filters_for_entity(biosample, entity="biosample")
+    if err:
+        return None, err
+    err = validate_filters_for_entity(expr_value, entity="expressionValue")
+    if err:
+        return None, err
+    return (feature, biosample, expr_value), None
+
+
+def split_feature_matrices_filters(
+    filters: Sequence[NormalizedFilter],
+) -> Tuple[Optional[Tuple[List[NormalizedFilter], List[NormalizedFilter]]], Optional[str]]:
+    """Split filters for ``/features/{id}/matrices`` into (feature, matrix) scopes."""
+    feature: List[NormalizedFilter] = []
+    matrix: List[NormalizedFilter] = []
+    for filt in filters:
+        scope = axis_filter_scope(filt)
+        if scope == "feature":
+            feature.append(filt)
+        elif scope == "matrix":
+            matrix.append(filt)
+        else:
+            return None, (
+                f"unsupported filter for /features/{{id}}/matrices: {filt.id}"
+            )
+    err = validate_filters_for_entity(feature, entity="feature")
+    if err:
+        return None, err
+    err = validate_filters_for_entity(matrix, entity="matrix")
+    if err:
+        return None, err
+    return (feature, matrix), None
+
+
+def split_biosample_matrices_filters(
+    filters: Sequence[NormalizedFilter],
+) -> Tuple[Optional[Tuple[List[NormalizedFilter], List[NormalizedFilter]]], Optional[str]]:
+    """Split filters for ``/biosamples/{id}/matrices`` into (biosample, matrix) scopes."""
+    biosample: List[NormalizedFilter] = []
+    matrix: List[NormalizedFilter] = []
+    for filt in filters:
+        scope = axis_filter_scope(filt)
+        if scope == "biosample":
+            biosample.append(filt)
+        elif scope == "matrix":
+            matrix.append(filt)
+        else:
+            return None, (
+                f"unsupported filter for /biosamples/{{id}}/matrices: {filt.id}"
+            )
+    err = validate_filters_for_entity(biosample, entity="biosample")
+    if err:
+        return None, err
+    err = validate_filters_for_entity(matrix, entity="matrix")
+    if err:
+        return None, err
+    return (biosample, matrix), None
+
+
 def validate_filters_for_entity(
     filters: Sequence[NormalizedFilter], *, entity: str
 ) -> Optional[str]:
@@ -248,6 +445,14 @@ def validate_filters_for_entity(
     for f in filters:
         if entity == "feature":
             if f.kind == "alphanumeric":
+                if f.id in EXPRESSION_FEATURE_ALPHANUMERIC:
+                    if f.operator not in ALPHANUMERIC_OPS:
+                        return f"unsupported operator for {f.id}: {f.operator}"
+                    try:
+                        float(f.value)
+                    except (TypeError, ValueError):
+                        return f"filter {f.id} requires a numeric value"
+                    continue
                 if f.id not in ALPHANUMERIC_FEATURE_FIELDS:
                     return f"unsupported alphanumeric filter for features: {f.id}"
                 if f.operator in (">", "<", ">=", "<="):
@@ -256,9 +461,18 @@ def validate_filters_for_entity(
                     )
                 continue
             if f.kind == "custom":
-                if not f.id.startswith("resource:"):
-                    return f"unsupported custom filter for features: {f.id}"
-                continue
+                if is_symbol_custom_filter_id(f.id):
+                    if not symbol_id_lookup_key(f.id):
+                        return "symbol filter requires a gene symbol after 'symbol:'"
+                    continue
+                if f.id.startswith("resource:"):
+                    continue
+                if is_expression_custom_feature(f):
+                    err = _validate_expression_custom_value(f.id)
+                    if err:
+                        return err
+                    continue
+                return f"unsupported custom filter for features: {f.id}"
             # ontology
             pref = (f.prefix or _curie_prefix(f.id) or "").upper().replace("_", "")
             if pref == "NCBIGENE":
@@ -270,6 +484,14 @@ def validate_filters_for_entity(
                 return f"unsupported ontology filter prefix for features: {f.id}"
         elif entity == "biosample":
             if f.kind == "alphanumeric":
+                if f.id in EXPRESSION_BIOSAMPLE_ALPHANUMERIC:
+                    if f.operator not in ALPHANUMERIC_OPS:
+                        return f"unsupported operator for {f.id}: {f.operator}"
+                    try:
+                        float(f.value)
+                    except (TypeError, ValueError):
+                        return f"filter {f.id} requires a numeric value"
+                    continue
                 if f.id not in ALPHANUMERIC_BIOSAMPLE_FIELDS | NUMERIC_BIOSAMPLE_FIELDS:
                     return f"unsupported alphanumeric filter for biosamples: {f.id}"
                 if (
@@ -281,12 +503,27 @@ def validate_filters_for_entity(
                     )
                 continue
             if f.kind == "custom":
+                if is_expression_custom_biosample(f):
+                    err = _validate_expression_custom_value(f.id)
+                    if err:
+                        return err
+                    continue
                 if f.id not in CUSTOM_BIOSAMPLE_IDS:
                     return f"unsupported custom filter for biosamples: {f.id}"
                 continue
             pref = (f.prefix or _curie_prefix(f.id) or "").upper()
             if pref not in BIOSAMPLE_ONTOLOGY_PREFIXES:
                 return f"unsupported ontology filter prefix for biosamples: {f.id}"
+        elif entity == "expressionValue":
+            if f.kind == "alphanumeric" and f.id in EXPRESSION_VALUE_ALPHANUMERIC:
+                if f.operator not in ALPHANUMERIC_OPS:
+                    return f"unsupported operator for {f.id}: {f.operator}"
+                try:
+                    float(f.value)
+                except (TypeError, ValueError):
+                    return f"filter {f.id} requires a numeric value"
+                continue
+            return f"unsupported filter for expressionValue: {f.id}"
         elif entity == "matrix":
             if f.kind == "alphanumeric":
                 if f.id not in MATRIX_ALPHANUMERIC_FIELDS:
@@ -305,6 +542,49 @@ def validate_filters_for_entity(
     return None
 
 
+# Allowed values for expression.percentile.* / detectedGenesPercentile.*
+_EXPRESSION_PERCENTILE_BAND_VALUES = frozenset(
+    {"none", "0-20", "20-40", "40-60", "60-80", "80-100"}
+)
+
+
+def _validate_expression_custom_value(fid: str) -> Optional[str]:
+    """Light validation for expression.* categorical custom filter ids.
+
+    Supports both colon forms (``expression.profile:ubiquitous``) and dotted
+    percentile bands (``expression.percentile.80-100``).
+    """
+    if fid.startswith("expression.percentile."):
+        value = fid[len("expression.percentile.") :]
+        if value not in _EXPRESSION_PERCENTILE_BAND_VALUES:
+            return (
+                f"expression.percentile filter requires a known band "
+                f"(none|0-20|20-40|40-60|60-80|80-100): {fid}"
+            )
+        return None
+    if fid.startswith("expression.detectedGenesPercentile."):
+        value = fid[len("expression.detectedGenesPercentile.") :]
+        if value not in _EXPRESSION_PERCENTILE_BAND_VALUES:
+            return (
+                f"expression.detectedGenesPercentile filter requires a known band "
+                f"(none|0-20|20-40|40-60|60-80|80-100): {fid}"
+            )
+        return None
+    if ":" not in fid:
+        return f"malformed expression custom filter: {fid}"
+    _, value = fid.split(":", 1)
+    if not value.strip():
+        return f"expression custom filter {fid!r} requires a value after ':'"
+    if fid.startswith("expression.detected:>="):
+        raw = value[2:] if value.startswith(">=") else value
+        pct = raw.rstrip("%")
+        try:
+            float(pct)
+        except ValueError:
+            return f"expression.detected filter requires a numeric percentage: {fid}"
+    return None
+
+
 def is_gene_public_id_filter(f: NormalizedFilter) -> bool:
     if f.kind != "ontology":
         return False
@@ -312,6 +592,15 @@ def is_gene_public_id_filter(f: NormalizedFilter) -> bool:
         return True
     pref = (f.prefix or "").upper().replace("_", "")
     return pref in GENE_PUBLIC_ID_PREFIXES
+
+
+def is_symbol_custom_filter(f: NormalizedFilter) -> bool:
+    return f.kind == "custom" and is_symbol_custom_filter_id(f.id)
+
+
+def symbol_custom_lookup_key(f: NormalizedFilter) -> str:
+    """Local part of ``symbol:TP53`` (empty if malformed)."""
+    return symbol_id_lookup_key(f.id)
 
 
 def gene_public_id_lookup_keys(term_id: str) -> List[str]:
@@ -453,17 +742,17 @@ def feature_doc_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]
             if str(resource) != want:
                 return False
             continue
-        if f.kind == "alphanumeric" and f.id == "genomicFeature.symbol":
+        if is_symbol_custom_filter(f):
             aliases = [str(a).upper() for a in (gf.get("aliases") or [])]
-            sym = (f.value or "").upper()
+            sym = symbol_custom_lookup_key(f).upper()
+            if not sym:
+                return False
             if "%" in sym or "*" in sym:
                 pattern = sym.replace("*", "?")
                 hit = any(fnmatch.fnmatch(a, pattern) for a in aliases)
             else:
                 hit = sym in aliases
-            if f.operator == "=" and not hit:
-                return False
-            if f.operator == "!" and hit:
+            if not hit:
                 return False
             continue
         if is_feature_ontology_filter(f):
@@ -511,6 +800,11 @@ def matrix_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> 
                 actual = (doc.get("expressionUnitAndScale") or {}).get("unit")
             elif f.id == "matrix.scale":
                 actual = (doc.get("expressionUnitAndScale") or {}).get("scale")
+            elif f.id == "matrix.annotation":
+                ann = doc.get("annotation") or {}
+                actual = matrix_annotation_filter_value(
+                    ann.get("source"), ann.get("version")
+                )
             elif f.id == "matrix.annotation.source":
                 actual = (doc.get("annotation") or {}).get("source")
             elif f.id == "matrix.annotation.version":

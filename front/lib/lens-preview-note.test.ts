@@ -25,9 +25,9 @@ console.assert(
     probe: okProbe,
     previewLimit: 20,
     previewCount: 20,
-    previewWhenShowing: 'Matrix medians',
-    previewTruncatedSuffix: 'expression_summary',
-  }) === 'Showing 20 of 100 · expression_summary'
+    previewWhenShowing: 'Expression bands',
+    previewTruncatedSuffix: 'banded heatmap',
+  }) === 'Showing 20 of 100 · banded heatmap'
 )
 
 console.assert(

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence, Set
 
-from beacon.filters import MATRIX_ALPHANUMERIC_FIELDS, matrix_matches
+from beacon.filters import (
+    MATRIX_ALPHANUMERIC_FIELDS,
+    matrix_annotation_filter_value,
+    matrix_matches,
+)
 from beacon.matrix_catalog_seed import load_matrix_seed_terms, merge_filtering_terms
 
 
@@ -19,11 +23,10 @@ def list_matrices_filtered(
 def build_matrix_filtering_terms(
     matrices: Sequence[Dict[str, Any]],
 ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Facet catalog for /matrices/filtering_terms (Beacon-shaped)."""
+    """Facet catalog for matrix-scoped terms on root /filtering_terms."""
     units: Set[str] = set()
     scales: Set[str] = set()
-    sources: Set[str] = set()
-    versions: Set[str] = set()
+    annotations: Set[str] = set()
     assemblies: Set[str] = set()
     reproducible: Set[str] = set()
     profile_sources: Set[str] = set()
@@ -37,10 +40,9 @@ def build_matrix_filtering_terms(
         if uas.get("scale"):
             scales.add(str(uas["scale"]))
         ann = m.get("annotation") or {}
-        if ann.get("source"):
-            sources.add(str(ann["source"]))
-        if ann.get("version"):
-            versions.add(str(ann["version"]))
+        merged = matrix_annotation_filter_value(ann.get("source"), ann.get("version"))
+        if merged:
+            annotations.add(merged)
         asm = m.get("assembly") or {}
         if asm.get("name"):
             assemblies.add(str(asm["name"]))
@@ -77,24 +79,14 @@ def build_matrix_filtering_terms(
                 "values": sorted(scales),
             }
         )
-    if sources:
+    if annotations:
         terms.append(
             {
                 "type": "alphanumeric",
-                "id": "matrix.annotation.source",
-                "label": "Annotation source",
+                "id": "matrix.annotation",
+                "label": "Annotation",
                 "scopes": ["matrix"],
-                "values": sorted(sources),
-            }
-        )
-    if versions:
-        terms.append(
-            {
-                "type": "alphanumeric",
-                "id": "matrix.annotation.version",
-                "label": "Annotation version",
-                "scopes": ["matrix"],
-                "values": sorted(versions),
+                "values": sorted(annotations),
             }
         )
     if assemblies:

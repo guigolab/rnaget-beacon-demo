@@ -76,23 +76,6 @@
         "label": "Data"
       },
       "partOfSpecification": "Beacon v2.1.2"
-    },
-    "expressionSummary": {
-      "additionallySupportedSchemas": [],
-      "defaultSchema": {
-        "id": "ga4gh-beacon-expressionSummary-v2.0.0",
-        "name": "Aggregated expression summary",
-        "referenceToSchemaDefinition": "https://exampleBeacons.org/expressionSummary/defaultSchema.json",
-        "schemaVersion": "v2.0.0"
-      },
-      "description": "Aggregated expression statistics per feature and optional biosample grouping.",
-      "id": "expressionSummary",
-      "name": "Expression summary",
-      "ontologyTermForThisType": {
-        "id": "edam:2603",
-        "label": "Expression data"
-      },
-      "partOfSpecification": "Beacon v2.1.2"
     }
   }
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { EndpointNote } from '@/components/ui-kit'
+import { LensMutedEndpoints } from '@/components/shared/lens-muted-endpoints'
 import { FeatureDetailSections } from '@/components/features/feature-detail-sections'
 import { DetailScrollBody } from '@/components/shared/detail/detail-scroll-body'
 import { DetailSurfaceHeader } from '@/components/shared/detail/detail-surface-header'
@@ -35,7 +35,7 @@ export function FeatureDetailBody({
 
   useEffect(() => {
     let cancelled = false
-    getFilteringTerms('/features/filtering_terms')
+    getFilteringTerms('/filtering_terms')
       .then((terms) => {
         if (!cancelled) setResources(terms.resources)
       })
@@ -93,9 +93,13 @@ export function FeatureDetailBody({
         />
       )}
       {density === 'drawer' && (
-        <EndpointNote>
-          {`GET /features/${feature.id} · GET /features/${feature.id}/matrices`}
-        </EndpointNote>
+        <LensMutedEndpoints
+          className="mt-2"
+          lines={[
+            `GET /features/${feature.id}`,
+            `GET /features/${feature.id}/matrices`,
+          ]}
+        />
       )}
     </>
   )

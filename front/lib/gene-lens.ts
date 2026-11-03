@@ -1,12 +1,11 @@
-import { dedupeFilters } from '@/lib/beacon/filters'
-import type { ExpressionSummary } from '@/lib/beacon/client'
+import { dedupeFilters, symbolCustomFilter } from '@/lib/beacon/filters'
 import type { Feature, FilteringTerm, UiFilter } from '@/lib/beacon/types'
 import { nativeFeatureId } from '@/lib/heatmap-expression'
 
 /** One-click starter queries on the gene lens (not applied until selected). */
 export const GENE_LENS_QUERY_EXAMPLES: Array<{ label: string; filter: UiFilter }> = [
-  { label: 'TP53', filter: { kind: 'symbol', value: 'TP53' } },
-  { label: 'ALB', filter: { kind: 'symbol', value: 'ALB' } },
+  { label: 'TP53', filter: symbolCustomFilter('TP53') },
+  { label: 'ALB', filter: symbolCustomFilter('ALB') },
   { label: 'TP53 · HGNC:11998', filter: { kind: 'ontology', id: 'HGNC:11998', label: 'TP53' } },
   { label: 'BRCA1 · HGNC:1100', filter: { kind: 'ontology', id: 'HGNC:1100', label: 'BRCA1' } },
   { label: 'EGFR · HGNC:3236', filter: { kind: 'ontology', id: 'HGNC:3236', label: 'EGFR' } },
@@ -87,21 +86,6 @@ export function matrixViewHref(matrixId: string, feature?: Feature | null): stri
   return qs ? `/matrices/${enc}/?${qs}` : `/matrices/${enc}/`
 }
 
-export function summariesByMatrixId(
-  rows: ExpressionSummary[]
-): Record<string, ExpressionSummary[]> {
-  return rows.reduce<Record<string, ExpressionSummary[]>>((acc, row) => {
-    const mid = row.matrixId ?? ''
-    acc[mid] = acc[mid] ?? []
-    acc[mid].push(row)
-    return acc
-  }, {})
-}
-
-export function matrixIdsFromSummaries(rows: ExpressionSummary[]): string[] {
-  return [...new Set(rows.map((r) => r.matrixId).filter(Boolean) as string[])]
-}
-
 export function resolveSelectedFeature(
   matches: Feature[],
   featureParam: string | null
@@ -111,17 +95,4 @@ export function resolveSelectedFeature(
   }
   if (matches.length === 1) return matches[0]
   return null
-}
-
-/** Prefer whole-matrix summary row when grouped summaries exist. */
-export function primarySummaryForMatrix(rows: ExpressionSummary[]): ExpressionSummary | undefined {
-  if (!rows.length) return undefined
-  const whole =
-    rows.find((r) => !r.group?.id && !r.group?.label) ??
-    rows.find((r) => r.group?.label?.toLowerCase() === 'all')
-  return whole ?? rows[0]
-}
-
-export function medianForMatrix(rows: ExpressionSummary[]): number | undefined {
-  return primarySummaryForMatrix(rows)?.median
 }

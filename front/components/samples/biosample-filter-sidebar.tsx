@@ -17,7 +17,7 @@ type BiosampleFilterSidebarProps = {
 export function BiosampleFilterSidebar({
   activeFilters,
   onAddFilter,
-  termsPath = '/biosamples/filtering_terms',
+  termsPath = '/filtering_terms',
   source,
 }: BiosampleFilterSidebarProps) {
   const { terms, resources, error, loading } = useFilteringTerms(termsPath)

@@ -9,7 +9,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -186,20 +186,87 @@ def _build_package(root: Path) -> None:
         _biosample("B4", "M_SPARSE", "UBERON:0002107", "liver", "male", 4.0),
     ]
     m3_bios = [_biosample("B9", "M_OTHER", "UBERON:0000178", "blood", "female", 7.5)]
+    # Distinct values so expression_values sort=value / order=desc|asc is testable.
     m1_expr = [
-        {"matrix_id": "M_DENSE", "feature_id": f["feature_id"], "biosample_id": b["biosample_id"], "value": 1.0}
-        for f in m1_features
-        for b in m1_bios
+        {
+            "matrix_id": "M_DENSE",
+            "feature_id": f["feature_id"],
+            "biosample_id": b["biosample_id"],
+            "value": float(10 * i + j + 1),
+        }
+        for i, f in enumerate(m1_features)
+        for j, b in enumerate(m1_bios)
     ]
     m2_expr = [
         {"matrix_id": "M_SPARSE", "feature_id": "ENSG00000141510.18", "biosample_id": "B3", "value": 3.5}
     ]
     m3_expr = [{"matrix_id": "M_OTHER", "feature_id": "ENSG_X", "biosample_id": "B9", "value": 1.0}]
 
+    # 12×12 dense matrix for both-list densify / axis pagination tests.
+    # Top-100 by value (desc) introduces features F00.. and biosamples S00.. in
+    # a staggered order so skip=0 and skip=10 yield distinct 10-id windows.
+    m_heat_features = [
+        _feature(
+            f"HEAT-F{i:02d}",
+            f"feature-HEAT-F{i:02d}",
+            "M_HEAT",
+            symbol=f"HF{i:02d}",
+            aliases=[f"HF{i:02d}"],
+            chrom="chr1",
+            start=1000 + i,
+            end=1100 + i,
+            strand="positive",
+        )
+        for i in range(12)
+    ]
+    m_heat_bios = [
+        _biosample(
+            f"S{i:02d}",
+            "M_HEAT",
+            "UBERON:0000178",
+            "blood",
+            "female" if i % 2 == 0 else "male",
+            7.0 + (i * 0.01),
+        )
+        for i in range(12)
+    ]
+    m_heat_expr: List[Dict[str, Any]] = []
+    seen_heat: Set[Tuple[str, str]] = set()
+    for rank in range(100):
+        fi = rank % 12
+        bi = (rank * 5) % 12
+        key = (f"HEAT-F{fi:02d}", f"S{bi:02d}")
+        if key in seen_heat:
+            continue
+        seen_heat.add(key)
+        m_heat_expr.append(
+            {
+                "matrix_id": "M_HEAT",
+                "feature_id": key[0],
+                "biosample_id": key[1],
+                "value": float(1000 - rank),
+            }
+        )
+    for fi in range(12):
+        for bi in range(12):
+            key = (f"HEAT-F{fi:02d}", f"S{bi:02d}")
+            if key in seen_heat:
+                continue
+            seen_heat.add(key)
+            m_heat_expr.append(
+                {
+                    "matrix_id": "M_HEAT",
+                    "feature_id": key[0],
+                    "biosample_id": key[1],
+                    "value": float(-(fi * 12 + bi + 1)),
+                }
+            )
+
     for mid, feats, bios, expr in (
         ("M_DENSE", m1_features, m1_bios, m1_expr),
         ("M_SPARSE", m2_features, m2_bios, m2_expr),
         ("M_OTHER", m3_features, m3_bios, m3_expr),
+        ("M_HEAT", m_heat_features, m_heat_bios, m_heat_expr),
     ):
         base = root / "matrices" / mid
         _write(base / "features.parquet", feats, _FEAT_SCHEMA)
@@ -238,7 +305,7 @@ def _build_package(root: Path) -> None:
     seen = set()
     matrix_links = []
     ontology_rows = []
-    for feats in (m1_features, m2_features, m3_features):
+    for feats in (m1_features, m2_features, m3_features, m_heat_features):
         for row in feats:
             matrix_links.append(
                 {
@@ -288,7 +355,7 @@ def _build_package(root: Path) -> None:
     global_bios = []
     bio_links = []
     seen_bio = set()
-    for bios in (m1_bios, m2_bios, m3_bios):
+    for bios in (m1_bios, m2_bios, m3_bios, m_heat_bios):
         for row in bios:
             bio_links.append({"biosample_id": row["biosample_id"], "matrix_id": row["matrix_id"]})
             if row["biosample_id"] in seen_bio:
@@ -346,6 +413,7 @@ def _build_package(root: Path) -> None:
                 _matrix_doc("M_DENSE", 2, 2),
                 _matrix_doc("M_SPARSE", 3, 2),
                 _matrix_doc("M_OTHER", 1, 1),
+                _matrix_doc("M_HEAT", 12, 12),
             ]
         ),
         encoding="utf-8",
@@ -358,6 +426,11 @@ def _build_package(root: Path) -> None:
                     {"matrix_id": "M_DENSE", "dir": "M_DENSE", "expressionRows": 4},
                     {"matrix_id": "M_SPARSE", "dir": "M_SPARSE", "expressionRows": 1},
                     {"matrix_id": "M_OTHER", "dir": "M_OTHER", "expressionRows": 1},
+                    {
+                        "matrix_id": "M_HEAT",
+                        "dir": "M_HEAT",
+                        "expressionRows": len(m_heat_expr),
+                    },
                 ],
                 "features": {"numUnique": len(index_rows)},
                 "biosamples": {"numUnique": len(global_bios)},
@@ -383,6 +456,13 @@ def _build_package(root: Path) -> None:
                         "iriPrefix": "http://purl.obolibrary.org/obo/UBERON_",
                         "url": "http://purl.obolibrary.org/obo/uberon.owl",
                     },
+                    {
+                        "id": "symbol",
+                        "name": "Gene symbol",
+                        "nameSpacePrefix": "symbol",
+                        "iriPrefix": "https://www.genenames.org/tools/search/#!/?query=",
+                        "url": "https://www.genenames.org",
+                    },
                 ],
                 "filteringTerms": [
                     {"type": "SO", "id": "SO:0000704", "label": "gene", "scopes": ["genomicFeature"]},
@@ -404,12 +484,6 @@ def _build_package(root: Path) -> None:
                         "label": "Sex",
                         "scopes": ["biosample"],
                         "values": ["female", "male"],
-                    },
-                    {
-                        "type": "alphanumeric",
-                        "id": "genomicFeature.symbol",
-                        "label": "Gene symbol",
-                        "scopes": ["genomicFeature"],
                     },
                 ],
             }
@@ -568,7 +642,7 @@ class DuckDBPackageTest(unittest.TestCase):
         r = self.client.get("/features", params={"skip": 100001, "limit": 1})
         self.assertEqual(r.status_code, 200, r.text)
         body = r.json()
-        self.assertEqual(body["responseSummary"]["numTotalResults"], 4)
+        self.assertGreaterEqual(body["responseSummary"]["numTotalResults"], 4)
         self.assertEqual(body["response"]["resultSets"][0]["results"], [])
 
     def test_expression_skip_stays_capped(self) -> None:
@@ -651,18 +725,6 @@ class DuckDBPackageTest(unittest.TestCase):
         self.assertEqual(body["organization"]["url"], "https://www.crg.eu")
         self.assertNotIn("meta", body)
 
-    def test_expression_summary_requires_features(self) -> None:
-        missing = self.client.get("/matrices/M_DENSE/expression_summary")
-        self.assertEqual(missing.status_code, 400, missing.text)
-        self.assertIn("featureIDList", missing.json()["error"]["errorMessage"])
-        ok = self.client.get(
-            "/matrices/M_DENSE/expression_summary",
-            params={"featureIDList": "TP53"},
-        )
-        self.assertEqual(ok.status_code, 200, ok.text)
-        self.assertTrue(ok.json()["responseSummary"]["exists"])
-        self.assertEqual(ok.json()["response"]["resultSets"][0]["results"][0]["n"], 2)
-
     def test_sparse_matrix_is_not_treated_as_dense_without_a_row_count(self) -> None:
         self.store._manifest_expr_rows.pop("M_SPARSE", None)
         self.store._dense_cache.pop("M_SPARSE", None)
@@ -679,6 +741,172 @@ class DuckDBPackageTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["responseSummary"]["numTotalResults"], 4)
+
+    def test_expression_values_sort_by_value_order(self) -> None:
+        desc = self.client.get(
+            "/matrices/M_DENSE/expression_values",
+            params={
+                "biosampleIDList": "B1",
+                "limit": 10,
+                "sort": "value",
+                "order": "desc",
+            },
+        )
+        self.assertEqual(desc.status_code, 200, desc.text)
+        body = desc.json()
+        rp = body["meta"]["receivedRequestSummary"]["requestParameters"]
+        self.assertEqual(rp["sort"], "value")
+        self.assertEqual(rp["order"], "desc")
+        values = [
+            row["value"]
+            for row in body["response"]["resultSets"][0]["results"]
+        ]
+        self.assertEqual(values, sorted(values, reverse=True))
+        self.assertGreater(values[0], values[-1])
+
+        asc = self.client.get(
+            "/matrices/M_DENSE/expression_values",
+            params={
+                "biosampleIDList": "B1",
+                "limit": 10,
+                "sort": "value",
+                "order": "asc",
+            },
+        )
+        self.assertEqual(asc.status_code, 200, asc.text)
+        asc_values = [
+            row["value"]
+            for row in asc.json()["response"]["resultSets"][0]["results"]
+        ]
+        self.assertEqual(asc_values, sorted(asc_values))
+        self.assertEqual(asc_values, list(reversed(values)))
+
+        # ``sort`` defaults to ``id`` (feature_id, biosample_id) when omitted.
+        default_sort = self.client.get(
+            "/matrices/M_DENSE/expression_values",
+            params={"biosampleIDList": "B1", "limit": 10},
+        )
+        self.assertEqual(default_sort.status_code, 200, default_sort.text)
+        default_body = default_sort.json()
+        self.assertEqual(
+            default_body["meta"]["receivedRequestSummary"]["requestParameters"][
+                "sort"
+            ],
+            "id",
+        )
+        default_rows = default_body["response"]["resultSets"][0]["results"]
+        default_ids = [(row["featureId"], row["biosampleId"]) for row in default_rows]
+        self.assertEqual(default_ids, sorted(default_ids))
+
+        # Only "id" / "value" are accepted sort keys (FastAPI enum validation,
+        # surfaced as a Beacon-shaped 400 error by this server's handlers).
+        rejected = self.client.get(
+            "/matrices/M_DENSE/expression_values",
+            params={"sort": "expression.min", "limit": 1},
+        )
+        self.assertEqual(rejected.status_code, 400, rejected.text)
+
+    def test_expression_values_id_lists_are_not_capped(self) -> None:
+        """The former 20/10 one-sided-list caps and combined-rank ordering
+        were removed: ID-list queries are now plain intersection filters with
+        no special page-size cap and no caps helper override.
+        """
+        from beacon.duckdb_store import apply_expression_values_limit_cap
+
+        # The (deprecated) cap helper is now a no-op clamp only.
+        self.assertEqual(apply_expression_values_limit_cap(100, "TP53", None), 100)
+        self.assertEqual(
+            apply_expression_values_limit_cap(100, None, "B1,B2,B3"), 100
+        )
+        self.assertEqual(
+            apply_expression_values_limit_cap(100, "TP53,GAPDH", "B1,B2"), 100
+        )
+
+        single_feature = self.client.get(
+            "/matrices/M_DENSE/expression_values",
+            params={"featureIDList": "ENSG00000141510.18", "limit": 50},
+        )
+        self.assertEqual(single_feature.status_code, 200, single_feature.text)
+        self.assertEqual(
+            len(single_feature.json()["response"]["resultSets"][0]["results"]), 2
+        )
+
+        tp53 = "ENSG00000141510.18"
+        gapdh = "ENSG00000111640.15"
+        combined = self.client.get(
+            "/matrices/M_DENSE/expression_values",
+            params={
+                "featureIDList": f"{tp53},{gapdh}",
+                "biosampleIDList": "B1,B2",
+                "limit": 10,
+                "order": "asc",
+            },
+        )
+        self.assertEqual(combined.status_code, 200, combined.text)
+        pairs = [
+            (row["featureId"], row["biosampleId"])
+            for row in combined.json()["response"]["resultSets"][0]["results"]
+        ]
+        self.assertEqual(len(pairs), 4)
+        self.assertEqual(set(pairs), {(tp53, "B1"), (tp53, "B2"), (gapdh, "B1"), (gapdh, "B2")})
+        # Flat expressionValue shape unchanged.
+        row0 = combined.json()["response"]["resultSets"][0]["results"][0]
+        self.assertEqual(
+            set(row0),
+            {"id", "matrixId", "featureId", "biosampleId", "value"},
+        )
+
+        # Explicit both-lists path densifies the feature×biosample product.
+        densified = self.client.get(
+            "/matrices/M_HEAT/expression_values",
+            params={
+                "featureIDList": ",".join(f"HEAT-F{i:02d}" for i in range(10)),
+                "biosampleIDList": ",".join(f"S{i:02d}" for i in range(10)),
+                "limit": 100,
+                "order": "asc",
+            },
+        )
+        self.assertEqual(densified.status_code, 200, densified.text)
+        dense_body = densified.json()
+        dense_rows = dense_body["response"]["resultSets"][0]["results"]
+        self.assertEqual(len(dense_rows), 100)
+        axes = dense_body["info"]["axes"]
+        self.assertEqual(len(axes["featureIds"]), 10)
+        self.assertEqual(len(axes["biosampleIds"]), 10)
+        pair_set = {(r["featureId"], r["biosampleId"]) for r in dense_rows}
+        self.assertEqual(len(pair_set), 100)
+
+    def test_expression_values_info_axes(self) -> None:
+        response = self.client.get(
+            "/matrices/M_DENSE/expression_values",
+            params={"limit": 10, "order": "desc"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        results = body["response"]["resultSets"][0]["results"]
+        self.assertTrue(results)
+        axes = body["info"]["axes"]
+        feature_ids = axes["featureIds"]
+        biosample_ids = axes["biosampleIds"]
+        self.assertEqual(
+            feature_ids,
+            list(dict.fromkeys(row["featureId"] for row in results)),
+        )
+        self.assertEqual(
+            biosample_ids,
+            list(dict.fromkeys(row["biosampleId"] for row in results)),
+        )
+        # Once per response — not on each cell.
+        for row in results:
+            self.assertNotIn("axes", row)
+            self.assertNotIn("info", row)
+
+        count = self.client.get(
+            "/matrices/M_DENSE/expression_values",
+            params={"limit": 10, "requestedGranularity": "count"},
+        )
+        self.assertEqual(count.status_code, 200, count.text)
+        self.assertNotIn("info", count.json())
 
     def test_feature_id_resolution_is_matrix_scoped(self) -> None:
         resolved = self.store._resolve_feature_filter_ids("feature-SHARED", "M_SPARSE")
@@ -701,7 +929,7 @@ class DuckDBPackageTest(unittest.TestCase):
         self.assertEqual(bio["info"]["sex"], "female")
 
     def test_axis_filtering_terms_cover_ontology(self) -> None:
-        r = self.client.get("/matrices/M_DENSE/features/filtering_terms")
+        r = self.client.get("/matrices/M_DENSE/filtering_terms")
         self.assertEqual(r.status_code, 200, r.text)
         ids = {term["id"] for term in r.json()["response"]["filteringTerms"]}
         self.assertIn("SO:0001217", ids)
@@ -732,15 +960,11 @@ class DuckDBPackageTest(unittest.TestCase):
         values = self.client.get(
             "/matrices/M_DENSE/expression_values", params={"limit": 1, "featureIDList": "TP53"}
         ).json()
-        summary = self.client.get(
-            "/matrices/M_DENSE/expression_summary", params={"featureIDList": "TP53"}
-        ).json()
         schemas = REPO_ROOT / "beacon-schemas"
         cases = [
             (feature["response"]["resultSets"][0]["results"][0], schemas / "genomicFeatureWrapper.json"),
             (biosample["response"]["resultSets"][0]["results"][0], schemas / "biosample.json"),
             (values["response"]["resultSets"][0]["results"][0], schemas / "expressionValue.json"),
-            (summary["response"]["resultSets"][0]["results"][0], schemas / "expressionSummary.json"),
         ]
         for doc, path in cases:
             try:

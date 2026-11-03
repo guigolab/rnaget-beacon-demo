@@ -112,10 +112,12 @@ Biosample rows are enriched during export with `biosampleStatus`, `phenotypicFea
 
 | File | Role |
 |------|------|
-| **feature_expression_stats.parquet** | Per-gene `min_value` / `max_value` (and argmin/argmax biosample ids) |
-| **biosample_expression_stats.parquet** | Per-sample min/max (and argmin/argmax feature ids) |
+| **feature_expression_stats.parquet** | Per-gene min/max/mean/median, detection counts, expression percentile `band` (quintiles + none) / `profile` / `enriched_in`, and argmin/argmax biosample ids |
+| **biosample_expression_stats.parquet** | Per-sample min/max, `detected_genes`, `detected_genes_band` (same quintile labels), and argmin/argmax feature ids |
 
-It also sets `expressionValueRange` on each matrix in `matrices.json`. The API uses these tables for `sort=expression.max|expression.min` on nested feature/biosample lists.
+It also sets `expressionValueRange` on each matrix in `matrices.json`. The API uses these tables for `sort=expression.max|expression.min` on nested feature/biosample lists and for expression.* filtering terms.
+
+**Percentiles (fetch-time only):** `scripts/fetch_data_package.py` also runs `build_expression_percentiles.py`, which writes `percentile_in_feature.parquet` and `percentile_in_biosample.parquet` per matrix. Those files are omitted from the CI release tarball (size), and filtering_terms for `expression.percentileIn*` appear only after fetch.
 
 ### 8. Disk usage log
 
@@ -152,8 +154,10 @@ data-package/
     <matrix-id>/
       features.parquet
       biosamples.parquet
-      feature_expression_stats.parquet   # per-gene min/max (axis sort)
-      biosample_expression_stats.parquet # per-sample min/max (axis sort)
+      feature_expression_stats.parquet   # per-gene stats + band/profile
+      biosample_expression_stats.parquet # per-sample stats + detected_genes
+      percentile_in_feature.parquet      # optional (fetch-time)
+      percentile_in_biosample.parquet    # optional (fetch-time)
       expression.parquet                 # merged cells (after fetch/merge)
       expression/                        # optional shards before merge
         part-00000.parquet

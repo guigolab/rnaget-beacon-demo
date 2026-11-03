@@ -66,8 +66,8 @@ export function useMatrixAxis<T extends AxisItem>(input: UseMatrixAxisInput): Ma
     biosampleIDList: input.biosampleIDList ?? '',
     minValue: input.axis === 'features' ? (input.minValue ?? null) : null,
     maxValue: input.axis === 'features' ? (input.maxValue ?? null) : null,
-    sort: input.axis === 'features' ? (input.sort ?? 'id') : 'id',
-    order: input.axis === 'features' ? (input.order ?? 'asc') : 'asc',
+    sort: input.axis === 'features' ? (input.sort ?? 'expression.max') : 'id',
+    order: input.axis === 'features' ? (input.order ?? 'desc') : 'asc',
     pageSize: input.pageSize,
   })
 

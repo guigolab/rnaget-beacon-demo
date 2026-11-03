@@ -1,84 +1,203 @@
 import Link from 'next/link'
-import type { EntryTypeInfo } from '@/lib/beacon/types'
-import { entryTypeScope, scopeCssVars } from '@/lib/scope-theme'
+import { NamespaceScopeChip } from '@/components/home/namespace-scope-chip'
+import { MetaBadge } from '@/components/shared/detail/meta-badge'
+import { LensMutedEndpoints } from '@/components/shared/lens-muted-endpoints'
+import { buttonVariants } from '@/components/ui/button'
+import type { EntryTypeInfo, FilteringResource, FilteringTerm } from '@/lib/beacon/types'
+import { cn } from '@/lib/utils'
+import {
+  entryTypeScope,
+  groupHomeNamespaces,
+  scopeCssVars,
+  type BeaconScope,
+} from '@/lib/scope-theme'
 
 const ROUTES: Record<string, string> = {
-  matrix: '/matrices/',
   feature: '/features/',
   biosample: '/biosamples/',
+  matrix: '/matrices/',
 }
 
+const BROWSE_LABEL: Record<string, string> = {
+  feature: 'Browse features',
+  biosample: 'Browse biosamples',
+  matrix: 'Browse matrices',
+}
+
+/** Root browsable types with filtering terms first: features → biosamples → matrices. */
+const ENTRY_ORDER: Record<string, number> = {
+  feature: 0,
+  biosample: 1,
+  matrix: 2,
+  expressionValue: 3,
+  expressionSummary: 4,
+}
+
+const ROOT_ENTRY_TYPES = new Set(['biosample', 'feature', 'matrix'])
 const NESTED_MATRIX_TYPES = new Set(['expressionValue', 'expressionSummary'])
 
 type EntryTypeCardsProps = {
   entryTypes: EntryTypeInfo[]
+  terms: FilteringTerm[]
+  resources?: FilteringResource[]
 }
 
-export function EntryTypeCards({ entryTypes }: EntryTypeCardsProps) {
-  const sorted = [...entryTypes].sort((a, b) =>
-    (a.id ?? '').localeCompare(b.id ?? '')
+function EntryAccent({ entryId }: { entryId: string }) {
+  if (entryId === 'expressionSummary') {
+    const feature = scopeCssVars('genomicFeature')
+    const biosample = scopeCssVars('biosample')
+    return (
+      <div className="absolute inset-y-0 left-0 flex w-1 flex-col" aria-hidden>
+        <span className="flex-1" style={{ backgroundColor: feature.border }} />
+        <span className="flex-1" style={{ backgroundColor: biosample.border }} />
+      </div>
+    )
+  }
+
+  const scope = entryTypeScope(entryId)
+  const colors = scopeCssVars(scope)
+  return (
+    <div
+      className="absolute inset-y-0 left-0 w-1"
+      style={{ backgroundColor: colors.border }}
+      aria-hidden
+    />
+  )
+}
+
+/** One version string — prefer partOfSpecification over schemaVersion, never both. */
+function entryVersionLabel(entry: EntryTypeInfo): string | undefined {
+  const part = entry.partOfSpecification?.trim()
+  if (part) return part
+  const schema = entry.defaultSchema?.schemaVersion?.trim()
+  return schema || undefined
+}
+
+function entryTypeChip(entry: EntryTypeInfo): { label: string; title?: string } | null {
+  const ontology = entry.ontologyTermForThisType
+  if (ontology?.label) {
+    return { label: ontology.label, title: ontology.id }
+  }
+  if (entry.id) return { label: entry.id }
+  return null
+}
+
+export function EntryTypeCards({
+  entryTypes,
+  terms,
+  resources = [],
+}: EntryTypeCardsProps) {
+  const sorted = [...entryTypes].sort((a, b) => {
+    const ai = ENTRY_ORDER[a.id ?? ''] ?? 50
+    const bi = ENTRY_ORDER[b.id ?? ''] ?? 50
+    if (ai !== bi) return ai - bi
+    return (a.id ?? '').localeCompare(b.id ?? '')
+  })
+
+  const groupsByScope = groupHomeNamespaces(terms, resources).reduce(
+    (acc, group) => {
+      const list = acc.get(group.scope) ?? []
+      list.push(group)
+      acc.set(group.scope, list)
+      return acc
+    },
+    new Map<BeaconScope, ReturnType<typeof groupHomeNamespaces>>()
   )
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {sorted.map((entry) => {
-        const id = entry.id ?? ''
-        const scope = entryTypeScope(id)
-        const colors = scopeCssVars(scope)
-        const href = ROUTES[id]
-        const nested = NESTED_MATRIX_TYPES.has(id)
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Entry types
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Catalogued entry types with filtering-term namespaces for each root scope.
+        </p>
+        <div className="mt-1">
+          <LensMutedEndpoints lines={['GET /entry_types', 'GET /filtering_terms']} />
+        </div>
+      </div>
 
-        const inner = (
-          <>
-            <div
-              className="absolute inset-y-0 left-0 w-1 rounded-l-lg"
-              style={{ backgroundColor: colors.border }}
-              aria-hidden
-            />
-            <div className="pl-3">
-              <h3 className="text-base font-semibold text-foreground">
-                {entry.name || id}
-              </h3>
-              {entry.description && (
-                <p className="mt-1 line-clamp-3 text-sm leading-relaxed text-muted-foreground">
-                  {entry.description}
-                </p>
-              )}
-              <p className="mt-2 font-mono text-xs text-muted-foreground">{id}</p>
-              {entry.partOfSpecification && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {entry.partOfSpecification}
-                </p>
-              )}
-              {nested && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Accessed via matrix endpoints
-                </p>
-              )}
-              {href && !nested && (
-                <p className="mt-2 text-xs font-medium text-primary">Browse →</p>
-              )}
-            </div>
-          </>
-        )
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {sorted.map((entry) => {
+          const id = entry.id ?? ''
+          const href = ROUTES[id]
+          const nested = NESTED_MATRIX_TYPES.has(id)
+          const root = ROOT_ENTRY_TYPES.has(id)
+          const scope = entryTypeScope(id)
+          const chips = root ? (groupsByScope.get(scope) ?? []) : []
+          const typeChip = entryTypeChip(entry)
+          const version = entryVersionLabel(entry)
+          const browseLabel = BROWSE_LABEL[id] ?? 'Browse'
 
-        const cardClass =
-          'relative overflow-hidden rounded-lg border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md hover:border-border/80'
-
-        if (href && !nested) {
           return (
-            <Link key={id} href={href} className={`${cardClass} block`}>
-              {inner}
-            </Link>
-          )
-        }
+            <article
+              key={id}
+              className="relative flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+            >
+              <EntryAccent entryId={id} />
 
-        return (
-          <article key={id} className={cardClass}>
-            {inner}
-          </article>
-        )
-      })}
-    </div>
+              <div className="border-b border-border bg-muted/20 px-4 py-3 pl-5">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {entry.name || id}
+                  </h3>
+                  {typeChip && (
+                    <MetaBadge variant="accent" title={typeChip.title}>
+                      {typeChip.label}
+                    </MetaBadge>
+                  )}
+                </div>
+                {version && (
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">{version}</p>
+                )}
+              </div>
+
+              <div className="flex flex-1 flex-col gap-3 px-4 py-3 pl-5">
+                {entry.description && (
+                  <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+                    {entry.description}
+                  </p>
+                )}
+
+                {root && chips.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Filtering terms{' '}
+                      <span className="normal-case tracking-normal">({scope})</span>
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {chips.map((group) => (
+                        <NamespaceScopeChip key={group.key} group={group} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {nested && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {id === 'expressionSummary'
+                      ? 'Packaged per-feature/biosample extremes on axis records (info.expressionSummary)'
+                      : 'Filtered via matrix scope · nested matrix endpoints'}
+                  </p>
+                )}
+
+                {href && !nested && (
+                  <div className="mt-auto flex justify-end pt-1">
+                    <Link
+                      href={href}
+                      className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+                    >
+                      {browseLabel}
+                      <span aria-hidden>→</span>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </article>
+          )
+        })}
+      </div>
+    </section>
   )
 }

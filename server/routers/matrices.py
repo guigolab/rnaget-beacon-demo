@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse
@@ -17,10 +17,12 @@ from routers.deps import (
     AxisOrder,
     AxisSort,
     BeaconRequestBody,
+    ExpressionValueSort,
     ExpressionValuesRequestBody,
     MatrixAxisRequestBody,
     axis_order_value,
     axis_sort_value,
+    expression_value_sort_value,
     model_to_dict,
     parse_id_list_or_error,
     partial_received_for_error,
@@ -29,22 +31,12 @@ from routers.deps import (
 from routers.filter_helpers import (
     filters_summary,
     resolve_entity_filters,
+    resolve_expression_value_filters,
     resolve_matrix_feature_axis_filters,
 )
 from routers.request_params import params_from_get, params_from_post, params_summary
 
 router = APIRouter(tags=["Matrices"])
-
-_ALLOWED_EXPRESSION_GROUP_BY = frozenset(
-    {
-        "sex",
-        "condition",
-        "age_bracket",
-        "tissue",
-        "biosampleStatus",
-        "phenotype",
-    }
-)
 
 
 @router.get("/matrices", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
@@ -120,25 +112,6 @@ def post_matrices(
         gran,
         received,
     )
-
-
-@router.get(
-    "/matrices/filtering_terms",
-    response_model=None,
-    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
-)
-@router.post(
-    "/matrices/filtering_terms",
-    response_model=None,
-    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
-)
-def matrices_filtering_terms():
-    store = get_store()
-    getter = getattr(store, "matrix_filtering_terms", None)
-    if callable(getter):
-        terms, resources = getter()
-        return build_filtering_terms_response(terms, resources)
-    return build_filtering_terms_response([])
 
 
 @router.get("/matrices/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
@@ -420,43 +393,25 @@ def post_matrix_features(
     )
 
 
-def _matrix_axis_filtering_terms_handler(matrix_id: str, axis: str):
+@router.get(
+    "/matrices/{id}/filtering_terms",
+    response_model=None,
+    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
+)
+@router.post(
+    "/matrices/{id}/filtering_terms",
+    response_model=None,
+    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
+)
+def matrix_scoped_filtering_terms(id: str):
     store = get_store()
-    if not store.get_matrix(matrix_id):
+    if not store.get_matrix(id):
         return build_filtering_terms_response([])
-    getter = getattr(store, "matrix_axis_filtering_terms", None)
+    getter = getattr(store, "matrix_scoped_filtering_terms", None)
     if callable(getter):
-        terms, resources = getter(matrix_id, axis)
+        terms, resources = getter(id)
         return build_filtering_terms_response(terms, resources)
     return build_filtering_terms_response([])
-
-
-@router.get(
-    "/matrices/{id}/features/filtering_terms",
-    response_model=None,
-    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
-)
-@router.post(
-    "/matrices/{id}/features/filtering_terms",
-    response_model=None,
-    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
-)
-def matrix_features_filtering_terms(id: str):
-    return _matrix_axis_filtering_terms_handler(id, "features")
-
-
-@router.get(
-    "/matrices/{id}/biosamples/filtering_terms",
-    response_model=None,
-    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
-)
-@router.post(
-    "/matrices/{id}/biosamples/filtering_terms",
-    response_model=None,
-    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
-)
-def matrix_biosamples_filtering_terms(id: str):
-    return _matrix_axis_filtering_terms_handler(id, "biosamples")
 
 
 @router.get("/matrices/{id}/biosamples", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
@@ -587,31 +542,116 @@ def post_matrix_biosamples(
     )
 
 
+def _expression_values_page_axes(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Unique feature/biosample ids in page order (Beacon ``info.axes`` extension)."""
+    feature_ids: List[str] = []
+    biosample_ids: List[str] = []
+    seen_features: Set[str] = set()
+    seen_biosamples: Set[str] = set()
+    for row in results:
+        feature_id = row.get("featureId")
+        if feature_id is not None:
+            key = str(feature_id)
+            if key not in seen_features:
+                seen_features.add(key)
+                feature_ids.append(key)
+        biosample_id = row.get("biosampleId")
+        if biosample_id is not None:
+            key = str(biosample_id)
+            if key not in seen_biosamples:
+                seen_biosamples.add(key)
+                biosample_ids.append(key)
+    return {
+        "axes": {
+            "featureIds": feature_ids,
+            "biosampleIds": biosample_ids,
+        }
+    }
+
+
+def _page_token_from_request(
+    *,
+    page_token: Optional[str] = None,
+    body: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+    """Prefer explicit GET ``pageToken``; else POST pagination next/previousPage."""
+    if page_token:
+        return str(page_token)
+    query = (body or {}).get("query") or {}
+    pagination = query.get("pagination") or {}
+    if not isinstance(pagination, dict):
+        return None
+    # Prefer a single navigation token over currentPage (which would stall if
+    # the client echoes the whole pagination object). If both next and previous
+    # are set, prefer previous only when next is absent — otherwise nextPage.
+    prev = pagination.get("previousPage")
+    nxt = pagination.get("nextPage")
+    if nxt and not prev:
+        return str(nxt)
+    if prev and not nxt:
+        return str(prev)
+    if nxt:
+        return str(nxt)
+    if prev:
+        return str(prev)
+    cur = pagination.get("currentPage")
+    return str(cur) if cur else None
+
+
 def _expression_values_handler(
     id: str,
     *,
     params: Dict[str, Any],
+    feature_filt,
     bio_filt,
+    expr_filt,
     skip_v: int,
     limit_v: int,
     gran,
     received,
+    page_token: Optional[str] = None,
 ):
+    """Expression values retrieval (ID lists / filters / value page)."""
     feature_csv = params.get("featureIDList")
     biosample_csv = params.get("biosampleIDList")
     min_value = params.get("minValue")
     max_value = params.get("maxValue")
     page_limit = limit_v if gran.value == "record" else 0
-    results, total = get_store().expression_values_for_matrix(
-        id,
-        feature_id_list=feature_csv,
-        biosample_id_list=biosample_csv,
-        biosample_filters=bio_filt,
-        min_value=min_value,
-        max_value=max_value,
-        skip=skip_v,
-        limit=page_limit,
-    )
+    try:
+        page = get_store().expression_values_for_matrix(
+            id,
+            feature_id_list=feature_csv,
+            biosample_id_list=biosample_csv,
+            biosample_filters=bio_filt,
+            feature_filters=feature_filt,
+            expression_value_filters=expr_filt,
+            min_value=min_value,
+            max_value=max_value,
+            sort=expression_value_sort_value(params.get("sort")),
+            order=axis_order_value(params.get("order")),
+            skip=skip_v,
+            limit=page_limit,
+            page_token=page_token,
+        )
+    except ValueError as exc:
+        return error_json(400, str(exc), received=received)
+    # Compatible with ExpressionValuesPage or legacy (results, total) tuple.
+    if hasattr(page, "results"):
+        results = page.results
+        total = page.total
+        next_page = getattr(page, "next_page", None)
+        previous_page = getattr(page, "previous_page", None)
+    else:
+        results, total = page
+        next_page = previous_page = None
+    pagination = received.setdefault("pagination", {})
+    if page_token:
+        pagination["currentPage"] = page_token
+    if next_page:
+        pagination["nextPage"] = next_page
+    if previous_page:
+        pagination["previousPage"] = previous_page
+    info = _expression_values_page_axes(results) if gran.value == "record" else None
     return list_response(
         results,
         "expressionValue",
@@ -622,6 +662,7 @@ def _expression_values_handler(
         received,
         total_count=total,
         results_are_page=True,
+        info=info,
     )
 
 
@@ -636,6 +677,9 @@ def get_expression_values(
     filters: Optional[str] = Query(None),
     minValue: Optional[float] = Query(None),
     maxValue: Optional[float] = Query(None),
+    sort: ExpressionValueSort = Query(ExpressionValueSort.id),
+    order: AxisOrder = Query(AxisOrder.asc),
+    pageToken: Optional[str] = Query(None),
 ) -> Union[Dict[str, Any], JSONResponse]:
     partial = partial_received_for_error(
         skip=skip,
@@ -649,6 +693,8 @@ def get_expression_values(
         biosampleIDList=biosampleIDList,
         minValue=minValue,
         maxValue=maxValue,
+        sort=expression_value_sort_value(sort),
+        order=axis_order_value(order),
     )
     if perr:
         return perr
@@ -674,12 +720,19 @@ def get_expression_values(
         if berr:
             return berr
         params["biosampleIDList"] = biosampleIDList
-    bio_filt, bferr = resolve_entity_filters(
-        entity="biosample", filters_csv=filters, received=partial
+    split, sferr = resolve_expression_value_filters(
+        filters_csv=filters, received=partial
     )
-    if bferr:
-        return bferr
-    extra = {**params_summary(params), **(filters_summary(bio_filt) or {})}
+    if sferr:
+        return sferr
+    feature_filt, bio_filt, expr_filt = split
+    inverted = _reject_inverted_range(params, partial)
+    if inverted:
+        return inverted
+    params["sort"] = expression_value_sort_value(sort)
+    params["order"] = axis_order_value(order)
+    merged_filters = list(feature_filt or []) + list(bio_filt or []) + list(expr_filt or [])
+    extra = {**params_summary(params), **(filters_summary(merged_filters) or {})}
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
@@ -697,11 +750,14 @@ def get_expression_values(
     return _expression_values_handler(
         id,
         params=params,
+        feature_filt=feature_filt,
         bio_filt=bio_filt,
+        expr_filt=expr_filt,
         skip_v=skip_v,
         limit_v=limit_v,
         gran=gran,
         received=received,
+        page_token=_page_token_from_request(page_token=pageToken),
     )
 
 
@@ -723,12 +779,17 @@ def post_expression_values(
             entity_type="expressionValue",
             extra_summary=params_summary(params) or None,
         )
-    bio_filt, bferr = resolve_entity_filters(
-        entity="biosample", body=payload, received=partial
-    )
-    if bferr:
-        return bferr
-    extra = {**params_summary(params), **(filters_summary(bio_filt) or {})}
+    split, sferr = resolve_expression_value_filters(body=payload, received=partial)
+    if sferr:
+        return sferr
+    feature_filt, bio_filt, expr_filt = split
+    inverted = _reject_inverted_range(params, partial)
+    if inverted:
+        return inverted
+    params["sort"] = expression_value_sort_value(params.get("sort"))
+    params["order"] = axis_order_value(params.get("order"))
+    merged_filters = list(feature_filt or []) + list(bio_filt or []) + list(expr_filt or [])
+    extra = {**params_summary(params), **(filters_summary(merged_filters) or {})}
     resolved, err = resolve_or_error(
         body=payload,
         extra_summary=extra or None,
@@ -744,187 +805,12 @@ def post_expression_values(
     return _expression_values_handler(
         id,
         params=params,
+        feature_filt=feature_filt,
         bio_filt=bio_filt,
+        expr_filt=expr_filt,
         skip_v=skip_v,
         limit_v=limit_v,
         gran=gran,
         received=received,
-    )
-
-
-def _require_summary_features(params: Dict[str, Any], received):
-    if params.get("featureIDList"):
-        return None
-    return error_json(
-        400,
-        "featureIDList is required for expression_summary",
-        received=received,
-    )
-
-
-def _matrix_expression_summary_response(
-    id: str,
-    *,
-    params: Dict[str, Any],
-    bio_filt,
-    gran,
-    received,
-):
-    store = get_store()
-    getter = getattr(store, "expression_summary_for_matrix", None)
-    if not callable(getter):
-        return error_json(
-            501,
-            "expression_summary not available",
-            received=received,
-        )
-    group = params.get("groupBy")
-    if group and group not in _ALLOWED_EXPRESSION_GROUP_BY:
-        return error_json(
-            400,
-            f"unsupported groupBy {group!r}; allowed: {sorted(_ALLOWED_EXPRESSION_GROUP_BY)}",
-            received=received,
-        )
-    try:
-        results = getter(
-            id,
-            feature_id_list=params.get("featureIDList"),
-            group_by=group,
-            biosample_filters=bio_filt,
-            threshold=params.get("threshold"),
-        )
-    except ValueError as exc:
-        return error_json(400, str(exc), received=received)
-    if gran.value != "record":
-        total = len(results)
-        return list_response(
-            [],
-            "expressionSummary",
-            id,
-            0,
-            1,
-            gran,
-            received,
-            total_count=total,
-            results_are_page=True,
-        )
-    return list_response(
-        results,
-        "expressionSummary",
-        id,
-        0,
-        max(len(results), 1),
-        gran,
-        received,
-        total_count=len(results),
-        results_are_page=True,
-    )
-
-
-@router.get(
-    "/matrices/{id}/expression_summary",
-    response_model=None,
-    responses=OPENAPI_BEACON_RESPONSES,
-)
-def get_matrix_expression_summary(
-    id: str,
-    featureIDList: Optional[str] = Query(None),
-    groupBy: Optional[str] = Query(None),
-    threshold: Optional[float] = Query(None),
-    filters: Optional[str] = Query(None),
-    requestedGranularity: Optional[str] = Query(None),
-) -> Union[Dict[str, Any], JSONResponse]:
-    partial = partial_received_for_error(
-        requested_granularity=requestedGranularity,
-        entity_type="expressionSummary",
-    )
-    params, perr = params_from_get(
-        received=partial,
-        featureIDList=featureIDList,
-        groupBy=groupBy,
-        threshold=threshold,
-    )
-    if perr:
-        return perr
-    if params:
-        partial = partial_received_for_error(
-            requested_granularity=requestedGranularity,
-            entity_type="expressionSummary",
-            extra_summary=params_summary(params) or None,
-        )
-    if featureIDList:
-        featureIDList, ferr = parse_id_list_or_error(
-            featureIDList, received=partial
-        )
-        if ferr:
-            return ferr
-        params["featureIDList"] = featureIDList
-    bio_filt, bferr = resolve_entity_filters(
-        entity="biosample", filters_csv=filters, received=partial
-    )
-    if bferr:
-        return bferr
-    extra = {**params_summary(params), **(filters_summary(bio_filt) or {})}
-    resolved, err = resolve_or_error(
-        requested_granularity=requestedGranularity,
-        extra_summary=extra or None,
-        entity_type="expressionSummary",
-    )
-    if err:
-        return err
-    _, _, gran, received = resolved
-    missing = _require_summary_features(params, received)
-    if missing:
-        return missing
-    if not get_store().get_matrix(id):
-        return empty_entity_response("expressionSummary", id, gran, received)
-    return _matrix_expression_summary_response(
-        id, params=params, bio_filt=bio_filt, gran=gran, received=received
-    )
-
-
-@router.post(
-    "/matrices/{id}/expression_summary",
-    response_model=None,
-    responses=OPENAPI_BEACON_RESPONSES,
-)
-def post_matrix_expression_summary(
-    id: str,
-    body: ExpressionValuesRequestBody = Body(...),
-) -> Union[Dict[str, Any], JSONResponse]:
-    payload = model_to_dict(body)
-    partial = partial_received_for_error(
-        body=payload,
-        entity_type="expressionSummary",
-    )
-    params, perr = params_from_post(payload, received=partial)
-    if perr:
-        return perr
-    if params:
-        partial = partial_received_for_error(
-            body=payload,
-            entity_type="expressionSummary",
-            extra_summary=params_summary(params) or None,
-        )
-    bio_filt, bferr = resolve_entity_filters(
-        entity="biosample", body=payload, received=partial
-    )
-    if bferr:
-        return bferr
-    extra = {**params_summary(params), **(filters_summary(bio_filt) or {})}
-    resolved, err = resolve_or_error(
-        body=payload,
-        extra_summary=extra or None,
-        entity_type="expressionSummary",
-    )
-    if err:
-        return err
-    _, _, gran, received = resolved
-    missing = _require_summary_features(params, received)
-    if missing:
-        return missing
-    if not get_store().get_matrix(id):
-        return empty_entity_response("expressionSummary", id, gran, received)
-    return _matrix_expression_summary_response(
-        id, params=params, bio_filt=bio_filt, gran=gran, received=received
+        page_token=_page_token_from_request(body=payload),
     )

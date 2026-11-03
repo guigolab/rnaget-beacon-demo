@@ -17,7 +17,7 @@ type MatrixFilterSidebarProps = {
 export function MatrixFilterSidebar({
   activeFilters,
   onAddFilter,
-  termsPath = '/matrices/filtering_terms',
+  termsPath = '/filtering_terms',
   source,
 }: MatrixFilterSidebarProps) {
   const { terms, resources, error, loading } = useFilteringTerms(termsPath)

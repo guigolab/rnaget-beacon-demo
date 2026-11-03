@@ -104,6 +104,9 @@ class BeaconComplianceTest(unittest.TestCase):
             for ep in (block.get("endpoints") or {}).values():
                 url = ep.get("url", "")
                 paths.add(re.sub(r"https?://[^/]+", "", url))
+            filtering_terms = block.get("filteringTermsUrl")
+            if filtering_terms:
+                paths.add(re.sub(r"https?://[^/]+", "", filtering_terms))
         for path in paths:
             if not path:
                 continue

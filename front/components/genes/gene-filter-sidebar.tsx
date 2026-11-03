@@ -17,7 +17,7 @@ type GeneFilterSidebarProps = {
 export function GeneFilterSidebar({
   activeFilters,
   onAddFilter,
-  termsPath = '/features/filtering_terms',
+  termsPath = '/filtering_terms',
   source,
 }: GeneFilterSidebarProps) {
   const { terms, resources, error, loading } = useFilteringTerms(termsPath)

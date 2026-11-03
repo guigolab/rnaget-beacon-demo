@@ -3,8 +3,8 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { BiosampleFilterSidebar } from '@/components/samples/biosample-filter-sidebar'
+import { BiosampleMatrixHeatmap } from '@/components/samples/biosample-matrix-heatmap'
 import { BiosampleQueryBar } from '@/components/samples/biosample-query-bar'
-import { BiosampleResultsCards } from '@/components/samples/biosample-results-cards'
 import { LensChrome } from '@/components/shared/lens-chrome'
 import { LensMatrixScopeBanner } from '@/components/shared/lens-matrix-scope-banner'
 import { LensPageShell } from '@/components/shared/lens-page-shell'
@@ -23,7 +23,6 @@ import {
   type Biosample,
   type UiFilter,
 } from '@/lib/beacon'
-import { matrixHeatmapFilteringTermsPath } from '@/lib/matrix-workspace'
 import { mergeSampleLensFilters, SAMPLE_LENS_PAGE_SIZE } from '@/lib/sample-lens'
 
 function BiosamplesLensContent() {
@@ -44,9 +43,7 @@ function BiosamplesLensContent() {
     () => filtersQuerySummary(biosampleFilters),
     [biosampleFilters]
   )
-  const termsPath = focusMatrix
-    ? matrixHeatmapFilteringTermsPath(focusMatrix, 'biosamples')
-    : '/biosamples/filtering_terms'
+  const termsPath = '/filtering_terms'
 
   const filtersRef = useRef(biosampleFilters)
   filtersRef.current = biosampleFilters
@@ -104,7 +101,7 @@ function BiosamplesLensContent() {
     <PageFrame>
       <PageHeader
         title="Biosamples"
-        description="Query biosamples by tissue, ontology, or sample metadata, then open a matrix."
+        description="Query biosamples by tissue, ontology, or sample metadata, then inspect detected-genes bands across matrices."
       />
 
       {focusMatrix && (
@@ -119,11 +116,7 @@ function BiosamplesLensContent() {
         sidebar={
           <BiosampleFilterSidebar
             termsPath={termsPath}
-            source={
-              focusMatrix
-                ? `GET /matrices/${focusMatrix}/biosamples/filtering_terms`
-                : 'GET /biosamples/filtering_terms'
-            }
+            source="GET /filtering_terms"
             activeFilters={biosampleFilters}
             onAddFilter={(added) =>
               writeFilters(mergeSampleLensFilters(biosampleFilters, added))
@@ -152,7 +145,8 @@ function BiosamplesLensContent() {
             querySummary={querySummary}
             previewLimit={list.items.length}
             previewCount={list.items.length}
-            previewHint="GET or POST /biosamples"
+            previewTruncatedSuffix="banded heatmap via POST /biosamples/{id}/matrices"
+            previewWhenShowing="Detected-genes percentile bands from POST /biosamples/{id}/matrices (expression.detectedGenesPercentile.* · matrixIDList)"
             noMatchesMessage="No biosamples match these filters."
             loadErrorTitle="Could not load biosamples"
             searchError={list.error}
@@ -165,7 +159,10 @@ function BiosamplesLensContent() {
             onLoadMore={list.loadMore}
             onClearFilters={() => writeFilters([])}
           >
-            <BiosampleResultsCards samples={list.items} focusMatrix={focusMatrix} />
+            <BiosampleMatrixHeatmap
+              samples={list.items}
+              focusMatrix={focusMatrix}
+            />
           </LensResultsPanel>
         }
       />

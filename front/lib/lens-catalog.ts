@@ -1,9 +1,10 @@
 import { isCustomId } from '@/lib/beacon/filters'
 import type { FilteringResource, FilteringTerm, UiFilter } from '@/lib/beacon/types'
 
-const LOOKUP_PREFIXES = ['HGNC', 'NCBIGene', 'ENSEMBL'] as const
+const LOOKUP_PREFIXES = ['symbol', 'HGNC', 'NCBIGene', 'ENSEMBL'] as const
 
 const LOOKUP_EXAMPLES: Record<string, string> = {
+  symbol: 'symbol:TP53',
   HGNC: 'HGNC:11998',
   NCBIGene: 'NCBIGene:7157',
   ENSEMBL: 'ENSEMBL:ENSG00000141510',
@@ -28,6 +29,18 @@ export function isHiddenFilteringTerm(term: FilteringTerm): boolean {
 export function termToUiFilter(term: FilteringTerm): UiFilter {
   if (term.type === 'custom' || isCustomId(term.id)) {
     return { kind: 'custom', id: term.id, label: term.label }
+  }
+  if (term.type === 'alphanumeric' && term.id.startsWith('expression.')) {
+    return { kind: 'expression', id: term.id, label: term.label }
+  }
+  if (term.type === 'alphanumeric') {
+    const value = term.values?.[0] ?? ''
+    return {
+      kind: 'alphanumeric',
+      id: term.id,
+      value,
+      label: term.label,
+    }
   }
   return { kind: 'ontology', id: term.id, label: term.label }
 }
@@ -64,7 +77,9 @@ export function lensQueryPlaceholder(
   if (!terms.length && !resources.length) return 'Add filter…'
   const present = presentPrefixes(terms, resources)
   if (kind === 'feature') {
-    const parts = ['Symbol']
+    const parts: string[] = []
+    if (present.has('symbol')) parts.push('symbol:…')
+    else parts.push('Symbol')
     for (const prefix of FEATURE_PREFIXES) {
       if (present.has(prefix)) parts.push(`${prefix}:…`)
     }

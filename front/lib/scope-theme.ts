@@ -2,9 +2,14 @@ import type { CSSProperties } from 'react'
 import type { FilteringResource, FilteringTerm } from '@/lib/beacon/types'
 
 /** Beacon filtering-term scopes used on the home catalog. */
-export type BeaconScope = 'biosample' | 'genomicFeature' | 'matrix'
+export type BeaconScope = 'biosample' | 'genomicFeature' | 'matrix' | 'expressionValue'
 
-export const BEACON_SCOPES: BeaconScope[] = ['biosample', 'genomicFeature', 'matrix']
+export const BEACON_SCOPES: BeaconScope[] = [
+  'biosample',
+  'genomicFeature',
+  'matrix',
+  'expressionValue',
+]
 
 const TYPE_LABELS: Record<string, string> = {
   SO: 'Sequence Ontology',
@@ -25,7 +30,12 @@ export const SCOPE_LEGEND: Array<{
 }> = [
   { scope: 'biosample', label: 'Biosample', hint: 'Sample metadata & facets' },
   { scope: 'genomicFeature', label: 'Genomic feature', hint: 'Genes & feature filters' },
-  { scope: 'matrix', label: 'Matrix', hint: 'Expression matrices & summaries' },
+  { scope: 'matrix', label: 'Matrix', hint: 'Expression matrices & catalogs' },
+  {
+    scope: 'expressionValue',
+    label: 'Expression value',
+    hint: 'Cell-level expression filters',
+  },
 ]
 
 export function entryTypeScope(entryId: string): BeaconScope {
@@ -48,10 +58,12 @@ export function scopeCssVars(scope: BeaconScope): {
   border: string
   text: string
 } {
+  // Reuse matrix tokens until dedicated expressionValue theme vars exist.
+  const tokenScope = scope === 'expressionValue' ? 'matrix' : scope
   return {
-    bg: `var(--scope-${scope}-bg)`,
-    border: `var(--scope-${scope}-border)`,
-    text: `var(--scope-${scope}-text)`,
+    bg: `var(--scope-${tokenScope}-bg)`,
+    border: `var(--scope-${tokenScope}-border)`,
+    text: `var(--scope-${tokenScope}-text)`,
   }
 }
 
@@ -65,7 +77,12 @@ export function scopeChipStyle(scope: BeaconScope): CSSProperties {
 }
 
 export function isBeaconScope(value: string): value is BeaconScope {
-  return value === 'biosample' || value === 'genomicFeature' || value === 'matrix'
+  return (
+    value === 'biosample' ||
+    value === 'genomicFeature' ||
+    value === 'matrix' ||
+    value === 'expressionValue'
+  )
 }
 
 export function namespaceLabel(
@@ -80,7 +97,7 @@ export function namespaceLabel(
   }
   if (t === 'custom') {
     const m = termId.match(/^resource:(.+)$/)
-    return m ? m[1] : termId
+    return m ? m[1] : 'custom'
   }
   const fromResource = resources.find((r) => r.nameSpacePrefix === t)?.name
   if (fromResource) return fromResource
@@ -101,14 +118,17 @@ function termValueCount(term: FilteringTerm): number {
   return term.values?.length ?? 1
 }
 
-export function groupTermsByNamespaceScope(terms: FilteringTerm[]): NamespaceScopeGroup[] {
+export function groupTermsByNamespaceScope(
+  terms: FilteringTerm[],
+  resources: FilteringResource[] = []
+): NamespaceScopeGroup[] {
   const map = new Map<string, NamespaceScopeGroup>()
 
   for (const term of terms) {
     const scopes = term.scopes?.filter(isBeaconScope) ?? []
     if (scopes.length === 0) continue
     const namespaceType = term.type ?? 'unknown'
-    const label = namespaceLabel(namespaceType, term.id)
+    const label = namespaceLabel(namespaceType, term.id, resources)
 
     for (const scope of scopes) {
       const key = `${namespaceType}|${scope}`
@@ -128,6 +148,58 @@ export function groupTermsByNamespaceScope(terms: FilteringTerm[]): NamespaceSco
       group.terms.push(term)
       group.count += 1
       group.valueCount += termValueCount(term)
+    }
+  }
+
+  return [...map.values()].sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+}
+
+/** Resource ids kept per scope — mirrors server filtering_terms(scopes=…). */
+export const SCOPE_RESOURCE_IDS: Record<BeaconScope, ReadonlySet<string>> = {
+  genomicFeature: new Set(['so', 'go', 'hgnc', 'ncbigene', 'ensembl', 'symbol']),
+  biosample: new Set(['uberon', 'efo', 'obi', 'mondo', 'hp', 'go', 'ncit']),
+  matrix: new Set(['so', 'obi']),
+  expressionValue: new Set(),
+}
+
+export function resourceAllowedInScope(
+  scope: BeaconScope,
+  resource: FilteringResource
+): boolean {
+  const id = String(resource.id || '').toLowerCase()
+  return Boolean(id && SCOPE_RESOURCE_IDS[scope].has(id))
+}
+
+/**
+ * Home catalog namespaces: term-backed groups plus scoped `resources[]`.
+ * Resource-only namespaces appear with empty `terms` (lookup / no catalogued values).
+ */
+export function groupHomeNamespaces(
+  terms: FilteringTerm[],
+  resources: FilteringResource[] = []
+): NamespaceScopeGroup[] {
+  const map = new Map<string, NamespaceScopeGroup>()
+  for (const group of groupTermsByNamespaceScope(terms, resources)) {
+    map.set(group.key, { ...group, terms: [...group.terms] })
+  }
+
+  for (const scope of BEACON_SCOPES) {
+    const keep = SCOPE_RESOURCE_IDS[scope]
+    for (const resource of resources) {
+      const id = String(resource.id || '').toLowerCase()
+      const prefix = resource.nameSpacePrefix
+      if (!id || !prefix || !keep.has(id)) continue
+      const key = `${prefix}|${scope}`
+      if (map.has(key)) continue
+      map.set(key, {
+        key,
+        namespaceType: prefix,
+        namespaceLabel: resource.name || namespaceLabel(prefix, `${prefix}:`, resources),
+        scope,
+        terms: [],
+        count: 0,
+        valueCount: 0,
+      })
     }
   }
 

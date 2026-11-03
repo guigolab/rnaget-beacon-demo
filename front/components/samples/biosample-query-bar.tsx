@@ -26,7 +26,7 @@ export function BiosampleQueryBar({
   onChange,
   probe,
   scopeIndex,
-  termsPath = '/biosamples/filtering_terms',
+  termsPath = '/filtering_terms',
 }: BiosampleQueryBarProps) {
   const { terms, resources, error, loading } = useFilteringTerms(termsPath)
   const labelCatalog = useMemo(() => catalogLabelById(terms), [terms])

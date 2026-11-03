@@ -72,19 +72,38 @@ class FiltersSmokeTest(unittest.TestCase):
             "/features",
             json={
                 "query": {
-                    "filters": [
-                        {
-                            "id": "genomicFeature.symbol",
-                            "operator": "=",
-                            "value": "TP53",
-                        }
-                    ],
+                    "filters": [{"id": "symbol:TP53"}],
                     "pagination": {"skip": 0, "limit": 5},
                 }
             },
         )
         self.assertEqual(r.status_code, 200, r.text)
         self.assertGreaterEqual(r.json()["responseSummary"]["numTotalResults"], 1)
+
+        r = self.client.get(
+            "/features",
+            params={"filters": "symbol:TP53", "limit": 5},
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertGreaterEqual(r.json()["responseSummary"]["numTotalResults"], 1)
+
+        bad = self.client.get(
+            "/features",
+            params={"filters": "symbol:", "limit": 5},
+        )
+        self.assertEqual(bad.status_code, 400, bad.text)
+
+        r = self.client.get("/filtering_terms")
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()["response"]
+        term_ids = {t["id"] for t in body["filteringTerms"]}
+        self.assertIn("GO:0008150", term_ids)
+        prefixes = {
+            str(res.get("nameSpacePrefix") or "").lower()
+            for res in body.get("resources") or []
+        }
+        self.assertIn("go", prefixes)
+        self.assertIn("symbol", prefixes)
 
     def test_ensembl_unversioned_curie(self) -> None:
         r = self.client.post(

@@ -19,6 +19,7 @@ def list_response(
     *,
     total_count: Optional[int] = None,
     results_are_page: bool = False,
+    info: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     return build_resultsets_response(
         entity_type=entity_type,
@@ -30,6 +31,7 @@ def list_response(
         received=received,
         total_count=total_count,
         results_are_page=results_are_page,
+        info=info,
     )
 
 

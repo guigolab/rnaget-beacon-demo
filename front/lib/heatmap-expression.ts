@@ -7,7 +7,7 @@ import {
   COLOR_TEXT_LIGHT,
   COLOR_TOP,
 } from '@/components/heatmap-colors'
-import type { ExpressionValue, Feature } from '@/lib/beacon/types'
+import type { Biosample, ExpressionValue, Feature } from '@/lib/beacon/types'
 
 export const HEATMAP_PREVIEW_COLS = 10
 
@@ -28,6 +28,209 @@ export function featureTokens(feature: Feature): string[] {
 
 export function cellKey(featureId: string, biosampleId: string) {
   return `${featureId}:${biosampleId}`
+}
+
+/**
+ * Biosample ids that hold each feature's packaged min/max (from expressionSummary).
+ * Used so the heatmap can fetch peak cells even when those samples are off-page.
+ */
+export function featureExtremeBiosampleIds(
+  features: readonly Feature[],
+  which: 'max' | 'min' | 'both' = 'both'
+): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const feature of features) {
+    const summary = feature.info?.expressionSummary
+    if (!summary) continue
+    const ids =
+      which === 'max'
+        ? [summary.maxBiosampleId]
+        : which === 'min'
+          ? [summary.minBiosampleId]
+          : [summary.maxBiosampleId, summary.minBiosampleId]
+    for (const id of ids) {
+      const trimmed = id?.trim()
+      if (!trimmed || seen.has(trimmed)) continue
+      seen.add(trimmed)
+      out.push(trimmed)
+    }
+  }
+  return out
+}
+
+/** Prefer richer biosample records when merging id lists; stubs are `{ id }` only. */
+export function mergeBiosampleRecords(
+  preferred: readonly Biosample[],
+  extraIds: readonly string[]
+): Biosample[] {
+  const byId = new Map<string, Biosample>()
+  for (const sample of preferred) {
+    const id = sample.id?.trim()
+    if (!id || byId.has(id)) continue
+    byId.set(id, sample)
+  }
+  for (const raw of extraIds) {
+    const id = raw.trim()
+    if (!id || byId.has(id)) continue
+    byId.set(id, { id })
+  }
+  return [...byId.values()]
+}
+
+/**
+ * Put ``leadingIds`` first (stubs OK), then ``items`` in arrival order.
+ * Does not append extras at the end — only reorders / inserts leaders.
+ */
+export function preferLeadingBiosamples(
+  items: readonly Biosample[],
+  leadingIds: readonly string[]
+): Biosample[] {
+  if (!leadingIds.length) return items.length ? [...items] : []
+  const byId = new Map<string, Biosample>()
+  for (const sample of items) {
+    const id = sample.id?.trim()
+    if (!id || byId.has(id)) continue
+    byId.set(id, sample)
+  }
+  const leading: Biosample[] = []
+  const seen = new Set<string>()
+  for (const raw of leadingIds) {
+    const id = raw.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    leading.push(byId.get(id) ?? { id })
+  }
+  const rest: Biosample[] = []
+  for (const sample of items) {
+    const id = sample.id?.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    rest.push(sample)
+  }
+  return leading.length ? [...leading, ...rest] : rest
+}
+
+/**
+ * Rank feature rows by expression cell values for the given biosample IDs.
+ * ``desc`` uses each feature's max across those samples (highest first);
+ * ``asc`` uses the min (lowest first). Rows with no values stay last.
+ * Returns the input array reference when there is nothing to reorder.
+ */
+export function sortFeaturesByCellValues(
+  features: Feature[],
+  values: Map<string, number>,
+  biosampleIds: readonly string[],
+  order: 'asc' | 'desc' = 'desc'
+): Feature[] {
+  if (!features.length || !biosampleIds.length || values.size === 0) return features
+
+  type Ranked = { feature: Feature; id: string; rank: number; missing: boolean }
+  const ranked: Ranked[] = new Array(features.length)
+  let any = false
+  const preferMax = order !== 'asc'
+
+  for (let i = 0; i < features.length; i++) {
+    const feature = features[i]
+    const id = nativeFeatureId(feature)
+    let rank = preferMax ? -Infinity : Infinity
+    let missing = true
+    for (const biosampleId of biosampleIds) {
+      const value = values.get(cellKey(id, biosampleId))
+      if (value == null) continue
+      missing = false
+      any = true
+      if (preferMax) {
+        if (value > rank) rank = value
+      } else if (value < rank) {
+        rank = value
+      }
+    }
+    ranked[i] = { feature, id, rank, missing }
+  }
+  if (!any) return features
+
+  ranked.sort((a, b) => {
+    if (a.missing !== b.missing) return a.missing ? 1 : -1
+    if (!a.missing && !b.missing && a.rank !== b.rank) {
+      return preferMax ? b.rank - a.rank : a.rank - b.rank
+    }
+    return a.id.localeCompare(b.id)
+  })
+  return ranked.map((row) => row.feature)
+}
+
+/** @deprecated Prefer {@link sortFeaturesByCellValues}. */
+export function sortFeaturesByBiosampleValue(
+  features: Feature[],
+  values: Map<string, number>,
+  biosampleId: string,
+  order: 'asc' | 'desc' = 'desc'
+): Feature[] {
+  return sortFeaturesByCellValues(features, values, biosampleId ? [biosampleId] : [], order)
+}
+
+/**
+ * Rank biosample columns by expression across the given feature accessions.
+ * ``desc`` uses each sample's max (highest first); ``asc`` uses the min.
+ * Samples with no values stay last. Returns the input array when nothing to reorder.
+ */
+/** Keep first occurrence of each biosample id (stable). */
+export function dedupeBiosamplesById(biosamples: Biosample[]): Biosample[] {
+  if (biosamples.length < 2) return biosamples
+  const seen = new Set<string>()
+  const out: Biosample[] = []
+  for (const sample of biosamples) {
+    const id = sample.id?.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(sample)
+  }
+  return out.length === biosamples.length ? biosamples : out
+}
+
+export function sortBiosamplesByCellValues(
+  biosamples: Biosample[],
+  values: Map<string, number>,
+  featureIds: readonly string[],
+  order: 'asc' | 'desc' = 'desc'
+): Biosample[] {
+  const unique = dedupeBiosamplesById(biosamples)
+  if (!unique.length || !featureIds.length || values.size === 0) return unique
+
+  type Ranked = { sample: Biosample; id: string; rank: number; missing: boolean }
+  const ranked: Ranked[] = new Array(unique.length)
+  let any = false
+  const preferMax = order !== 'asc'
+
+  for (let i = 0; i < unique.length; i++) {
+    const sample = unique[i]
+    const id = sample.id
+    let rank = preferMax ? -Infinity : Infinity
+    let missing = true
+    for (const featureId of featureIds) {
+      const value = values.get(cellKey(featureId, id))
+      if (value == null) continue
+      missing = false
+      any = true
+      if (preferMax) {
+        if (value > rank) rank = value
+      } else if (value < rank) {
+        rank = value
+      }
+    }
+    ranked[i] = { sample, id, rank, missing }
+  }
+  if (!any) return unique
+
+  ranked.sort((a, b) => {
+    if (a.missing !== b.missing) return a.missing ? 1 : -1
+    if (!a.missing && !b.missing && a.rank !== b.rank) {
+      return preferMax ? b.rank - a.rank : a.rank - b.rank
+    }
+    return a.id.localeCompare(b.id)
+  })
+  return ranked.map((row) => row.sample)
 }
 
 export function mergeFeatureExpressionCells(
@@ -144,4 +347,65 @@ export function matrixHeatmapColorScaleBounds(
   const min = visibleMin
   const max = visibleMax > min ? visibleMax : min + 1
   return { min, max }
+}
+
+export type MatrixColourMode = 'value' | 'percentileInFeature' | 'percentileInBiosample'
+
+/**
+ * Demo approximation: percentile ranks within the currently loaded heatmap window
+ * (not matrix-wide). Ties share the average rank. Scale is 0–100.
+ */
+export function windowPercentileColourValues(
+  values: Map<string, number>,
+  features: readonly Feature[],
+  biosamples: readonly Biosample[],
+  mode: 'percentileInFeature' | 'percentileInBiosample'
+): Map<string, number> {
+  const out = new Map<string, number>()
+  if (mode === 'percentileInFeature') {
+    for (const feature of features) {
+      const featureId = nativeFeatureId(feature)
+      const cells: Array<{ key: string; value: number }> = []
+      for (const sample of biosamples) {
+        const key = cellKey(featureId, sample.id)
+        const value = values.get(key)
+        if (value == null || !Number.isFinite(value)) continue
+        cells.push({ key, value })
+      }
+      assignAverageRankPercentiles(cells, out)
+    }
+    return out
+  }
+  for (const sample of biosamples) {
+    const cells: Array<{ key: string; value: number }> = []
+    for (const feature of features) {
+      const key = cellKey(nativeFeatureId(feature), sample.id)
+      const value = values.get(key)
+      if (value == null || !Number.isFinite(value)) continue
+      cells.push({ key, value })
+    }
+    assignAverageRankPercentiles(cells, out)
+  }
+  return out
+}
+
+function assignAverageRankPercentiles(
+  cells: Array<{ key: string; value: number }>,
+  out: Map<string, number>
+) {
+  if (!cells.length) return
+  if (cells.length === 1) {
+    out.set(cells[0].key, 50)
+    return
+  }
+  const sorted = [...cells].sort((a, b) => a.value - b.value || a.key.localeCompare(b.key))
+  let i = 0
+  while (i < sorted.length) {
+    let j = i + 1
+    while (j < sorted.length && sorted[j].value === sorted[i].value) j += 1
+    const avgRank = (i + (j - 1)) / 2
+    const pct = (avgRank / (sorted.length - 1)) * 100
+    for (let k = i; k < j; k++) out.set(sorted[k].key, pct)
+    i = j
+  }
 }
