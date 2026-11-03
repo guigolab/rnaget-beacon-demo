@@ -43,6 +43,39 @@ def profile_source(profile: Dict[str, Any]) -> Optional[str]:
     return str(value) if value else None
 
 
+_DEFAULT_FEATURE_TYPE = {"id": "SO:0000704", "label": "gene"}
+
+
+def profile_feature_types(profile: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return matrix featureTypes seed from profile ``feature_types`` (list of ontology terms)."""
+    raw = profile.get("feature_types")
+    if raw is None:
+        raise ValueError(
+            f"profile {profile.get('matrix_id')!r}: feature_types list is required"
+        )
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(
+            f"profile {profile.get('matrix_id')!r}: feature_types must be a non-empty list"
+        )
+    out: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict) or not item.get("id"):
+            raise ValueError(
+                f"profile {profile.get('matrix_id')!r}: each feature_types entry needs id"
+            )
+        term = {"id": str(item["id"])}
+        if item.get("label"):
+            term["label"] = str(item["label"])
+        out.append(term)
+    return out
+
+
+def profile_primary_feature_type(profile: Dict[str, Any]) -> Dict[str, Any]:
+    """Default genomicFeature.featureType seed (first profile feature_types entry)."""
+    types = profile_feature_types(profile)
+    return dict(types[0]) if types else dict(_DEFAULT_FEATURE_TYPE)
+
+
 def _annotate_record(record: Dict[str, Any], path: Path) -> Dict[str, Any]:
     data = dict(record)
     data["_profile_path"] = str(path)
@@ -389,10 +422,8 @@ def parse_wide_matrix(
     matrix_id = profile["matrix_id"]
     delim = profile.get("delimiter") or "\t"
     resource = (profile.get("annotation") or {}).get("source") or "local"
-    feature_type = profile.get("feature_type") or {
-        "id": "SO:0000704",
-        "label": "gene",
-    }
+    feature_types = profile_feature_types(profile)
+    feature_type = profile_primary_feature_type(profile)
     # Full GEO/NCBI matrices (~40k × 100+ samples) materialize ~5M Python tuples
     # if expression is buffered; stream on a second file pass when unsliced.
     stream_expression = max_genes == 0 and max_samples == 0
@@ -498,7 +529,7 @@ def parse_wide_matrix(
         "description": profile.get("description") or "",
         "downloadUrl": (profile.get("download") or {}).get("url") or "",
         "expressionUnitAndScale": {"unit": unit, "scale": scale},
-        "featureType": [feature_type],
+        "featureTypes": feature_types,
         "annotation": annotation,
         "assembly": assembly,
         "assayType": assay_type,

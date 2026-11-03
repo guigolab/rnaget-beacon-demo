@@ -141,7 +141,7 @@ def _matrix_doc(mid: str, n_feat: int, n_bio: int) -> Dict[str, Any]:
         "matrixId": mid,
         "name": mid,
         "expressionUnitAndScale": {"unit": "TPM", "scale": "linear"},
-        "featureType": [{"id": "SO:0000704", "label": "gene"}],
+        "featureTypes": [{"id": "SO:0000704", "label": "gene"}],
         "annotation": {
             "source": "gencode",
             "version": "v26",
@@ -186,7 +186,7 @@ def _build_package(root: Path) -> None:
         _biosample("B4", "M_SPARSE", "UBERON:0002107", "liver", "male", 4.0),
     ]
     m3_bios = [_biosample("B9", "M_OTHER", "UBERON:0000178", "blood", "female", 7.5)]
-    # Distinct values so expression_values sort=value / order=desc|asc is testable.
+    # Distinct values so expression_values order=desc|asc is testable.
     m1_expr = [
         {
             "matrix_id": "M_DENSE",
@@ -742,20 +742,19 @@ class DuckDBPackageTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["responseSummary"]["numTotalResults"], 4)
 
-    def test_expression_values_sort_by_value_order(self) -> None:
+    def test_expression_values_order_by_value(self) -> None:
         desc = self.client.get(
             "/matrices/M_DENSE/expression_values",
             params={
                 "biosampleIDList": "B1",
                 "limit": 10,
-                "sort": "value",
                 "order": "desc",
             },
         )
         self.assertEqual(desc.status_code, 200, desc.text)
         body = desc.json()
         rp = body["meta"]["receivedRequestSummary"]["requestParameters"]
-        self.assertEqual(rp["sort"], "value")
+        self.assertNotIn("sort", rp)
         self.assertEqual(rp["order"], "desc")
         values = [
             row["value"]
@@ -769,7 +768,6 @@ class DuckDBPackageTest(unittest.TestCase):
             params={
                 "biosampleIDList": "B1",
                 "limit": 10,
-                "sort": "value",
                 "order": "asc",
             },
         )
@@ -781,28 +779,25 @@ class DuckDBPackageTest(unittest.TestCase):
         self.assertEqual(asc_values, sorted(asc_values))
         self.assertEqual(asc_values, list(reversed(values)))
 
-        # ``sort`` defaults to ``id`` (feature_id, biosample_id) when omitted.
-        default_sort = self.client.get(
+        # Default order is ascending by cell value.
+        default_order = self.client.get(
             "/matrices/M_DENSE/expression_values",
             params={"biosampleIDList": "B1", "limit": 10},
         )
-        self.assertEqual(default_sort.status_code, 200, default_sort.text)
-        default_body = default_sort.json()
-        self.assertEqual(
-            default_body["meta"]["receivedRequestSummary"]["requestParameters"][
-                "sort"
-            ],
-            "id",
+        self.assertEqual(default_order.status_code, 200, default_order.text)
+        default_body = default_order.json()
+        self.assertNotIn(
+            "sort",
+            default_body["meta"]["receivedRequestSummary"]["requestParameters"],
         )
         default_rows = default_body["response"]["resultSets"][0]["results"]
-        default_ids = [(row["featureId"], row["biosampleId"]) for row in default_rows]
-        self.assertEqual(default_ids, sorted(default_ids))
+        default_values = [row["value"] for row in default_rows]
+        self.assertEqual(default_values, sorted(default_values))
 
-        # Only "id" / "value" are accepted sort keys (FastAPI enum validation,
-        # surfaced as a Beacon-shaped 400 error by this server's handlers).
+        # ``sort`` was removed; any value is rejected.
         rejected = self.client.get(
             "/matrices/M_DENSE/expression_values",
-            params={"sort": "expression.min", "limit": 1},
+            params={"sort": "value", "limit": 1},
         )
         self.assertEqual(rejected.status_code, 400, rejected.text)
 

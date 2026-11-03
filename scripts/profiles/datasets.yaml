@@ -25,9 +25,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     gene_id_column: gene_id
     value_column: TPM
     feature_id_prefix: ENSG
@@ -69,9 +69,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     gene_id_column: gene_id
     value_column: TPM
     feature_id_prefix: ENSG
@@ -131,9 +131,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     delimiter: "\t"
     feature_column: 0
     sample_start_column: 1
@@ -168,9 +168,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     delimiter: "\t"
     feature_column: 0
     sample_start_column: 1
@@ -205,9 +205,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     delimiter: "\t"
     feature_column: 0
     sample_start_column: 1
@@ -242,9 +242,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     delimiter: "\t"
     feature_column: 0
     sample_start_column: 1
@@ -277,9 +277,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     tissue:
       id: UBERON:0002190
       label: "Adipose - Subcutaneous"
@@ -314,9 +314,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     tissue:
       id: UBERON:0002107
       label: "Liver"
@@ -349,9 +349,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     tissue:
       id: UBERON:0000178
       label: "Whole Blood"
@@ -384,9 +384,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     tissue:
       id: UBERON:0002048
       label: "Lung"
@@ -419,9 +419,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     tissue:
       id: UBERON:0001870
       label: "Brain Cortex"
@@ -454,9 +454,9 @@ profiles:
     assay_type:
       id: OBI:0003090
       label: bulk RNA-seq assay
-    feature_type:
-      id: SO:0000704
-      label: gene
+    feature_types:
+      - id: SO:0000704
+        label: gene
     tissue:
       id: UBERON:0001134
       label: "Muscle - Skeletal"

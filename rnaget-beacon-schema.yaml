@@ -1409,12 +1409,6 @@ paths:
           - type: number
           - type: 'null'
           title: Maxvalue
-      - name: sort
-        in: query
-        required: false
-        schema:
-          $ref: '#/components/schemas/ExpressionValueSort'
-          default: id
       - name: order
         in: query
         required: false
@@ -1584,6 +1578,7 @@ components:
         meta:
           $ref: '#/components/schemas/ResponseMeta'
         response:
+          additionalProperties: true
           title: Response
           type: object
       required:
@@ -1616,7 +1611,8 @@ components:
           title: Filters
         requestParameters:
           anyOf:
-          - type: object
+          - additionalProperties: true
+            type: object
           - type: 'null'
           default: null
           title: Requestparameters
@@ -1671,16 +1667,6 @@ components:
       - id
       title: CustomFilter
       type: object
-    ExpressionValueSort:
-      type: string
-      enum:
-      - id
-      - value
-      title: ExpressionValueSort
-      description: 'Sort key for /matrices/{id}/expression_values.
-
-
-        ``id`` (feature_id, biosample_id; default) or ``value`` (the cell value).'
     ExpressionValuesRequestBody:
       properties:
         meta:
@@ -1699,11 +1685,13 @@ components:
       properties:
         filteringTerms:
           items:
+            additionalProperties: true
             type: object
           title: Filteringterms
           type: array
         resources:
           items:
+            additionalProperties: true
             type: object
           title: Resources
           type: array
@@ -1832,7 +1820,8 @@ components:
           type: array
         receivedRequestSummary:
           anyOf:
-          - type: object
+          - additionalProperties: true
+            type: object
           - type: 'null'
           default: null
           title: Receivedrequestsummary
@@ -2036,7 +2025,7 @@ components:
           required:
           - features
           - biosamples
-        featureType:
+        featureTypes:
           description: Sequence Ontology terms for the class(es) of genomic feature
             rows in this matrix. Homogeneous matrices list one term (e.g. gene or
             mRNA). Matrices that mix genes and transcripts (or other feature classes)
@@ -2159,7 +2148,7 @@ components:
       required:
       - matrixId
       - expressionUnitAndScale
-      - featureType
+      - featureTypes
       - annotation
       - assembly
       - reproducible

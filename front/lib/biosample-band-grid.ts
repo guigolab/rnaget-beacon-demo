@@ -1,4 +1,5 @@
-import type { Biosample, Matrix } from '@/lib/beacon/types'
+import { listMatrixBiosamples } from '@/lib/beacon/client'
+import type { Biosample } from '@/lib/beacon/types'
 import {
   BAND_MATRIX_WINDOW_MAX,
   EXPRESSION_BANDS,
@@ -8,7 +9,6 @@ import {
   type BandCellValue,
   type ExpressionBand,
 } from '@/lib/expression-band'
-import { listBiosampleMatrices } from '@/lib/related-matrices'
 
 export { bandCellKey as biosampleBandCellKey }
 
@@ -51,70 +51,86 @@ export function seedBiosampleAbsentCells(
   }
 }
 
-export function applyBiosampleBandHits(
+export function biosamplesInMatrix(
+  samples: Biosample[],
+  matrixId: string
+): Biosample[] {
+  return samples.filter((sample) => (sample.matrixIds ?? []).includes(matrixId))
+}
+
+export function applyBiosampleColumnBandHits(
   cells: Map<string, BiosampleBandCell>,
-  biosampleId: string,
+  matrixId: string,
   band: ExpressionBand,
-  matrices: Matrix[],
+  hits: Biosample[],
+  byId: Map<string, Biosample>,
   claimed: Set<string>
 ): void {
-  for (const matrix of matrices) {
-    const matrixId = matrix.matrixId
-    if (!matrixId || claimed.has(matrixId)) continue
-    claimed.add(matrixId)
-    cells.set(bandCellKey(biosampleId, matrixId), {
-      biosampleId,
+  for (const hit of hits) {
+    const sample = byId.get(hit.id)
+    if (!sample || claimed.has(sample.id)) continue
+    claimed.add(sample.id)
+    cells.set(bandCellKey(sample.id, matrixId), {
+      biosampleId: sample.id,
       matrixId,
       band,
     })
   }
 }
 
-export function finalizeBiosampleUnmatched(
+export function finalizeBiosampleColumnUnmatched(
   cells: Map<string, BiosampleBandCell>,
-  biosampleId: string,
-  inWindow: string[],
+  matrixId: string,
+  members: Biosample[],
   claimed: Set<string>
 ): void {
-  for (const matrixId of inWindow) {
-    if (claimed.has(matrixId)) continue
-    cells.set(bandCellKey(biosampleId, matrixId), {
-      biosampleId,
+  for (const sample of members) {
+    if (claimed.has(sample.id)) continue
+    cells.set(bandCellKey(sample.id, matrixId), {
+      biosampleId: sample.id,
       matrixId,
       band: 'none',
     })
   }
 }
 
-export async function loadBiosampleBandRow(
-  sample: Biosample,
-  matrixWindow: string[],
+/**
+ * Paint one matrix column for the current biosample page via
+ * `POST /matrices/{id}/biosamples` + `biosampleIDList` +
+ * `expression.detectedGenesPercentile.*`.
+ */
+export async function loadBiosampleBandColumn(
+  matrixId: string,
+  samples: Biosample[],
   signal?: AbortSignal
 ): Promise<Map<string, BiosampleBandCell>> {
   const cells = new Map<string, BiosampleBandCell>()
-  seedBiosampleAbsentCells(cells, [sample], matrixWindow)
-  const inWindow = windowForBiosample(sample, matrixWindow)
-  if (!inWindow.length) return cells
+  seedBiosampleAbsentCells(cells, samples, [matrixId])
+  const members = biosamplesInMatrix(samples, matrixId)
+  if (!members.length) return cells
 
   const claimed = new Set<string>()
-  const member = new Set(inWindow)
-  const matrixIDList = matrixWindow.join(',')
-  const limit = matrixWindow.length
+  const byId = new Map(members.map((sample) => [sample.id, sample]))
+  const biosampleIDList = members.map((sample) => sample.id).join(',')
+  const limit = Math.max(members.length, 1)
 
   for (const band of EXPRESSION_BANDS) {
     if (signal?.aborted) break
-    if (claimed.size >= inWindow.length) break
-    const page = await listBiosampleMatrices(sample.id, {
+    if (claimed.size >= members.length) break
+    const page = await listMatrixBiosamples(matrixId, 0, limit, {
+      biosampleIDList,
       filters: [{ kind: 'custom', id: biosamplePercentileFilterId(band) }],
-      matrixIDList,
-      limit,
       signal,
     })
-    const hits = (page.results ?? []).filter(
-      (matrix) => matrix.matrixId && member.has(matrix.matrixId)
+    applyBiosampleColumnBandHits(
+      cells,
+      matrixId,
+      band,
+      page.results ?? [],
+      byId,
+      claimed
     )
-    applyBiosampleBandHits(cells, sample.id, band, hits, claimed)
   }
-  finalizeBiosampleUnmatched(cells, sample.id, inWindow, claimed)
+  finalizeBiosampleColumnUnmatched(cells, matrixId, members, claimed)
   return cells
 }

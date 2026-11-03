@@ -76,7 +76,6 @@ export {
 } from './filters'
 export type {
   ExpressionValueOrder,
-  ExpressionValueSort,
   MatrixAxisPageOpts,
   MatrixAxisSort,
   RelatedMatricesOpts,

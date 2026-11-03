@@ -54,7 +54,10 @@ def build_matrix_filtering_terms(
         assay = m.get("assayType") or {}
         if isinstance(assay, dict) and assay.get("id"):
             assay_terms[str(assay["id"])] = str(assay.get("label") or assay["id"])
-        for ft in m.get("featureType") or []:
+        raw_ft = m.get("featureTypes")
+        if raw_ft is None:
+            raw_ft = m.get("featureType") or []
+        for ft in raw_ft or []:
             if isinstance(ft, dict) and ft.get("id"):
                 feature_types[str(ft["id"])] = str(ft.get("label") or ft["id"])
 

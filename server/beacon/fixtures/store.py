@@ -576,7 +576,6 @@ class FixtureStore:
         expression_value_filters: Optional[Sequence[Any]] = None,
         min_value: Optional[float] = None,
         max_value: Optional[float] = None,
-        sort: Optional[str] = None,
         order: Optional[str] = None,
         skip: int = 0,
         limit: Optional[int] = None,
@@ -593,7 +592,7 @@ class FixtureStore:
         from beacon.duckdb_store import (
             MAX_PAGE_LIMIT,
             ExpressionValuesPage,
-            normalize_expression_value_sort,
+            normalize_expression_value_order,
         )
         from beacon.filters import biosample_matches, feature_doc_matches
 
@@ -673,30 +672,19 @@ class FixtureStore:
                 continue
             out.append(ev)
 
-        sort_key, order_key = normalize_expression_value_sort(sort, order)
+        order_key = normalize_expression_value_order(order)
         reverse = order_key == "desc"
 
-        if sort_key == "value":
+        def _value_sort_key(ev: Dict[str, Any]) -> Tuple[Any, ...]:
+            v = ev.get("value")
+            tie = (str(ev.get("featureId") or ""), str(ev.get("biosampleId") or ""))
+            if v is None:
+                # Match DuckDB NULLS LAST for both asc and desc.
+                return (1, 0.0) + tie
+            keyed = -float(v) if reverse else float(v)
+            return (0, keyed) + tie
 
-            def _value_sort_key(ev: Dict[str, Any]) -> Tuple[Any, ...]:
-                v = ev.get("value")
-                tie = (str(ev.get("featureId") or ""), str(ev.get("biosampleId") or ""))
-                if v is None:
-                    # Match DuckDB NULLS LAST for both asc and desc.
-                    return (1, 0.0) + tie
-                keyed = -float(v) if reverse else float(v)
-                return (0, keyed) + tie
-
-            out = sorted(out, key=_value_sort_key)
-        else:
-            out = sorted(
-                out,
-                key=lambda ev: (
-                    str(ev.get("featureId") or ""),
-                    str(ev.get("biosampleId") or ""),
-                ),
-                reverse=reverse,
-            )
+        out = sorted(out, key=_value_sort_key)
 
         total = len(out)
         limit_v = MAX_PAGE_LIMIT if limit is None else max(0, int(limit))

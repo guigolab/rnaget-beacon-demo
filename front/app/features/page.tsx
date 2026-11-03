@@ -191,8 +191,8 @@ function FeaturesLensContent() {
             querySummary={querySummary}
             previewLimit={matches.length}
             previewCount={matches.length}
-            previewTruncatedSuffix="banded heatmap via POST /features/{id}/matrices"
-            previewWhenShowing="Expression percentile bands from POST /features/{id}/matrices (expression.percentile.* · matrixIDList)"
+            previewTruncatedSuffix="banded heatmap via POST /matrices/{id}/features"
+            previewWhenShowing="Expression percentile bands from POST /matrices/{id}/features (featureIDList · expression.percentile.*)"
             noMatchesMessage="No features match these filters."
             loadErrorTitle="Could not load features"
             searchError={list.error}

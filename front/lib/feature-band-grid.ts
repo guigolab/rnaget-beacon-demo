@@ -1,4 +1,5 @@
-import type { Feature, Matrix } from '@/lib/beacon/types'
+import { listMatrixFeatures } from '@/lib/beacon/client'
+import type { Feature } from '@/lib/beacon/types'
 import {
   BAND_MATRIX_WINDOW_MAX,
   EXPRESSION_BANDS,
@@ -8,7 +9,7 @@ import {
   type BandCellValue,
   type ExpressionBand,
 } from '@/lib/expression-band'
-import { listFeatureMatrices } from '@/lib/related-matrices'
+import { featureTokens, nativeFeatureId } from '@/lib/heatmap-expression'
 
 export { bandCellKey }
 
@@ -52,71 +53,103 @@ export function seedAbsentCells(
   }
 }
 
-export function applyBandHits(
+export function featuresInMatrix(
+  features: Feature[],
+  matrixId: string
+): Feature[] {
+  return features.filter((feature) => (feature.matrixIds ?? []).includes(matrixId))
+}
+
+/** Index page features by any known token (wrapper id, native accession, aliases). */
+export function featureLookupByToken(features: Feature[]): Map<string, Feature> {
+  const byToken = new Map<string, Feature>()
+  for (const feature of features) {
+    for (const token of featureTokens(feature)) {
+      if (!byToken.has(token)) byToken.set(token, feature)
+    }
+  }
+  return byToken
+}
+
+export function applyColumnBandHits(
   cells: Map<string, FeatureBandCell>,
-  featureId: string,
+  matrixId: string,
   band: ExpressionBand,
-  matrices: Matrix[],
+  hits: Feature[],
+  byToken: Map<string, Feature>,
   claimed: Set<string>
 ): void {
-  for (const matrix of matrices) {
-    const matrixId = matrix.matrixId
-    if (!matrixId || claimed.has(matrixId)) continue
-    claimed.add(matrixId)
-    cells.set(bandCellKey(featureId, matrixId), {
-      featureId,
+  for (const hit of hits) {
+    let pageFeature: Feature | undefined
+    for (const token of featureTokens(hit)) {
+      pageFeature = byToken.get(token)
+      if (pageFeature) break
+    }
+    if (!pageFeature || claimed.has(pageFeature.id)) continue
+    claimed.add(pageFeature.id)
+    cells.set(bandCellKey(pageFeature.id, matrixId), {
+      featureId: pageFeature.id,
       matrixId,
       band,
     })
   }
 }
 
-/** Remaining in-window members with no band hit default to none. */
-export function finalizeUnmatched(
+/** Remaining in-matrix members with no band hit default to none. */
+export function finalizeColumnUnmatched(
   cells: Map<string, FeatureBandCell>,
-  featureId: string,
-  inWindow: string[],
+  matrixId: string,
+  members: Feature[],
   claimed: Set<string>
 ): void {
-  for (const matrixId of inWindow) {
-    if (claimed.has(matrixId)) continue
-    cells.set(bandCellKey(featureId, matrixId), {
-      featureId,
+  for (const feature of members) {
+    if (claimed.has(feature.id)) continue
+    cells.set(bandCellKey(feature.id, matrixId), {
+      featureId: feature.id,
       matrixId,
       band: 'none',
     })
   }
 }
 
-export async function loadFeatureBandRow(
-  feature: Feature,
-  matrixWindow: string[],
+/**
+ * Paint one matrix column for the current feature page via
+ * `POST /matrices/{id}/features` + `featureIDList` + `expression.percentile.*`.
+ */
+export async function loadFeatureBandColumn(
+  matrixId: string,
+  features: Feature[],
   signal?: AbortSignal
 ): Promise<Map<string, FeatureBandCell>> {
   const cells = new Map<string, FeatureBandCell>()
-  seedAbsentCells(cells, [feature], matrixWindow)
-  const inWindow = windowForFeature(feature, matrixWindow)
-  if (!inWindow.length) return cells
+  seedAbsentCells(cells, features, [matrixId])
+  const members = featuresInMatrix(features, matrixId)
+  if (!members.length) return cells
 
   const claimed = new Set<string>()
-  const member = new Set(inWindow)
-  const matrixIDList = matrixWindow.join(',')
-  const limit = matrixWindow.length
+  const byToken = featureLookupByToken(members)
+  const featureIDList = [
+    ...new Set(members.map((feature) => nativeFeatureId(feature))),
+  ].join(',')
+  const limit = Math.max(members.length, 1)
 
   for (const band of EXPRESSION_BANDS) {
     if (signal?.aborted) break
-    if (claimed.size >= inWindow.length) break
-    const page = await listFeatureMatrices(feature.id, {
+    if (claimed.size >= members.length) break
+    const page = await listMatrixFeatures(matrixId, 0, limit, {
+      featureIDList,
       filters: [{ kind: 'custom', id: featurePercentileFilterId(band) }],
-      matrixIDList,
-      limit,
       signal,
     })
-    const hits = (page.results ?? []).filter(
-      (matrix) => matrix.matrixId && member.has(matrix.matrixId)
+    applyColumnBandHits(
+      cells,
+      matrixId,
+      band,
+      page.results ?? [],
+      byToken,
+      claimed
     )
-    applyBandHits(cells, feature.id, band, hits, claimed)
   }
-  finalizeUnmatched(cells, feature.id, inWindow, claimed)
+  finalizeColumnUnmatched(cells, matrixId, members, claimed)
   return cells
 }

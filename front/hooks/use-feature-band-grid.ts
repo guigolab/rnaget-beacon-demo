@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { mapPool } from '@/lib/async-pool'
 import { isAbortError } from '@/lib/beacon/client'
 import type { Feature } from '@/lib/beacon/types'
-import { BAND_ROW_CONCURRENCY } from '@/lib/expression-band'
+import { BAND_COLUMN_CONCURRENCY } from '@/lib/expression-band'
 import {
   bandCellKey,
-  loadFeatureBandRow,
+  loadFeatureBandColumn,
   matrixIdsForFeatures,
   seedAbsentCells,
   type FeatureBandCell,
@@ -56,22 +56,22 @@ export function useFeatureBandGrid(features: Feature[], focusMatrix?: string | n
 
     let cancelled = false
     setError('')
-    let remaining = current.length
+    let remaining = matrixIds.length
     setPendingCount(remaining)
 
     async function run() {
-      await mapPool(current, BAND_ROW_CONCURRENCY, async (feature) => {
+      await mapPool(matrixIds, BAND_COLUMN_CONCURRENCY, async (matrixId) => {
         if (cancelled || fetchGenRef.current !== gen) return
         try {
-          const row = await loadFeatureBandRow(
-            feature,
-            matrixIds,
+          const column = await loadFeatureBandColumn(
+            matrixId,
+            current,
             controller.signal
           )
           if (cancelled || fetchGenRef.current !== gen) return
           setCells((prev) => {
             const next = new Map(prev)
-            for (const [key, cell] of row) next.set(key, cell)
+            for (const [key, cell] of column) next.set(key, cell)
             return next
           })
         } catch (err: unknown) {

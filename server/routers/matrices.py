@@ -17,12 +17,10 @@ from routers.deps import (
     AxisOrder,
     AxisSort,
     BeaconRequestBody,
-    ExpressionValueSort,
     ExpressionValuesRequestBody,
     MatrixAxisRequestBody,
     axis_order_value,
     axis_sort_value,
-    expression_value_sort_value,
     model_to_dict,
     parse_id_list_or_error,
     partial_received_for_error,
@@ -627,7 +625,6 @@ def _expression_values_handler(
             expression_value_filters=expr_filt,
             min_value=min_value,
             max_value=max_value,
-            sort=expression_value_sort_value(params.get("sort")),
             order=axis_order_value(params.get("order")),
             skip=skip_v,
             limit=page_limit,
@@ -677,9 +674,10 @@ def get_expression_values(
     filters: Optional[str] = Query(None),
     minValue: Optional[float] = Query(None),
     maxValue: Optional[float] = Query(None),
-    sort: ExpressionValueSort = Query(ExpressionValueSort.id),
     order: AxisOrder = Query(AxisOrder.asc),
     pageToken: Optional[str] = Query(None),
+    # Reject legacy ``sort`` query (removed; ordering is always by value).
+    sort: Optional[str] = Query(None, include_in_schema=False),
 ) -> Union[Dict[str, Any], JSONResponse]:
     partial = partial_received_for_error(
         skip=skip,
@@ -687,13 +685,19 @@ def get_expression_values(
         requested_granularity=requestedGranularity,
         entity_type="expressionValue",
     )
+    if sort is not None:
+        return error_json(
+            400,
+            "sort is not supported for expression_values; "
+            "results are ordered by value (use order)",
+            received=partial,
+        )
     params, perr = params_from_get(
         received=partial,
         featureIDList=featureIDList,
         biosampleIDList=biosampleIDList,
         minValue=minValue,
         maxValue=maxValue,
-        sort=expression_value_sort_value(sort),
         order=axis_order_value(order),
     )
     if perr:
@@ -729,7 +733,6 @@ def get_expression_values(
     inverted = _reject_inverted_range(params, partial)
     if inverted:
         return inverted
-    params["sort"] = expression_value_sort_value(sort)
     params["order"] = axis_order_value(order)
     merged_filters = list(feature_filt or []) + list(bio_filt or []) + list(expr_filt or [])
     extra = {**params_summary(params), **(filters_summary(merged_filters) or {})}
@@ -786,7 +789,13 @@ def post_expression_values(
     inverted = _reject_inverted_range(params, partial)
     if inverted:
         return inverted
-    params["sort"] = expression_value_sort_value(params.get("sort"))
+    if "sort" in params:
+        return error_json(
+            400,
+            "requestParameters.sort is not supported for expression_values; "
+            "results are ordered by value (use order)",
+            received=partial,
+        )
     params["order"] = axis_order_value(params.get("order"))
     merged_filters = list(feature_filt or []) + list(bio_filt or []) + list(expr_filt or [])
     extra = {**params_summary(params), **(filters_summary(merged_filters) or {})}

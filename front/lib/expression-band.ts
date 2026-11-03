@@ -27,7 +27,10 @@ export type ExpressionBand = (typeof EXPRESSION_BANDS)[number]
 export type BandCellValue = ExpressionBand | 'absent'
 
 export const BAND_MATRIX_WINDOW_MAX = 24
-export const BAND_ROW_CONCURRENCY = 3
+/** Concurrent matrix-column fetches for band heatmaps. */
+export const BAND_COLUMN_CONCURRENCY = 3
+/** @deprecated Prefer BAND_COLUMN_CONCURRENCY (column-major band grids). */
+export const BAND_ROW_CONCURRENCY = BAND_COLUMN_CONCURRENCY
 
 /** Feature→matrices custom filter id for a percentile band. */
 export function featurePercentileFilterId(band: ExpressionBand): string {

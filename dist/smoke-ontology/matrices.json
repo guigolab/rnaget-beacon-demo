@@ -8,7 +8,7 @@
       "unit": "TPM",
       "scale": "linear"
     },
-    "featureType": [
+    "featureTypes": [
       {
         "id": "SO:0000704",
         "label": "gene"
@@ -88,7 +88,7 @@
       "unit": "TPM",
       "scale": "linear"
     },
-    "featureType": [
+    "featureTypes": [
       {
         "id": "SO:0000704",
         "label": "gene"
@@ -173,7 +173,7 @@
       "unit": "TPM",
       "scale": "linear"
     },
-    "featureType": [
+    "featureTypes": [
       {
         "id": "SO:0000704",
         "label": "gene"
@@ -253,7 +253,7 @@
       "unit": "TPM",
       "scale": "linear"
     },
-    "featureType": [
+    "featureTypes": [
       {
         "id": "SO:0000704",
         "label": "gene"
@@ -333,7 +333,7 @@
       "unit": "TPM",
       "scale": "linear"
     },
-    "featureType": [
+    "featureTypes": [
       {
         "id": "SO:0000704",
         "label": "gene"
@@ -415,7 +415,7 @@
       "unit": "TPM",
       "scale": "linear"
     },
-    "featureType": [
+    "featureTypes": [
       {
         "id": "SO:0000704",
         "label": "gene"

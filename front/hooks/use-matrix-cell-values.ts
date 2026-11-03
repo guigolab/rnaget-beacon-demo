@@ -68,7 +68,6 @@ async function fetchWindowRequest(
     minValue,
     maxValue,
     filters,
-    sort: 'value',
     order: 'desc',
     signal,
   })) {

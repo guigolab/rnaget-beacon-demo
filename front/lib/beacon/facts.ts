@@ -235,7 +235,7 @@ export function biosampleFacts(
 }
 
 function featureTypeText(matrix: Matrix): string | undefined {
-  const value = matrix.featureType
+  const value = matrix.featureTypes ?? matrix.featureType
   if (!value) return undefined
   const terms = Array.isArray(value) ? value : [value]
   return join(terms.map((term) => termText(term)))

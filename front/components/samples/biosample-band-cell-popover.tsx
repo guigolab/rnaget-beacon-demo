@@ -44,7 +44,6 @@ export function BiosampleBandCellPopover({
     setError('')
     listExpressionValues(matrixId, {
       biosampleIDList: sample.id,
-      sort: 'value',
       order: 'desc',
       limit: 5,
       signal: controller.signal,

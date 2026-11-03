@@ -241,6 +241,12 @@ def main(argv: List[str] | None = None) -> int:
             if not isinstance(evr, dict) or "min" not in evr or "max" not in evr:
                 errors.append(f"{mid}: matrices.json missing expressionValueRange.min/max")
 
+            ftypes = doc.get("featureTypes")
+            if "featureType" in doc and "featureTypes" not in doc:
+                errors.append(f"{mid}: matrices.json still uses singular featureType")
+            elif not isinstance(ftypes, list) or not ftypes:
+                errors.append(f"{mid}: matrices.json missing non-empty featureTypes")
+
             # features.parquet genomic coords (after hydrate)
             feat_path = matrix_dir / "features.parquet"
             if feat_path.is_file():
@@ -248,6 +254,28 @@ def main(argv: List[str] | None = None) -> int:
 
                 feat = pq.read_table(feat_path)
                 feat_cols = set(feat.column_names)
+                if (
+                    isinstance(ftypes, list)
+                    and ftypes
+                    and "feature_type_id" in feat_cols
+                    and feat.num_rows > 0
+                ):
+                    declared = {
+                        str(t.get("id"))
+                        for t in ftypes
+                        if isinstance(t, dict) and t.get("id")
+                    }
+                    present = {
+                        str(x)
+                        for x in feat.column("feature_type_id").to_pylist()
+                        if x
+                    }
+                    missing = sorted(present - declared)
+                    if missing:
+                        errors.append(
+                            f"{mid}: featureTypes missing SO ids present in "
+                            f"features.parquet: {missing}"
+                        )
                 for col in ("chrom", "start", "end", "strand"):
                     if col not in feat_cols:
                         errors.append(f"{mid}: features.parquet missing {col}")

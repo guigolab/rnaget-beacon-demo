@@ -17,7 +17,7 @@ type MatrixPopoverDetailsProps = {
 }
 
 function matrixFeatureTypes(matrix: Matrix): OntologyTerm[] {
-  const raw = matrix.featureType
+  const raw = matrix.featureTypes ?? matrix.featureType
   if (!raw) return []
   return Array.isArray(raw) ? raw : [raw]
 }

@@ -783,7 +783,9 @@ def matrix_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> 
     for f in filters:
         if f.kind == "ontology":
             assay = doc.get("assayType") or {}
-            ft = doc.get("featureType") or []
+            ft = doc.get("featureTypes")
+            if ft is None:
+                ft = doc.get("featureType") or []
             ids = set()
             if isinstance(assay, dict) and assay.get("id"):
                 ids.add(str(assay["id"]))

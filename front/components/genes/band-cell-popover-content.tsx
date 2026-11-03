@@ -43,7 +43,6 @@ export function BandCellPopoverContent({
     setError('')
     listExpressionValues(matrixId, {
       featureIDList: nativeFeatureId(feature),
-      sort: 'value',
       order: 'desc',
       limit: 5,
       signal: controller.signal,

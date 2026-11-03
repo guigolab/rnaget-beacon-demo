@@ -162,6 +162,8 @@ export type Matrix = {
   assembly?: { name?: string; accession?: string }
   dimensions?: { features?: number; biosamples?: number }
   assayType?: OntologyTerm
+  featureTypes?: OntologyTerm[]
+  /** @deprecated Prefer featureTypes */
   featureType?: OntologyTerm | OntologyTerm[]
   annotation?: { source?: string; version?: string; file?: string }
   downloadUrl?: string

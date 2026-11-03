@@ -74,7 +74,10 @@ def _matrix_feature_type_ids(matrix: Optional[Dict[str, Any]]) -> Set[str]:
     ids: Set[str] = set()
     if not matrix:
         return ids
-    for ft in matrix.get("featureType") or []:
+    raw = matrix.get("featureTypes")
+    if raw is None:
+        raw = matrix.get("featureType") or []
+    for ft in raw or []:
         if isinstance(ft, dict) and ft.get("id"):
             ids.add(str(ft["id"]))
     return ids

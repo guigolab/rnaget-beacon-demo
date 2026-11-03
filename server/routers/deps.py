@@ -41,16 +41,6 @@ class AxisSort(str, Enum):
     expression_max = "expression.max"
 
 
-class ExpressionValueSort(str, Enum):
-    """Sort key for /matrices/{id}/expression_values.
-
-    ``id`` (feature_id, biosample_id; default) or ``value`` (the cell value).
-    """
-
-    id = "id"
-    value = "value"
-
-
 class AxisOrder(str, Enum):
     asc = "asc"
     desc = "desc"
@@ -112,17 +102,6 @@ def axis_sort_value(sort: Union[AxisSort, str, None]) -> str:
     if sort is None:
         return AxisSort.id.value
     if isinstance(sort, AxisSort):
-        return sort.value
-    return str(sort)
-
-
-def expression_value_sort_value(
-    sort: Union[ExpressionValueSort, str, None],
-) -> str:
-    """Expression values sort by ``id`` (default) or ``value``."""
-    if sort is None:
-        return ExpressionValueSort.id.value
-    if isinstance(sort, ExpressionValueSort):
         return sort.value
     return str(sort)
 

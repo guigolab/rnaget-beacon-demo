@@ -59,8 +59,6 @@ BIOSAMPLE_HYDRATE_COLS: Tuple[str, ...] = (
 )
 
 AXIS_SORT_VALUES = frozenset({"id", "expression.min", "expression.max"})
-# ``id`` (feature_id, biosample_id) is the default; ``value`` sorts by the cell value.
-EXPRESSION_VALUE_SORT_VALUES = frozenset({"id", "value"})
 AXIS_ORDER_VALUES = frozenset({"asc", "desc"})
 
 
@@ -142,19 +140,12 @@ def normalize_axis_sort(
     return s, o
 
 
-def normalize_expression_value_sort(
-    sort: Optional[str] = None, order: Optional[str] = None
-) -> Tuple[str, str]:
-    """Expression values sort by ``id`` (feature_id, biosample_id; default) or
-    ``value`` (the cell value); ``order`` controls direction either way.
-    """
-    s = (sort or "id").strip()
+def normalize_expression_value_order(order: Optional[str] = None) -> str:
+    """Expression values are always ordered by cell value; ``order`` is direction."""
     o = (order or "asc").strip().lower()
-    if s not in EXPRESSION_VALUE_SORT_VALUES:
-        s = "id"
     if o not in AXIS_ORDER_VALUES:
         o = "asc"
-    return s, o
+    return o
 
 
 def degrade_axis_sort_if_no_stats(
@@ -3235,28 +3226,20 @@ class DuckDBStore:
         return resolved
 
     @staticmethod
-    def _expression_values_order_by(
-        sort_key: str, *, value_asc: bool, ties_asc: bool
-    ) -> str:
+    def _expression_values_order_by(*, value_asc: bool, ties_asc: bool) -> str:
         """Build ORDER BY for expression_values.
 
-        Display order for ``sort=value`` is always
+        Display order is always
         ``value {asc|desc} NULLS LAST, feature_id ASC, biosample_id ASC``.
         Reverse (previousPage) fetches invert *both* the value direction and
         the tie-breakers so LIMIT returns the prior page under ties.
         """
         value_sql = "ASC" if value_asc else "DESC"
         tie_sql = "ASC" if ties_asc else "DESC"
-        if sort_key == "value":
-            return (
-                f"value {value_sql} NULLS LAST, "
-                f"CAST(feature_id AS VARCHAR) {tie_sql}, "
-                f"CAST(biosample_id AS VARCHAR) {tie_sql}"
-            )
-        # id sort: both columns share the same direction.
         return (
-            f"CAST(feature_id AS VARCHAR) {value_sql}, "
-            f"CAST(biosample_id AS VARCHAR) {value_sql}"
+            f"value {value_sql} NULLS LAST, "
+            f"CAST(feature_id AS VARCHAR) {tie_sql}, "
+            f"CAST(biosample_id AS VARCHAR) {tie_sql}"
         )
 
     def expression_values_for_matrix(
@@ -3270,7 +3253,6 @@ class DuckDBStore:
         expression_value_filters: Optional[Sequence[Any]] = None,
         min_value: Optional[float] = None,
         max_value: Optional[float] = None,
-        sort: Optional[str] = None,
         order: Optional[str] = None,
         skip: int = 0,
         limit: Optional[int] = None,
@@ -3278,11 +3260,10 @@ class DuckDBStore:
     ) -> ExpressionValuesPage:
         """Return a page of expression cells with filters pushed into DuckDB.
 
-        Default order is ``feature_id ASC, biosample_id ASC``; ``sort="value"``
-        orders by the cell value instead (``order`` controls direction either
-        way). No caps are applied based on ID-list shape and there is no
-        combined-rank ordering: both are intersections / independent AND
-        filters now. ``page_token`` (opaque, from a previous response's
+        Results are ordered by cell value (``order`` controls direction). No
+        caps are applied based on ID-list shape and there is no combined-rank
+        ordering: both are intersections / independent AND filters now.
+        ``page_token`` (opaque, from a previous response's
         ``nextPage``/``previousPage``) takes precedence over ``skip`` for
         keyset pagination.
         """
@@ -3378,7 +3359,7 @@ class DuckDBStore:
                 raise ValueError(f"unhandled expression value filter: {f.id}")
 
         where_sql = " AND ".join(where)
-        sort_key, order_key = normalize_expression_value_sort(sort, order)
+        order_key = normalize_expression_value_order(order)
         display_asc = order_key == "asc"
 
         filter_hash = compute_filter_hash(
@@ -3389,7 +3370,7 @@ class DuckDBStore:
             min_value,
             max_value,
             [(f.id, f.operator, f.value) for f in (expression_value_filters or [])],
-            sort_key,
+            "value",
             order_key,
         )
 
@@ -3401,14 +3382,10 @@ class DuckDBStore:
             )
 
         forward = token_payload is None or token_payload.get("dir") != "prev"
-        # Display order for value-sort keeps ASC ties; reverse fetch inverts
-        # value direction *and* ties so LIMIT walks the prior page correctly.
-        if sort_key == "value":
-            value_asc = display_asc if forward else (not display_asc)
-            ties_asc = forward
-        else:
-            value_asc = display_asc if forward else (not display_asc)
-            ties_asc = value_asc
+        # Display order keeps ASC ties; reverse fetch inverts value direction
+        # *and* ties so LIMIT walks the prior page correctly.
+        value_asc = display_asc if forward else (not display_asc)
+        ties_asc = forward
         value_cmp = ">" if value_asc else "<"
         tie_cmp = ">" if ties_asc else "<"
 
@@ -3418,31 +3395,24 @@ class DuckDBStore:
             tf = token_payload.get("f")
             tb = token_payload.get("b")
             tv = token_payload.get("v")
-            if sort_key == "value":
-                if tv is None:
-                    keyset_sql = (
-                        "(value IS NULL AND "
-                        "(CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR)) "
-                        f"{tie_cmp} (?, ?))"
-                    )
-                    keyset_params = [tf, tb]
-                else:
-                    # NULLS LAST: only include the null tail when walking
-                    # forward. Previous-page reverse fetch must not jump to
-                    # nulls ahead of earlier non-null rows.
-                    null_tail = " OR value IS NULL" if forward else ""
-                    keyset_sql = (
-                        f"(value {value_cmp} ? OR (value = ? AND "
-                        "(CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR)) "
-                        f"{tie_cmp} (?, ?)){null_tail})"
-                    )
-                    keyset_params = [tv, tv, tf, tb]
-            else:
+            if tv is None:
                 keyset_sql = (
+                    "(value IS NULL AND "
                     "(CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR)) "
-                    f"{value_cmp} (?, ?)"
+                    f"{tie_cmp} (?, ?))"
                 )
                 keyset_params = [tf, tb]
+            else:
+                # NULLS LAST: only include the null tail when walking
+                # forward. Previous-page reverse fetch must not jump to
+                # nulls ahead of earlier non-null rows.
+                null_tail = " OR value IS NULL" if forward else ""
+                keyset_sql = (
+                    f"(value {value_cmp} ? OR (value = ? AND "
+                    "(CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR)) "
+                    f"{tie_cmp} (?, ?)){null_tail})"
+                )
+                keyset_params = [tv, tv, tf, tb]
 
         limit = MAX_PAGE_LIMIT if limit is None else max(0, min(int(limit), MAX_PAGE_LIMIT))
 
@@ -3460,7 +3430,7 @@ class DuckDBStore:
 
         skip_v = 0 if token_payload is not None else max(0, min(int(skip), MAX_SKIP))
         order_by_sql = self._expression_values_order_by(
-            sort_key, value_asc=value_asc, ties_asc=ties_asc
+            value_asc=value_asc, ties_asc=ties_asc
         )
         page_sql = f"""
             SELECT CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR), value
@@ -3497,7 +3467,7 @@ class DuckDBStore:
                     "v": row["value"],
                     "dir": direction,
                     "ord": order_key,
-                    "sort": sort_key,
+                    "sort": "value",
                     "fh": filter_hash,
                 }
             )

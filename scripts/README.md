@@ -167,7 +167,8 @@ Curated biosample maps: `scripts/data/geo_biosample_status.json`, `scripts/data/
 
 Runs after export. Streams each matrix’s annotation GTF/GFF and keeps **only genes that appear in that matrix’s `features.parquet`**.
 
-- **`featureType`**: Sequence Ontology term for GFF/GTF **column 3** (`gene` → `SO:0000704`, `pseudogene` → `SO:0000336`, …) via [`scripts/data/gff_type_to_so.json`](data/gff_type_to_so.json) + cached `so.obo`.
+- **`featureType`** (per genomic feature): Sequence Ontology term for GFF/GTF **column 3** (`gene` → `SO:0000704`, `pseudogene` → `SO:0000336`, …) via [`scripts/data/gff_type_to_so.json`](data/gff_type_to_so.json) + cached `so.obo`.
+- **`featureTypes`** (per matrix): distinct SO classes present among that matrix's features (seeded from profile `feature_types`, then synced after hydrate by `sync_matrix_feature_types.py`).
 - **`ontologyTerms`**: SO terms for `gene_type` / `gene_biotype` ([`scripts/data/biotype_to_so.json`](data/biotype_to_so.json)) plus any GFF `Ontology_term` attributes — never written into `featureType`.
 - **`xrefs`**: normalized `Dbxref` CURIEs (`NCBIGene`, `HGNC`, `MIM`, …). GENCODE rows are further enriched from `Homo_sapiens.gene_info.gz` when the gene **symbol uniquely** matches a primary NCBI Symbol (ambiguous symbols are skipped).
 - **`genomicInterval` coords**: copies `chrom` / `start` / `end` / `strand` onto `features.parquet`. The API maps primary GRCh38 contigs to `refseq:NC_…` ([`server/beacon/data/grch38_contig_to_refseq.json`](../server/beacon/data/grch38_contig_to_refseq.json)) and emits VRS `SequenceLocation` (GFF 1-based inclusive → 0-based interbase). Unmapped contigs omit the interval. Gene `relationship` is not populated.

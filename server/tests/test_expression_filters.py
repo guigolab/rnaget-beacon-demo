@@ -102,17 +102,18 @@ class ExpressionFiltersFixtureTest(unittest.TestCase):
         r = self.client.get("/biosamples/sample-example-0001/matrices")
         self.assertEqual(r.status_code, 200, r.text)
 
-    def test_expression_values_id_sort_default(self) -> None:
+    def test_expression_values_default_orders_by_value(self) -> None:
         r = self.client.get(
             "/matrices/matrix-gene-expression-001/expression_values",
             params={"limit": 50},
         )
         self.assertEqual(r.status_code, 200, r.text)
         rp = r.json()["meta"]["receivedRequestSummary"]["requestParameters"]
-        self.assertEqual(rp["sort"], "id")
+        self.assertNotIn("sort", rp)
+        self.assertEqual(rp.get("order"), "asc")
         rows = r.json()["response"]["resultSets"][0]["results"]
-        ids = [(row["featureId"], row["biosampleId"]) for row in rows]
-        self.assertEqual(ids, sorted(ids))
+        values = [row["value"] for row in rows]
+        self.assertEqual(values, sorted(values, key=lambda v: (v is None, v)))
 
     def test_expression_values_percentile_filter_empty_without_percentiles(
         self,
@@ -341,7 +342,7 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
             self.assertGreaterEqual(row["value"], 10)
 
     def test_expression_values_value_sort_prev_with_ties(self) -> None:
-        """previousPage under sort=value must survive equal cell values."""
+        """previousPage under value order must survive equal cell values."""
         # Prefer a matrix known to have many exact-zero ties.
         matrix_id = "ENCSR622FSM"
         if not (DEMO_PACKAGE / "matrices" / matrix_id / "expression.parquet").is_file():
@@ -349,7 +350,7 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
 
         page1 = self.client.get(
             f"/matrices/{matrix_id}/expression_values",
-            params={"sort": "value", "order": "asc", "maxValue": 0, "limit": 2},
+            params={"order": "asc", "maxValue": 0, "limit": 2},
         )
         self.assertEqual(page1.status_code, 200, page1.text)
         body1 = page1.json()
@@ -366,7 +367,6 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         page2 = self.client.get(
             f"/matrices/{matrix_id}/expression_values",
             params={
-                "sort": "value",
                 "order": "asc",
                 "maxValue": 0,
                 "limit": 2,
@@ -388,7 +388,6 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         back = self.client.get(
             f"/matrices/{matrix_id}/expression_values",
             params={
-                "sort": "value",
                 "order": "asc",
                 "maxValue": 0,
                 "limit": 2,

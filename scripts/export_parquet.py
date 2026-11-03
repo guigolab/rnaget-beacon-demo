@@ -349,11 +349,17 @@ def normalize_matrix_document(
     eus.setdefault("scale", profile.get("scale") or "linear")
     doc["expressionUnitAndScale"] = eus
 
-    ft = doc.get("featureType")
+    # Prefer plural key; migrate legacy singular if still present on older docs.
+    ft = doc.get("featureTypes")
+    if ft is None and "featureType" in doc:
+        ft = doc.pop("featureType")
     if isinstance(ft, dict):
-        doc["featureType"] = [ft]
-    elif not isinstance(ft, list) or not ft:
-        raise ValueError(f"matrix {matrix_id}: featureType must be a non-empty array")
+        doc["featureTypes"] = [ft]
+    elif isinstance(ft, list) and ft:
+        doc["featureTypes"] = ft
+    else:
+        raise ValueError(f"matrix {matrix_id}: featureTypes must be a non-empty array")
+    doc.pop("featureType", None)
 
     info = dict(doc.get("info") or {})
     profile_source = profile.get("source")

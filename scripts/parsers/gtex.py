@@ -11,6 +11,8 @@ from .base import (
     NormalizedMatrix,
     _open_text,
     _slug,
+    profile_feature_types,
+    profile_primary_feature_type,
     profile_source,
     register_parser,
     resolve_source_file,
@@ -122,10 +124,8 @@ def parse_gtex_gct(
     prefix = profile.get("feature_id_prefix") or "ENSG"
     annotation = profile.get("annotation") or {"source": "gencode", "version": "v26"}
     resource = annotation.get("source") or "gencode"
-    feature_type = profile.get("feature_type") or {
-        "id": "SO:0000704",
-        "label": "gene",
-    }
+    feature_types = profile_feature_types(profile)
+    feature_type = profile_primary_feature_type(profile)
     tissue = profile.get("tissue") or {}
 
     features: List[Dict[str, Any]] = []
@@ -216,7 +216,7 @@ def parse_gtex_gct(
         "description": profile.get("description") or "",
         "downloadUrl": download_url,
         "expressionUnitAndScale": {"unit": unit, "scale": scale},
-        "featureType": [feature_type],
+        "featureTypes": feature_types,
         "annotation": annotation,
         "assembly": assembly,
         "assayType": assay_type,

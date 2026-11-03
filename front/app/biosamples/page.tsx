@@ -145,8 +145,8 @@ function BiosamplesLensContent() {
             querySummary={querySummary}
             previewLimit={list.items.length}
             previewCount={list.items.length}
-            previewTruncatedSuffix="banded heatmap via POST /biosamples/{id}/matrices"
-            previewWhenShowing="Detected-genes percentile bands from POST /biosamples/{id}/matrices (expression.detectedGenesPercentile.* · matrixIDList)"
+            previewTruncatedSuffix="banded heatmap via POST /matrices/{id}/biosamples"
+            previewWhenShowing="Detected-genes percentile bands from POST /matrices/{id}/biosamples (biosampleIDList · expression.detectedGenesPercentile.*)"
             noMatchesMessage="No biosamples match these filters."
             loadErrorTitle="Could not load biosamples"
             searchError={list.error}

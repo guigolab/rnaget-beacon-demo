@@ -394,7 +394,6 @@ export function listMatrixBiosamples(
   )
 }
 
-export type ExpressionValueSort = 'value'
 export type ExpressionValueOrder = 'asc' | 'desc'
 
 export type RelatedMatricesOpts = {
@@ -460,8 +459,7 @@ export function listExpressionValues(
     biosampleIDList?: string
     minValue?: number
     maxValue?: number
-    /** Beacon expression_values sort key — only ``value`` is supported. */
-    sort?: ExpressionValueSort
+    /** Sort direction for cell quantification (always by value). */
     order?: ExpressionValueOrder
     filters?: UiFilter[]
     granularity?: Granularity
@@ -478,12 +476,12 @@ export function listExpressionValues(
   })
   const hasIdList = Boolean(params.featureIDList || params.biosampleIDList)
   const hasRange = params.minValue != null || params.maxValue != null
-  const hasSort = Boolean(params.sort || params.order)
+  const hasOrder = Boolean(params.order)
   const post =
     needsPost(filters) ||
     hasIdList ||
     hasRange ||
-    hasSort ||
+    hasOrder ||
     Boolean(params.pageToken?.trim())
   return queryCollection<ExpressionValue>(
     `/matrices/${encodeURIComponent(matrixId)}/expression_values`,
@@ -501,13 +499,11 @@ export function listExpressionValues(
               biosampleIDList: params.biosampleIDList,
               minValue: params.minValue,
               maxValue: params.maxValue,
-              sort: params.sort,
               order: params.order,
             },
           }
         : {
             search: {
-              sort: params.sort,
               order: params.order,
             },
           }),
@@ -527,7 +523,6 @@ export async function* iterateExpressionValues(
     biosampleIDList?: string
     minValue?: number
     maxValue?: number
-    sort?: ExpressionValueSort
     order?: ExpressionValueOrder
     filters?: UiFilter[]
     granularity?: Granularity

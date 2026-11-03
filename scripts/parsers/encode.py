@@ -10,6 +10,8 @@ from .base import (
     NormalizedMatrix,
     _open_text,
     _slug,
+    profile_feature_types,
+    profile_primary_feature_type,
     profile_source,
     register_parser,
     resolve_source_file,
@@ -148,10 +150,8 @@ def parse_encode_gene_quantifications(
     prefix = profile.get("feature_id_prefix") or "ENSG"
     annotation = profile.get("annotation") or {"source": "gencode", "version": "unknown"}
     resource = annotation.get("source") or "gencode"
-    feature_type = profile.get("feature_type") or {
-        "id": "SO:0000704",
-        "label": "gene",
-    }
+    feature_types = profile_feature_types(profile)
+    feature_type = profile_primary_feature_type(profile)
 
     features_by_id: Dict[str, Dict[str, Any]] = {}
     feature_order: List[str] = []
@@ -253,7 +253,7 @@ def parse_encode_gene_quantifications(
         "downloadUrl": first_download_url
         or f"https://www.encodeproject.org/experiments/{matrix_id}/",
         "expressionUnitAndScale": {"unit": unit, "scale": scale},
-        "featureType": [feature_type],
+        "featureTypes": feature_types,
         "annotation": annotation,
         "assembly": assembly,
         "assayType": assay_type,

@@ -253,7 +253,10 @@ def _biosample_facets_from_parquet(
 
 def _matrix_feature_type_ids(matrix_entry: Dict[str, Any]) -> Set[str]:
     ids: Set[str] = set()
-    for ft in matrix_entry.get("featureType") or []:
+    raw = matrix_entry.get("featureTypes")
+    if raw is None:
+        raw = matrix_entry.get("featureType") or []
+    for ft in raw or []:
         if isinstance(ft, dict) and ft.get("id"):
             ids.add(str(ft["id"]))
     return ids
@@ -297,7 +300,8 @@ def _build_one_matrix_doc(
     bio_path = matrix_dir / "biosamples.parquet"
 
     feat_present, has_features = _feature_present_from_parquet(feat_path)
-    feat_present |= _matrix_feature_type_ids(entry)
+    matrix_doc = (matrices_by_id or {}).get(matrix_id) or entry
+    feat_present |= _matrix_feature_type_ids(matrix_doc)
     feat_terms, feat_resources = _subset_terms(
         global_terms,
         global_resources,
