@@ -126,16 +126,17 @@ jobs:
         run: python scripts/build_feature_indexes.py --package dist/data-package
 
       - name: Build expression stats
-        # Extended feature/biosample stats (bands, profiles, detection).
+        # Ship feature/biosample stats in the release (bands, profiles, detection).
+        # fetch_data_package.py reuses them unless missing or --force-stats.
         # Percentile parquet files are intentionally NOT built here — they roughly
-        # double package size and would blow the 2 GiB GitHub Release asset limit.
-        # scripts/fetch_data_package.py builds them after download/merge.
+        # double package size and would blow the 2 GiB GitHub Release asset limit;
+        # fetch builds those after download/merge.
         run: python scripts/build_expression_stats.py --package dist/data-package
 
       - name: Build filtering_terms catalogs
-        # Same entrypoint as fetch_data_package post-process; avoid re-merge/stats.
-        # Root catalogs include categorical expression.* terms; per-matrix catalogs
-        # add continuous expression.* fields (percentile terms appear only after fetch).
+        # Base catalogs shipped in the tarball (categorical + continuous expression.*
+        # from stats). fetch_data_package.py rebuilds after percentiles so
+        # expression.percentileIn* terms appear locally.
         run: python scripts/build_matrix_filtering_terms.py --with-root --package dist/data-package
 
       - name: Disk usage after hydrate

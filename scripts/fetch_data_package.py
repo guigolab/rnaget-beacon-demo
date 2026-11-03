@@ -54,6 +54,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Replace a non-empty --out directory (required if --out already exists)",
     )
+    p.add_argument(
+        "--force-stats",
+        action="store_true",
+        help=(
+            "Rebuild feature/biosample expression stats even when the release "
+            "already shipped them"
+        ),
+    )
     return p
 
 
@@ -239,6 +247,27 @@ def _parquet_num_rows(path: Path) -> int:
     return int(meta.num_rows) if meta is not None else 0
 
 
+def package_has_expression_stats(package: Path) -> bool:
+    """True when every manifest matrix has both shipped expression stats files."""
+    manifest_path = package / "manifest.json"
+    if not manifest_path.is_file():
+        return False
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    matrices = manifest.get("matrices") or []
+    if not matrices:
+        return False
+    for entry in matrices:
+        dirname = entry.get("dir")
+        if not dirname:
+            return False
+        matrix_dir = package / "matrices" / str(dirname)
+        if not (matrix_dir / "feature_expression_stats.parquet").is_file():
+            return False
+        if not (matrix_dir / "biosample_expression_stats.parquet").is_file():
+            return False
+    return True
+
+
 def _print_summary(package: Path) -> None:
     manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
     print("\nPackage summary")
@@ -279,15 +308,25 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     print("Merging expression shards…")
     merge_package(out, keep_shards=args.keep_shards)
-    print("Building expression stats…")
-    from build_expression_stats import build_package as build_stats
 
-    build_stats(out)
+    # GHA ships expression stats; reuse them unless missing or --force-stats.
+    if args.force_stats or not package_has_expression_stats(out):
+        if args.force_stats:
+            print("Building expression stats… (--force-stats)")
+        else:
+            print("Building expression stats… (not present in package)")
+        from build_expression_stats import build_package as build_stats
+
+        build_stats(out)
+    else:
+        print("Reusing shipped expression stats")
+
     # Percentiles are fetch-time only (too large for the 2 GiB release asset).
     print("Building expression percentiles…")
     from build_expression_percentiles import build_package as build_percentiles
 
     build_percentiles(out)
+    # Rebuild so expression.percentileIn* terms appear after percentile files exist.
     print("Building filtering_terms catalogs…")
     from build_matrix_filtering_terms import build_all_filtering_terms
 

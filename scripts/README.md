@@ -159,7 +159,7 @@ Runs **after** `build_feature_indexes`. Writes a small Beacon-shaped `filtering_
 - **Fields:** alphanumeric `genomicFeature.symbol`, `sex` (not every symbol value)
 - **Resources:** `so`, `uberon`, `efo`, plus `hgnc` / `ncbigene` / `ensembl` namespaces — **never** one filteringTerm per HGNC/NCBIGene
 
-CI order: `export_parquet` → `hydrate_genes` → **`enrich_gene_annotations`** → **`build_feature_indexes`** → **`build_filtering_terms`** → `build_expression_stats` → `verify`.
+CI order: `export_parquet` → `hydrate_genes` → `sync_matrix_feature_types` → **`enrich_gene_annotations`** → **`build_feature_indexes`** → `build_expression_stats` → **`build_matrix_filtering_terms`** → `verify`.
 
 Curated biosample maps: `scripts/data/geo_biosample_status.json`, `scripts/data/biosample_measurements.json` (plus existing `geo_biosample_ontology.json`).
 
@@ -194,12 +194,12 @@ Workflow: [`.github/workflows/build-data-package.yml`](../.github/workflows/buil
 - Uploads `data-package.tar.zst` as an Actions artifact
 - With `create_release=true`, attaches the tarball to tag `data-latest` (or your tag)
 
-**CI ships expression shards** (`expression/part-*.parquet`). Before mounting for the API, run fetch (download → extract → merge → expression stats). See [docs/data-package-gha.md](../docs/data-package-gha.md) for disk budget (~3× package during extract/merge) and fail-fast notes.
+**CI ships expression shards** (`expression/part-*.parquet`) plus **expression stats** and base filtering_terms (no percentiles). Before mounting for the API, run fetch: download → extract → merge → reuse shipped stats (or rebuild with `--force-stats`) → percentiles → rebuild filtering_terms. See [docs/data-package-gha.md](../docs/data-package-gha.md) for disk budget (~3× package during extract/merge) and fail-fast notes.
 
 On the API host:
 
 ```bash
-# Preferred: download, safe extract, merge shards, build stats
+# Preferred: download, safe extract, merge, reuse stats, percentiles, filtering_terms
 python3 scripts/fetch_data_package.py --out /data/rnaget-demo --force
 
 export DATA_PACKAGE_PATH=/data/rnaget-demo

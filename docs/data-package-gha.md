@@ -51,7 +51,7 @@ A full GTEx-inclusive build can take a long time (the job is allowed up to six h
 ```text
 Checkout → Disk check → Python + caches → Build matrices
        → Hydrate genes → Enrich gene xrefs/GO → Feature/biosample indexes
-       → Filtering terms catalog → Expression stats → Verify → Pack archive
+       → Expression stats → Filtering terms catalog → Verify → Pack archive
        → Upload artifact → (optional) GitHub Release
 ```
 
@@ -106,18 +106,18 @@ For each matrix the log prints how many unique feature IDs matched the annotatio
 
 Biosample rows are enriched during export with `biosampleStatus`, `phenotypicFeatures`, `sampleProcessing`, `collectionDate`, and GTEx **measurements** (RIN as `NCIT:C63637`) using curated maps under `scripts/data/`.
 
-### 7. Build expression stats
+### 7. Build expression stats (shipped in the release)
 
-`scripts/build_expression_stats.py` scans each matrix’s expression Parquet and writes:
+`scripts/build_expression_stats.py` scans each matrix’s expression Parquet (shards are fine) and writes:
 
 | File | Role |
 |------|------|
 | **feature_expression_stats.parquet** | Per-gene min/max/mean/median, detection counts, expression percentile `band` (quintiles + none) / `profile` / `enriched_in`, and argmin/argmax biosample ids |
 | **biosample_expression_stats.parquet** | Per-sample min/max, `detected_genes`, `detected_genes_band` (same quintile labels), and argmin/argmax feature ids |
 
-It also sets `expressionValueRange` on each matrix in `matrices.json`. The API uses these tables for `sort=expression.max|expression.min` on nested feature/biosample lists and for expression.* filtering terms.
+It also sets `expressionValueRange` on each matrix in `matrices.json`. These stats are **included in the release tarball**. `fetch_data_package.py` reuses them by default (pass `--force-stats` to rebuild).
 
-**Percentiles (fetch-time only):** `scripts/fetch_data_package.py` also runs `build_expression_percentiles.py`, which writes `percentile_in_feature.parquet` and `percentile_in_biosample.parquet` per matrix. Those files are omitted from the CI release tarball (size), and filtering_terms for `expression.percentileIn*` appear only after fetch.
+**Percentiles (fetch-time only):** omitted from CI because they roughly double package size (2 GiB Release limit). After extract/merge, fetch runs `build_expression_percentiles.py`, then rebuilds filtering_terms so `expression.percentileIn*` terms appear.
 
 ### 8. Disk usage log
 
@@ -164,7 +164,7 @@ data-package/
         …
 ```
 
-**Expression stats:** after hydrate (and after merge when using `fetch_data_package.py`), `scripts/build_expression_stats.py` writes the two stats Parquet files and sets `expressionValueRange` on each matrix in `matrices.json`. The API uses those tables for `sort=expression.max|expression.min` on nested feature/biosample lists.
+**Expression stats:** written on GHA and shipped in the release. Fetch reuses them unless missing or `--force-stats`. The API uses those tables for nested feature/biosample expression filters and related sorts.
 
 **Intended use of the gene tables:** look up a gene name or cross-reference in `gene_lookup`, get the native feature IDs, then join to expression for the matrices you care about. That supports future “search by gene symbol” APIs without re-parsing GTF/GFF at query time.
 
@@ -185,15 +185,16 @@ Smoke builds are for pipeline confidence only; production demos should use a **f
 From the repo root:
 
 ```bash
-# Downloads data-latest, extracts, merges expression shards, builds expression stats
+# Downloads data-latest, extracts, merges shards, reuses shipped stats,
+# builds percentiles, rebuilds filtering_terms (adds percentileIn* terms).
 # Prod / compose host path:
 sudo mkdir -p /data/rnaget-demo
 # Use --force when replacing an existing non-empty --out tree
 python3 scripts/fetch_data_package.py --out /data/rnaget-demo --force
+# Optional: --force-stats to rebuild feature/biosample stats even if shipped
 
-# Or merge an already-extracted tree (then rebuild stats for legacy packages):
-# python3 scripts/merge_expression_parquet.py --package /data/rnaget-demo
-# python3 scripts/build_expression_stats.py --package /data/rnaget-demo
+# Or operate on an already-extracted tree:
+# python3 scripts/fetch_data_package.py --out /data/rnaget-demo --skip-download
 
 # Local uvicorn (no Docker):
 export DATA_PACKAGE_PATH=/data/rnaget-demo
@@ -202,11 +203,11 @@ pip install -r server/requirements.txt
 cd server && uvicorn app:app --host 0.0.0.0 --port 5000
 ```
 
-**CI vs consume:** the GitHub Action packs **expression shards** (`expression/part-*.parquet`). Production mounts should run `fetch_data_package.py` (or merge + `build_expression_stats.py`) so each matrix has merged `expression.parquet` plus stats. Peak disk during extract/merge is often **~3×** the final package size (cache + staging + partial merge).
+**CI vs consume:** the GitHub Action packs **expression shards** plus **shipped expression stats** and **base filtering_terms** (no percentiles, not necessarily merged `expression.parquet`). Fetch: merge → reuse or rebuild stats → percentiles → rebuild filtering_terms. Peak disk during extract/merge is often **~3×** the final package size (cache + staging + partial merge).
 
 Docker Compose mounts host `/data/rnaget-demo` (or `./data/rnaget-demo` in dev) at `/data/package` (ro) and sets `DATA_PACKAGE_PATH=/data/package`. That directory **must** contain `manifest.json` before starting the API: if `DATA_PACKAGE_PATH` is set but the manifest is missing, the server **fails at startup** (it no longer silently falls back to fixtures). Fixtures are used only when `DATA_PACKAGE_PATH` is unset.
 
-After merge, each matrix has a single `expression.parquet` (shards under `expression/part-*.parquet` are removed by default). `fetch_data_package.py` also writes the expression stats parquet files and `expressionValueRange` on each matrix.
+After merge, each matrix has a single `expression.parquet` (shards under `expression/part-*.parquet` are removed by default). Expression stats are normally already in the release; fetch rebuilds them only if missing or with `--force-stats`, then builds percentiles and rebuilds filtering_terms.
 
 **Local prod simulation:**
 
