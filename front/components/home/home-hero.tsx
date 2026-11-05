@@ -40,10 +40,6 @@ export function HomeHero({ info }: HomeHeroProps) {
           {info.description}
         </p>
       )}
-      <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-        Demo of Beacon v2 matrices, genomic features, biosamples, and nested
-        expression values — plus an Explore heatmap that joins those models.
-      </p>
       <div className="flex flex-wrap gap-2 pt-1">
         <Link href="/explore/" className={cn(buttonVariants({ size: 'sm' }))}>
           Open Explore

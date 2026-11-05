@@ -1,4 +1,5 @@
 export type RecordedCall = {
+  id: string
   method: string
   path: string
   body?: unknown
@@ -6,8 +7,11 @@ export type RecordedCall = {
   at: string
 }
 
-let lastCall: RecordedCall | null = null
-const listeners = new Set<(call: RecordedCall) => void>()
+export const RECENT_CALL_LIMIT = 5
+
+let recentCalls: RecordedCall[] = []
+let nextCallId = 0
+const listeners = new Set<(calls: RecordedCall[]) => void>()
 
 const MAX_RECORDED_RESPONSE_CHARS = 12_000
 
@@ -25,20 +29,32 @@ function trimResponse(response: unknown): unknown {
   }
 }
 
-export function recordBeaconCall(call: Omit<RecordedCall, 'at'>) {
-  lastCall = {
+function notify() {
+  const snapshot = recentCalls.slice()
+  listeners.forEach((fn) => fn(snapshot))
+}
+
+export function recordBeaconCall(call: Omit<RecordedCall, 'id' | 'at'>) {
+  nextCallId += 1
+  const next: RecordedCall = {
     ...call,
+    id: `call-${nextCallId}`,
     response: trimResponse(call.response),
     at: new Date().toISOString(),
   }
-  listeners.forEach((fn) => fn(lastCall!))
+  recentCalls = [next, ...recentCalls].slice(0, RECENT_CALL_LIMIT)
+  notify()
 }
 
 export function getLastBeaconCall(): RecordedCall | null {
-  return lastCall
+  return recentCalls[0] ?? null
 }
 
-export function subscribeBeaconCalls(fn: (call: RecordedCall) => void) {
+export function getRecentBeaconCalls(): RecordedCall[] {
+  return recentCalls.slice()
+}
+
+export function subscribeBeaconCalls(fn: (calls: RecordedCall[]) => void) {
   listeners.add(fn)
   return () => {
     listeners.delete(fn)

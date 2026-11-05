@@ -2,6 +2,7 @@ export { BeaconError, apiBase, isAbortError, peekFilteringTerms } from './client
 export {
   curlFor,
   getLastBeaconCall,
+  getRecentBeaconCalls,
   recordBeaconCall,
   subscribeBeaconCalls,
   type RecordedCall,

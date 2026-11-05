@@ -47,16 +47,29 @@ export type CustomChipFacet = {
   terms: FilteringTerm[]
 }
 
+function sortTermsByLabel(terms: FilteringTerm[]): FilteringTerm[] {
+  return [...terms].sort((a, b) =>
+    (a.label ?? a.id).localeCompare(b.label ?? b.id)
+  )
+}
+
 /**
- * Split catalog custom terms into Explore chips: one chip per valued facet
- * (e.g. expression.percentile / feature.biotypeFamily). Dropped catalog families
- * (tissueHigh / tissueSpecific / biosample.preset) are ignored if present in
- * old packages.
+ * Split catalog custom terms into Explore chips.
+ *
+ * Tissue families become two chips (picker lists the ontologies):
+ * - `tissueTop:*` → "Top 1% in tissue"
+ * - `tissuePresent:*` → "Present in tissue"
+ *
+ * Other customs (e.g. expression.percentile, feature.biotypeFamily) stay one
+ * chip per term. Dropped families (tissueHigh / tissueSpecific /
+ * biosample.preset) are ignored if present in old packages.
  */
 export function groupCustomTermsForChips(
   _scope: BeaconScope,
   terms: FilteringTerm[]
 ): CustomChipFacet[] {
+  const tissueTop: FilteringTerm[] = []
+  const tissuePresent: FilteringTerm[] = []
   const singles: FilteringTerm[] = []
 
   for (const term of terms) {
@@ -64,14 +77,35 @@ export function groupCustomTermsForChips(
     if (id.startsWith('tissuehigh:')) continue
     if (id.startsWith('tissuespecific:')) continue
     if (id.startsWith('biosample.preset:')) continue
+    if (id.startsWith('tissuetop:')) {
+      tissueTop.push(term)
+      continue
+    }
+    if (id.startsWith('tissuepresent:')) {
+      tissuePresent.push(term)
+      continue
+    }
     singles.push(term)
   }
 
   const out: CustomChipFacet[] = []
 
-  for (const term of [...singles].sort((a, b) =>
-    (a.label ?? a.id).localeCompare(b.label ?? b.id)
-  )) {
+  if (tissueTop.length) {
+    out.push({
+      key: 'custom|tissueTop',
+      label: 'Top 1% in tissue',
+      terms: sortTermsByLabel(tissueTop),
+    })
+  }
+  if (tissuePresent.length) {
+    out.push({
+      key: 'custom|tissuePresent',
+      label: 'Present in tissue',
+      terms: sortTermsByLabel(tissuePresent),
+    })
+  }
+
+  for (const term of sortTermsByLabel(singles)) {
     out.push({
       key: `custom|term|${term.id}`,
       label: term.label?.trim() || term.id,
