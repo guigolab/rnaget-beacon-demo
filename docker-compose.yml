@@ -18,14 +18,17 @@ services:
       - API_PORT=5000
       - API_HOST=rnaget-server
       - BASE_PATH=/rnaget-beacon
+    # In-container nginx listens on API_PORT (see nginx/default.conf.template).
+    expose:
+      - "5000"
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=monstre"
       - "traefik.http.routers.rnaget-nginx.rule=(Host(`genome.crg.es`) || Host(`genome.crg.cat`) || Host(`genome.crg.eu`)) && PathPrefix(`/rnaget-beacon`)"
       - "traefik.http.routers.rnaget-nginx.tls=true"
       - "traefik.http.routers.rnaget-nginx.entrypoints=web_https"
-      - "traefik.http.services.rnaget-nginx.loadBalancer.server.port=80"
-    ports:
-      - "94:5000"
+      - "traefik.http.routers.rnaget-nginx.service=rnaget-nginx"
+      - "traefik.http.services.rnaget-nginx.loadbalancer.server.port=5000"
     mem_limit: 256m
     cpus: "0.5"
     networks:
