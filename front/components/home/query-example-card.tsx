@@ -43,7 +43,7 @@ function CurlBlock({
   path: string
   body?: unknown
 }) {
-  const curl = curlFor({ method, path, body, at: '' }, apiBase())
+  const curl = curlFor({ method, path, body }, apiBase())
   return (
     <div className="space-y-1.5">
       <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted/60 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-foreground">

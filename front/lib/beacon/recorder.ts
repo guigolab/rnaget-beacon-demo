@@ -61,7 +61,10 @@ export function subscribeBeaconCalls(fn: (calls: RecordedCall[]) => void) {
   }
 }
 
-export function curlFor(call: RecordedCall, baseUrl: string): string {
+export function curlFor(
+  call: Pick<RecordedCall, 'method' | 'path' | 'body'>,
+  baseUrl: string
+): string {
   const url = `${baseUrl.replace(/\/$/, '')}${call.path}`
   if (call.method === 'GET') return `curl -sS '${url}' -H 'Accept: application/json'`
   return `curl -sS -X POST '${url}' -H 'Content-Type: application/json' -d '${JSON.stringify(call.body ?? {})}'`
