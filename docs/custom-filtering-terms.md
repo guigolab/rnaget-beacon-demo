@@ -26,18 +26,17 @@ ids; compound predicates are encoded as a **single** custom id.
 **Catalogued** (root `/filtering_terms` and UI chips): UBERON/EFO tissues (biosample),
 `expression.percentile`, `feature.biotypeFamily`, `feature.resource`, SO, matrix
 `unit` / `annotation` / `assembly.name`, custom `matrix.profileSource` (Data source),
-matrix OBI assay.
+matrix OBI assay, custom **`tissueTop:{ontologyId}`** / **`tissuePresent:{ontologyId}`**
+(one term per UBERON/EFO tissue column from `tissue_feature_summary`).
 
 **Not catalogued** (and **not** matched for schema-true biosamples): `sex`, `condition`,
 `age_bracket`, `timepoint`, `biosample.preset:`.
 
-**Not catalogued** (server may still match if a client sends the id; Explore uses
-synthetic `tissuePresent:` / `tissueTop:` for heatmap bands):
+**Not catalogued** (server may still match if a client sends the id):
 
 | Id / family | Notes |
 |---|---|
 | `tissueHigh:` / `tissueSpecific:` (incl. `tissueHigh:matrix:…`) | Still matched via tissue summary / stats; not advertised |
-| `tissueTop:` / `tissuePresent:` | Matched; Explore paints bands via probes (not record `info`) |
 | Biosample GO / HP / MONDO / NCIT / OBI | Not catalogued (matrix OBI assay remains) |
 | EFO sample status (`EFO:0009654`, `EFO:0009655`) | Not catalogued |
 | `matrix.scale` / `matrix.reproducible` | Still matched; not advertised |
@@ -61,6 +60,7 @@ These **must not** use that path:
 | `feature.biotypeFamily` (catalog **custom**; request alphanumeric) | Feature row: `feature_type_id` ∪ `ontology_terms` | `is_biotype_family_filter` → `_feature_filter_sql` / `_matrix_feature_filter_sql` |
 | `feature.resource` (alphanumeric) | Feature row: `resource` column (`featureIdentifier.resource`) | `is_feature_resource_filter` |
 | `tissueHigh:` / `tissueSpecific:` (not catalogued) | `tissue_feature_summary` / `tissue_expression_stats` | `is_tissue_feature_filter` |
+| `tissueTop:` / `tissuePresent:` (catalogued) | `tissue_feature_summary` | `is_tissue_feature_filter` |
 | `biosample.preset:` (not catalogued) | Biosample row: `sex` ∧ tissue/ontology fields | `is_biosample_preset_filter` |
 
 `EXPRESSION_FEATURE_CUSTOM_PREFIXES` is empty (no genomicFeature expression
@@ -128,16 +128,19 @@ Continuous matrix-path alphanumerics (not custom) keep descriptive labels such a
 |---|---|---|---|---|
 | `symbol:{SYMBOL}` | Gene symbol (lookup) | `genomicFeature` | Not enumerated in catalogs; `symbol` resource only | Alias / `gene_lookup` (glob `*` / `%` allowed) |
 
-### Tissue high / specific (match-only; not catalogued)
+### Tissue top / present (catalogued) and high / specific (match-only)
 
 Per-matrix ranks are built by `scripts/build_tissue_expression_stats.py` into
 `matrices/{dir}/tissue_expression_stats.parquet`. Package-level summary
-(`tissue_feature_summary.parquet`) powers **`tissueTop:`** / **`tissuePresent:`**
-matching. Explore paints ≥99 / &lt;99 / none bands by probing root `/features` with
-`featureIDList` plus those customs (not by embedding `info.tissueBands` on records).
+(`tissue_feature_summary.parquet`) powers matching and catalog emission for
+**`tissueTop:`** / **`tissuePresent:`** (UBERON/EFO columns only; `matrix:*`
+pseudo columns are not advertised). Explore paints ≥99 / &lt;99 / none bands by
+probing root `/features` with `featureIDList` plus those customs (not by
+embedding `info.tissueBands` on records).
 
-Request shape if sent manually: `{ "id": "tissueHigh:UBERON:0002107" }` (custom; no
-operator). Same for `tissueSpecific:` / `tissueTop:` / `tissuePresent:`.
+Request shape: `{ "id": "tissueTop:UBERON:0002107" }` or
+`{ "id": "tissuePresent:UBERON:0002107" }` (custom; no operator).
+`tissueHigh:` / `tissueSpecific:` keep the same wire shape but stay match-only.
 
 ---
 

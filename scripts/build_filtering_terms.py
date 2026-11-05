@@ -135,6 +135,27 @@ def _pretty_so_term_labels(terms: Dict[str, Dict[str, Any]]) -> None:
         term["label"] = so_display_label(term.get("label"), fallback_id=tid)
 
 
+def _append_tissue_explore_terms(
+    package: Path, terms: Dict[str, Dict[str, Any]]
+) -> None:
+    """Advertise tissueTop / tissuePresent customs from tissue_feature_summary."""
+    try:
+        from beacon.tissue_explore_catalog import tissue_explore_filtering_terms_for_package
+    except ImportError:
+        return
+    for term in tissue_explore_filtering_terms_for_package(package):
+        tid = str(term.get("id") or "")
+        if not tid:
+            continue
+        _add_term(
+            terms,
+            type_=str(term.get("type") or "custom"),
+            id_=tid,
+            label=term.get("label"),
+            scopes=list(term.get("scopes") or ["genomicFeature"]),
+        )
+
+
 def _append_matrix_scope_terms(
     terms: Dict[str, Dict[str, Any]], needed_resources: Set[str]
 ) -> None:
@@ -593,6 +614,7 @@ def build_catalog(package: Path) -> Dict[str, Any]:
 
     _append_expression_root_terms(package, terms, needed_resources)
     _append_biotype_family_terms(terms)
+    _append_tissue_explore_terms(package, terms)
     _append_matrix_scope_terms(terms, needed_resources)
     _append_live_matrix_catalog_terms(package, terms, needed_resources)
     _pretty_so_term_labels(terms)

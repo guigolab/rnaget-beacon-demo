@@ -401,10 +401,16 @@ def matrix_scoped_filtering_terms(
             page_filtering_terms(terms, skip=skip, limit=limit),
             resources,
         )
+        fingerprint = getattr(store, "package_fingerprint", None)
+        etag = (
+            package_etag(f"{fingerprint()}:{id}")
+            if callable(fingerprint)
+            else None
+        )
         return json_with_headers(
             body,
-            etag=package_etag(f"{store.package_fingerprint()}:{id}"),
-            cache_control="public, max-age=300",
+            etag=etag,
+            cache_control="public, max-age=300" if etag else None,
         )
     return build_filtering_terms_response([])
 

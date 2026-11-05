@@ -4,12 +4,13 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FilterScopeIndex } from '@/lib/beacon/filters'
 import {
-  emptyMatrixWorkspaceQuery,
+  clearedMatrixWorkspaceQuery,
   matrixWorkspaceQueryKey,
   matrixWorkspaceSearchParams,
   parseMatrixWorkspaceQuery,
   type MatrixWorkspaceQuery,
 } from '@/lib/matrix-workspace-query'
+import type { FilteringTerm } from '@/lib/beacon/types'
 
 function readLocationQuery(): string {
   if (typeof window === 'undefined') return ''
@@ -101,13 +102,12 @@ export function useMatrixQueryState(matrixId: string, scopeIndex?: FilterScopeIn
     [replace]
   )
 
-  const clearFilters = useCallback(() => {
-    replace({
-      ...emptyMatrixWorkspaceQuery(),
-      sort: query.sort,
-      order: query.order,
-    })
-  }, [query.order, query.sort, replace])
+  const clearFilters = useCallback(
+    (terms?: readonly FilteringTerm[]) => {
+      replace(clearedMatrixWorkspaceQuery(terms))
+    },
+    [replace]
+  )
 
   return { query, queryKey, patch, replace, clearFilters }
 }

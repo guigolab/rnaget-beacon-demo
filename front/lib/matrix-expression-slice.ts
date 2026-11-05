@@ -1,5 +1,5 @@
 import type { Biosample, ExpressionValue, Feature } from '@/lib/beacon/types'
-import { cellKey } from '@/lib/heatmap-expression'
+import { cellKey, nativeFeatureId } from '@/lib/heatmap-expression'
 
 /** Ranked expression_values page size for first paint. */
 export const SLICE_LIMIT = 200
@@ -83,6 +83,31 @@ export function mergeRecordsById<T extends { id: string }>(
   return stubs.map((stub) => {
     const id = stub.id?.trim()
     return (id && byId.get(id)) || stub
+  })
+}
+
+/**
+ * Overlay enriched genomicFeature records onto expression-axis stubs.
+ *
+ * Slice stubs use ``expressionValue.featureId`` (native accession) as ``id``.
+ * Beacon feature records use wrapper ``id`` and put the accession on
+ * ``genomicFeature.featureIdentifier.id``. Match on the native id so labels
+ * and the feature popover resolve after enrichment.
+ */
+export function mergeFeatureRecordsByNativeId(
+  stubs: readonly Feature[],
+  enriched: readonly Feature[]
+): Feature[] {
+  if (!enriched.length) return stubs.length ? [...stubs] : []
+  const byNative = new Map<string, Feature>()
+  for (const item of enriched) {
+    const native = nativeFeatureId(item).trim()
+    if (!native || byNative.has(native)) continue
+    byNative.set(native, item)
+  }
+  return stubs.map((stub) => {
+    const native = nativeFeatureId(stub).trim()
+    return (native && byNative.get(native)) || stub
   })
 }
 

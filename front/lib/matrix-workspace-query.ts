@@ -16,6 +16,7 @@ import {
 import type { FilteringTerm, UiFilter } from '@/lib/beacon/types'
 import { RECORD_ID_PARAM, RECORD_KIND_PARAM } from '@/lib/entity-record-sheet'
 
+/** Legacy URL fields only — ignored for heatmap fetches (axis pages + densify). */
 export type MatrixFeatureSort = 'id' | 'expression.max' | 'expression.min'
 export type MatrixFeatureOrder = 'asc' | 'desc'
 
@@ -29,8 +30,92 @@ export type MatrixWorkspaceQuery = {
   expressionFilters: UiFilter[]
   minValue?: number
   maxValue?: number
+  /** @deprecated Parsed from old URLs; not used for fetches. */
   sort: MatrixFeatureSort
+  /** @deprecated Parsed from old URLs; not used for fetches. */
   order: MatrixFeatureOrder
+}
+
+/** Axis page sizes (former slice caps, now real pagination). */
+export const MATRIX_FEATURE_PAGE_SIZE = 12
+export const MATRIX_BIOSAMPLE_PAGE_SIZE = 24
+
+export const TOP_EXPRESSED_PERCENTILE_VALUES = ['99', '95', '90'] as const
+export type TopExpressedPercentile = (typeof TOP_EXPRESSED_PERCENTILE_VALUES)[number]
+
+const TOP_EXPRESSED_LABELS: Record<TopExpressedPercentile, string> = {
+  '99': 'Top 1% of genes',
+  '95': 'Top 5% of genes',
+  '90': 'Top 10% of genes',
+}
+
+export function topExpressedPercentileFilter(
+  value: TopExpressedPercentile
+): UiFilter {
+  return {
+    kind: 'expression',
+    id: 'expression.percentile',
+    operator: '>=',
+    value,
+    label: TOP_EXPRESSED_LABELS[value],
+  }
+}
+
+export function isExpressionPercentileFilter(filter: UiFilter): boolean {
+  return filter.kind === 'expression' && filter.id === 'expression.percentile'
+}
+
+export function expressionPercentileValue(
+  filters: readonly UiFilter[]
+): TopExpressedPercentile | null {
+  for (const filter of filters) {
+    if (!isExpressionPercentileFilter(filter)) continue
+    if (filter.kind !== 'expression') continue
+    const value = String(filter.value ?? '').trim()
+    if (value === '99' || value === '95' || value === '90') return value
+  }
+  return null
+}
+
+/** Catalog advertises Top 1% (`expression.percentile` value `99`). */
+export function catalogHasTopExpressedSeed(terms: readonly FilteringTerm[]): boolean {
+  const term = terms.find((item) => item.id === 'expression.percentile')
+  return Boolean(term?.values?.includes('99'))
+}
+
+/** No explicit feature-side constraints (genes / ids / any feature filter). */
+export function matrixFeatureSideUnconstrained(
+  query: Pick<MatrixWorkspaceQuery, 'featureFilters' | 'genes' | 'featureIds'>
+): boolean {
+  return (
+    query.featureFilters.length === 0 &&
+    query.genes.length === 0 &&
+    query.featureIds.length === 0
+  )
+}
+
+/** Replace or clear the single expression.percentile feature filter. */
+export function withExpressionPercentileFilter(
+  featureFilters: readonly UiFilter[],
+  value: TopExpressedPercentile | null
+): UiFilter[] {
+  const rest = featureFilters.filter((filter) => !isExpressionPercentileFilter(filter))
+  if (value == null) return rest
+  return dedupeFilters([...rest, topExpressedPercentileFilter(value)])
+}
+
+/** Empty query, optionally seeded with Top 1% when the catalog supports it. */
+export function clearedMatrixWorkspaceQuery(
+  terms?: readonly FilteringTerm[]
+): MatrixWorkspaceQuery {
+  const base = emptyMatrixWorkspaceQuery()
+  if (terms && catalogHasTopExpressedSeed(terms)) {
+    return {
+      ...base,
+      featureFilters: [topExpressedPercentileFilter('99')],
+    }
+  }
+  return base
 }
 
 const TOKEN_CAP = 100
@@ -153,8 +238,6 @@ export function matrixWorkspaceQueryKey(query: MatrixWorkspaceQuery): string {
     expressionFilters: query.expressionFilters.map(filterKey),
     minValue: query.minValue ?? null,
     maxValue: query.maxValue ?? null,
-    sort: query.sort,
-    order: query.order,
   })
 }
 
@@ -191,9 +274,7 @@ export function matrixWorkspaceSearchParams(
   if (query.biosampleIds.length) params.set('biosampleIds', query.biosampleIds.join(','))
   if (query.minValue != null) params.set('minValue', String(query.minValue))
   if (query.maxValue != null) params.set('maxValue', String(query.maxValue))
-  if (query.sort !== 'expression.max') params.set('sort', query.sort)
-  const defaultOrder: MatrixFeatureOrder = query.sort === 'expression.min' ? 'asc' : 'desc'
-  if (query.order !== defaultOrder) params.set('order', query.order)
+  // sort/order are legacy; do not write them (axis paging + densify ignore them).
   if (preserve) {
     for (const key of [RECORD_KIND_PARAM, RECORD_ID_PARAM]) {
       const value = preserve.get(key)

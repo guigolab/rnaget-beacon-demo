@@ -34,7 +34,8 @@ def parse_tissue_feature_filter(fid: str) -> Optional[Tuple[TissueKind, str]]:
 
     Accepts any ontology CURIE (``UBERON:…``, ``EFO:…``, …) or a
     ``matrix:{matrixId}`` pseudo-column. No fixed panel membership check.
-    ``tissueTop`` / ``tissuePresent`` are Explore-only (not catalogued).
+    ``tissueTop`` / ``tissuePresent`` are catalogued on genomicFeature;
+    ``tissueHigh`` / ``tissueSpecific`` remain match-only.
     """
     from beacon.tissue_catalog import (
         MATRIX_PSEUDO_PREFIX,

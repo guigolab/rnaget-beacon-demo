@@ -1,13 +1,19 @@
 import assert from 'node:assert/strict'
 import { buildFilterScopeIndex } from '@/lib/beacon/filters'
 import {
+  catalogHasTopExpressedSeed,
+  clearedMatrixWorkspaceQuery,
+  expressionPercentileValue,
   featureIdListCsv,
   interpretBiosampleQueryToken,
   interpretFeatureQueryToken,
+  matrixFeatureSideUnconstrained,
   matrixWorkspaceHasConstraints,
   matrixWorkspaceQueryKey,
   matrixWorkspaceSearchParams,
   parseMatrixWorkspaceQuery,
+  topExpressedPercentileFilter,
+  withExpressionPercentileFilter,
 } from '@/lib/matrix-workspace-query'
 import type { FilteringTerm } from '@/lib/beacon/types'
 
@@ -100,5 +106,49 @@ assert.equal(scoped.biosampleFilters.length, 1)
 assert.equal(scoped.biosampleFilters[0].kind === 'ontology' && scoped.biosampleFilters[0].id, 'GO:0005829')
 assert.equal(scoped.featureFilters.length, 1)
 assert.equal(scoped.featureFilters[0].kind === 'ontology' && scoped.featureFilters[0].id, 'SO:0000704')
+
+const pctTerms: FilteringTerm[] = [
+  {
+    id: 'expression.percentile',
+    type: 'custom',
+    scopes: ['genomicFeature'],
+    values: ['90', '95', '99'],
+  },
+]
+assert.equal(catalogHasTopExpressedSeed(pctTerms), true)
+assert.equal(catalogHasTopExpressedSeed([]), false)
+
+const seeded = clearedMatrixWorkspaceQuery(pctTerms)
+assert.equal(seeded.featureFilters.length, 1)
+assert.equal(expressionPercentileValue(seeded.featureFilters), '99')
+assert.equal(matrixFeatureSideUnconstrained(seeded), false)
+
+const emptyCleared = clearedMatrixWorkspaceQuery([])
+assert.equal(emptyCleared.featureFilters.length, 0)
+assert.equal(matrixFeatureSideUnconstrained(emptyCleared), true)
+
+const withGene = parseMatrixWorkspaceQuery(new URLSearchParams('genes=TP53'))
+assert.equal(matrixFeatureSideUnconstrained(withGene), false)
+
+const swapped = withExpressionPercentileFilter(
+  [topExpressedPercentileFilter('99')],
+  '95'
+)
+assert.equal(expressionPercentileValue(swapped), '95')
+assert.equal(swapped.length, 1)
+
+const clearedPct = withExpressionPercentileFilter(swapped, null)
+assert.equal(clearedPct.length, 0)
+
+const legacySort = parseMatrixWorkspaceQuery(
+  new URLSearchParams('sort=expression.min&order=asc')
+)
+assert.equal(legacySort.sort, 'expression.min')
+const legacyWritten = matrixWorkspaceSearchParams(legacySort)
+assert.equal(legacyWritten.get('sort'), null)
+assert.equal(legacyWritten.get('order'), null)
+
+const topParams = matrixWorkspaceSearchParams(seeded)
+assert.match(topParams.get('filters') ?? '', /expression\.percentile:>=:99/)
 
 console.log('matrix-workspace-query.test.ts ok')

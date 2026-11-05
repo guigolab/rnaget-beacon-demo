@@ -1,6 +1,5 @@
 'use client'
 
-import { Popover } from '@base-ui/react/popover'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { COLOR_MISSING, COLOR_TEXT_DARK } from '@/components/heatmap-colors'
 import {
@@ -24,7 +23,6 @@ import {
   HEATMAP_FEW_BIOSAMPLE_MAX,
 } from '@/lib/heatmap-table'
 import { biosampleHeatmapColumnHeader } from '@/lib/sample-lens'
-import { matrixInspectTriggerId, type MatrixInspect } from './matrix-inspect-popover'
 
 const BIO_COL_FALLBACK_PX = 72
 const BIO_OVERSCAN = 4
@@ -36,21 +34,19 @@ type MatrixHeatmapGridProps = {
   features: Feature[]
   biosamples: Biosample[]
   columnTotal: number
-  /** Raw expression values (labels + inspect). */
+  /** Raw expression values (labels). */
   values: Map<string, number>
   /** Optional colour map (e.g. window percentiles); defaults to `values`. */
   colorValues?: Map<string, number>
   pendingKeys: Set<string>
   colorMin: number
   colorMax: number
-  popoverHandle: ReturnType<typeof Popover.createHandle>
-  onInspect: (inspect: MatrixInspect) => void
   onVisibleBiosampleIds: (ids: string[]) => void
   onNeedMoreColumns: () => void
-  canLoadMoreCells: boolean
-  onLoadMoreCells: () => void
-  loadingMore: boolean
-  cellTotal: number
+  canLoadMoreFeatures: boolean
+  onLoadMoreFeatures: () => void
+  loadingMoreFeatures: boolean
+  featureTotal: number
 }
 
 export function MatrixHeatmapGrid({
@@ -62,14 +58,12 @@ export function MatrixHeatmapGrid({
   pendingKeys,
   colorMin,
   colorMax,
-  popoverHandle,
-  onInspect,
   onVisibleBiosampleIds,
   onNeedMoreColumns,
-  canLoadMoreCells,
-  onLoadMoreCells,
-  loadingMore,
-  cellTotal,
+  canLoadMoreFeatures,
+  onLoadMoreFeatures,
+  loadingMoreFeatures,
+  featureTotal,
 }: MatrixHeatmapGridProps) {
   const fillValues = colorValues ?? values
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -210,26 +204,26 @@ export function MatrixHeatmapGrid({
         </thead>
         <tbody>
           {features.map((feature) => {
-            const rowInspect: MatrixInspect = { kind: 'feature', featureId: feature.id }
+            // Stable axis key = expressionValue.featureId (native accession).
+            // Wrapper Beacon id changes after label enrichment.
             const featureNativeId = nativeFeatureId(feature)
             const featureLabel = featureDisplayLabel(feature)
             return (
-              <tr key={feature.id} className="group/row">
+              <tr key={featureNativeId} className="group/row">
                 <th
                   scope="row"
                   className={`sticky left-0 z-[25] border-r border-border bg-card px-1 py-0.5 text-left font-normal group-hover/row:bg-muted/30 ${
                     few ? HEATMAP_FEATURE_COL_CLASS : ''
                   }`}
                 >
-                  <Popover.Trigger
-                    handle={popoverHandle}
-                    id={matrixInspectTriggerId(rowInspect)}
-                    type="button"
+                  <EntityRecordLink
+                    kind="feature"
+                    id={feature.id}
+                    title="Open feature details"
                     className="w-full max-w-[10rem] truncate rounded-md px-2 py-2 text-left text-sm font-medium text-foreground hover:bg-muted/60 hover:underline"
-                    onClick={() => onInspect(rowInspect)}
                   >
                     {featureLabel}
-                  </Popover.Trigger>
+                  </EntityRecordLink>
                 </th>
                 {padLeft > 0 && (
                   <td
@@ -252,26 +246,16 @@ export function MatrixHeatmapGrid({
                   const color = hasFill
                     ? heatTextColor(fill, colorMin, colorMax)
                     : COLOR_TEXT_DARK
-                  const cellInspect: MatrixInspect = {
-                    kind: 'cell',
-                    featureId: feature.id,
-                    biosampleId: columnId,
-                    value: value ?? 0,
-                  }
                   return (
                     <td key={columnId} className="border-b border-border/60 p-0.5">
                       {hasValue ? (
-                        <Popover.Trigger
-                          handle={popoverHandle}
-                          id={matrixInspectTriggerId(cellInspect)}
-                          type="button"
+                        <div
                           title={`${featureLabel} · ${formatHeatmapValue(value)}`}
-                          className={`${HEATMAP_CELL_CLASS} ring-offset-background hover:ring-2 hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+                          className={HEATMAP_CELL_CLASS}
                           style={{ backgroundColor: background, color }}
-                          onClick={() => onInspect({ ...cellInspect, value })}
                         >
                           {formatHeatmapValue(value)}
-                        </Popover.Trigger>
+                        </div>
                       ) : isLoading ? (
                         <HeatmapMatrixCellLoading />
                       ) : (
@@ -292,20 +276,20 @@ export function MatrixHeatmapGrid({
           })}
         </tbody>
       </table>
-      {canLoadMoreCells && (
+      {canLoadMoreFeatures && (
         <div className="sticky left-0 border-t border-border px-3 py-2">
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="w-full"
-            disabled={loadingMore}
-            onClick={onLoadMoreCells}
+            disabled={loadingMoreFeatures}
+            onClick={onLoadMoreFeatures}
           >
-            Load more cells
-            {cellTotal > 0 && (
+            Load more genes
+            {featureTotal > 0 && (
               <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                {cellTotal.toLocaleString()} matching
+                {features.length.toLocaleString()} / {featureTotal.toLocaleString()}
               </span>
             )}
           </Button>

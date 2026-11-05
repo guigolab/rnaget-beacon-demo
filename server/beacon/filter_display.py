@@ -117,6 +117,36 @@ def tissue_specific_label(
     return f"Specific to {name}"
 
 
+def tissue_top_label(
+    ontology_id: str,
+    tissue: Optional[str] = None,
+    *,
+    n_biosamples: Optional[int] = None,
+) -> str:
+    """Catalog label for custom ``tissueTop:{ontologyId}``."""
+    from beacon.tissue_catalog import tissue_column_display_name
+
+    name = tissue_column_display_name(ontology_id, tissue)
+    if n_biosamples is not None:
+        return f"Top 1% in {name} (n={int(n_biosamples)})"
+    return f"Top 1% in {name}"
+
+
+def tissue_present_label(
+    ontology_id: str,
+    tissue: Optional[str] = None,
+    *,
+    n_biosamples: Optional[int] = None,
+) -> str:
+    """Catalog label for custom ``tissuePresent:{ontologyId}``."""
+    from beacon.tissue_catalog import tissue_column_display_name
+
+    name = tissue_column_display_name(ontology_id, tissue)
+    if n_biosamples is not None:
+        return f"Present in {name} (n={int(n_biosamples)})"
+    return f"Present in {name}"
+
+
 def is_biosample_catalog_ontology_id(oid: str) -> bool:
     """Whether a CURIE may appear as a biosample-scoped filtering term."""
     text = (oid or "").strip()

@@ -50,7 +50,9 @@ export function mergeTissueBandMaps(
   return changed ? next : current
 }
 
-function tissueTopFilter(ontologyId: string): UiFilter {
+function tissueTopFilter(
+  ontologyId: string
+): Extract<UiFilter, { kind: 'custom' }> {
   return { kind: 'custom', id: `tissueTop:${ontologyId}` }
 }
 
@@ -68,7 +70,7 @@ export function resetExploreTissueBandCaches() {
 
 async function probeFeatureIds(
   featureIds: string[],
-  filter: UiFilter,
+  filter: Extract<UiFilter, { kind: 'custom' }>,
   signal?: AbortSignal
 ): Promise<Set<string>> {
   if (!featureIds.length) return new Set()
@@ -129,8 +131,8 @@ export async function probeExploreTissueBands(opts: {
   assumePresentOntologyIds?: readonly string[]
   /**
    * Ontology (lower) → matrixId[]. When set, presence is local (no
-   * tissuePresent probe). When null/undefined, pending features are treated
-   * as present so tissueTop alone still paints 99 vs none.
+   * tissuePresent probe). When null/undefined, pairs stay unprobed so a
+   * later pass can distinguish absent (none) from &lt;99.
    */
   ontologyMatrixIndex?: Map<string, string[]> | null
   /**

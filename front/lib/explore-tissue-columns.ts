@@ -61,7 +61,8 @@ export function probeFiltersForTissueColumn(
   )
 }
 
-/** Module-level column-count memo. */
+/** Module-level column-count memo. Cap session growth. */
+const COLUMN_COUNT_CACHE_MAX = 512
 const columnCountCache = new Map<string, number>()
 
 function constraintCacheKey(filters: UiFilter[]): string {
@@ -72,6 +73,16 @@ export function resetExploreTissueColumnCaches() {
   columnCountCache.clear()
 }
 
+function rememberColumnCount(cacheKey: string, total: number): number {
+  columnCountCache.set(cacheKey, total)
+  while (columnCountCache.size > COLUMN_COUNT_CACHE_MAX) {
+    const oldest = columnCountCache.keys().next().value
+    if (oldest == null) break
+    columnCountCache.delete(oldest)
+  }
+  return total
+}
+
 async function sumBiosampleCountForColumn(
   column: TissueColumn,
   constraintFilters: UiFilter[],
@@ -80,7 +91,11 @@ async function sumBiosampleCountForColumn(
 ): Promise<number> {
   const cacheKey = `${constraintCacheKey(constraintFilters)}\0${column.ontologyId}`
   const cached = columnCountCache.get(cacheKey)
-  if (cached != null) return cached
+  if (cached != null) {
+    columnCountCache.delete(cacheKey)
+    columnCountCache.set(cacheKey, cached)
+    return cached
+  }
 
   if (isMatrixPseudoOntologyId(column.ontologyId)) {
     const mid = matrixIdFromPseudoOntology(column.ontologyId)
@@ -91,9 +106,7 @@ async function sumBiosampleCountForColumn(
         granularity: 'count',
         signal,
       })
-      const total = page.total ?? 0
-      columnCountCache.set(cacheKey, total)
-      return total
+      return rememberColumnCount(cacheKey, page.total ?? 0)
     } catch (err) {
       if (isAbortError(err)) return 0
       throw err
@@ -119,9 +132,10 @@ async function sumBiosampleCountForColumn(
     },
     signal
   )
-  const total = counts.reduce((sum, n) => sum + n, 0)
-  columnCountCache.set(cacheKey, total)
-  return total
+  return rememberColumnCount(
+    cacheKey,
+    counts.reduce((sum, n) => sum + n, 0)
+  )
 }
 
 /** Keep columns with positive probed totals; set ``nBiosamples`` from the sum. */

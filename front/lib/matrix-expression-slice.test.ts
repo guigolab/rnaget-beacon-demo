@@ -3,6 +3,7 @@ import type { ExpressionValue } from '@/lib/beacon/types'
 import { cellKey } from '@/lib/heatmap-expression'
 import {
   deriveSliceHeatmapAxes,
+  mergeFeatureRecordsByNativeId,
   mergeRecordsById,
   sliceAxesCanExtend,
   sliceAxesGrew,
@@ -76,5 +77,20 @@ const merged = mergeRecordsById(features, [
 ])
 assert.equal(merged[0].id, 'F1')
 assert.equal(merged[1].genomicFeature?.aliases?.[0], 'GENE2')
+
+// Expression stubs use native accession as id; Beacon rows use wrapper id.
+const nativeMerged = mergeFeatureRecordsByNativeId(stubFeaturesFromIds(['ENSG1', 'ENSG2']), [
+  {
+    id: 'wrapper-2',
+    genomicFeature: {
+      featureIdentifier: { id: 'ENSG2' },
+      aliases: ['TP53'],
+    },
+    matrixIds: ['M'],
+  },
+])
+assert.equal(nativeMerged[0].id, 'ENSG1')
+assert.equal(nativeMerged[1].id, 'wrapper-2')
+assert.equal(nativeMerged[1].genomicFeature?.aliases?.[0], 'TP53')
 
 console.log('matrix-expression-slice.test.ts: ok')

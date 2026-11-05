@@ -9,6 +9,7 @@ import {
   type Feature,
 } from '@/lib/beacon'
 import {
+  mergeFeatureRecordsByNativeId,
   mergeRecordsById,
   stubBiosamplesFromIds,
   stubFeaturesFromIds,
@@ -96,7 +97,7 @@ export function useMatrixSliceLabels(input: {
 
   const features = useMemo(() => {
     if (featureRecordsKey !== featureKey) return stubsFeatures
-    return mergeRecordsById(stubsFeatures, featureRecords)
+    return mergeFeatureRecordsByNativeId(stubsFeatures, featureRecords)
   }, [featureKey, featureRecords, featureRecordsKey, stubsFeatures])
 
   const biosamples = useMemo(() => {

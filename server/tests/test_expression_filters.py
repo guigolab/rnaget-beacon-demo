@@ -387,6 +387,38 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertGreaterEqual(r.json()["responseSummary"]["numTotalResults"], 0)
 
+    def test_matrix_features_top_expressed_percentile_pages(self) -> None:
+        """Nested features listing accepts expression.percentile (heatmap cohort)."""
+        matrix_id = self._first_matrix_id_with_percentiles()
+        r = self.client.get(
+            f"/matrices/{matrix_id}/features",
+            params={"filters": "expression.percentile:>=:99", "limit": 12},
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        total = r.json()["responseSummary"]["numTotalResults"]
+        self.assertGreater(total, 0)
+        rows = r.json()["response"]["resultSets"][0]["results"]
+        self.assertGreater(len(rows), 0)
+        self.assertLessEqual(len(rows), 12)
+        # Second page advances by skip without inventing sort params.
+        if total > 12:
+            page2 = self.client.get(
+                f"/matrices/{matrix_id}/features",
+                params={
+                    "filters": "expression.percentile:>=:99",
+                    "skip": 12,
+                    "limit": 12,
+                },
+            )
+            self.assertEqual(page2.status_code, 200, page2.text)
+            ids1 = {row["id"] for row in rows}
+            ids2 = {
+                row["id"]
+                for row in page2.json()["response"]["resultSets"][0]["results"]
+            }
+            self.assertTrue(ids2)
+            self.assertFalse(ids1 & ids2)
+
     def test_expression_values_value_filter(self) -> None:
         matrix_id = self._first_matrix_id_with_percentiles()
         r = self.client.get(

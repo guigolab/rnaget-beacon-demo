@@ -901,6 +901,29 @@ def main(argv: List[str] | None = None) -> int:
             errors.append("manifest.tissueFeatureSummary missing or incomplete")
         if not tissue_labels.is_file():
             errors.append("missing tissue_column_labels.parquet")
+        # Beacon discovery: tissueTop / tissuePresent must be catalogued when
+        # the package has a tissue summary (rebuild filtering_terms if stale).
+        if ft_path.is_file():
+            try:
+                with ft_path.open(encoding="utf-8") as fh:
+                    ft_check = json.load(fh)
+                ids = {
+                    str(t.get("id") or "")
+                    for t in (ft_check.get("filteringTerms") or [])
+                    if isinstance(t, dict)
+                }
+                if not any(i.startswith("tissueTop:") for i in ids):
+                    errors.append(
+                        "tissue_feature_summary present but filtering_terms "
+                        "missing tissueTop:* customs"
+                    )
+                if not any(i.startswith("tissuePresent:") for i in ids):
+                    errors.append(
+                        "tissue_feature_summary present but filtering_terms "
+                        "missing tissuePresent:* customs"
+                    )
+            except Exception as exc:
+                errors.append(f"tissue explore filtering_terms check failed: {exc}")
     else:
         # Soft: if any matrix has tissue stats, summary should exist.
         any_stats = any(

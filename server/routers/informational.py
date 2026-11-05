@@ -137,9 +137,11 @@ def filtering_terms(
         page_filtering_terms(terms, skip=skip, limit=limit),
         resources,
     )
+    fingerprint = getattr(store, "package_fingerprint", None)
+    etag = package_etag(fingerprint()) if callable(fingerprint) else None
     # Immutable package catalog — safe to cache; no filter-conditioned semantics.
     return json_with_headers(
         body,
-        etag=package_etag(store.package_fingerprint()),
-        cache_control="public, max-age=300",
+        etag=etag,
+        cache_control="public, max-age=300" if etag else None,
     )

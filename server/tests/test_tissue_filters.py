@@ -187,13 +187,14 @@ class TissueFilteringTermsFixtureTest(unittest.TestCase):
                 for s in term["scopes"]:
                     self.assertIsInstance(s, str)
 
-        # tissueHigh / tissueSpecific are matchable but not catalogued.
+        # tissueHigh / tissueSpecific stay match-only (not catalogued).
         tissue_terms = [
             t
             for t in resp["filteringTerms"]
             if str(t.get("id") or "").startswith(("tissueHigh:", "tissueSpecific:"))
         ]
         self.assertEqual(tissue_terms, [])
+        # Fixture store has no tissue summary → no Top/Present either.
 
 
 @unittest.skipUnless(
@@ -223,17 +224,33 @@ class TissueFiltersDuckDBTest(unittest.TestCase):
         else:
             os.environ.pop("DATA_PACKAGE_PATH", None)
 
-    def test_root_catalog_omits_tissue_customs(self) -> None:
+    def test_root_catalog_tissue_explore_customs(self) -> None:
         r = self.client.get("/filtering_terms", params={"limit": 0})
         self.assertEqual(r.status_code, 200, r.text)
         by_id = {t["id"]: t for t in r.json()["response"]["filteringTerms"]}
-        liver = tissue_high_filter_id("UBERON:0002107")
-        self.assertNotIn(liver, by_id)
-        # Mixed matrix unannotated column also omitted from catalog.
+        liver = "UBERON:0002107"
+        # tissueHigh / tissueSpecific stay match-only.
+        self.assertNotIn(tissue_high_filter_id(liver), by_id)
         pseudo = tissue_high_filter_id(matrix_pseudo_ontology_id("GSE107011"))
         self.assertNotIn(pseudo, by_id)
+        # tissueTop / tissuePresent are catalogued for Beacon discovery.
+        top = tissue_top_filter_id(liver)
+        present = tissue_present_filter_id(liver)
+        self.assertIn(top, by_id)
+        self.assertIn(present, by_id)
+        self.assertEqual(by_id[top].get("type"), "custom")
+        self.assertIn("genomicFeature", by_id[top].get("scopes") or [])
+        self.assertEqual(by_id[present].get("type"), "custom")
+        self.assertIn("genomicFeature", by_id[present].get("scopes") or [])
+        # Pseudo matrix columns are not advertised as Top/Present.
+        self.assertNotIn(
+            tissue_top_filter_id(matrix_pseudo_ontology_id("GSE107011")), by_id
+        )
+        self.assertNotIn(
+            tissue_present_filter_id(matrix_pseudo_ontology_id("GSE107011")), by_id
+        )
         # Tissue ontology for Explore sample seeding remains.
-        self.assertIn("UBERON:0002107", by_id)
+        self.assertIn(liver, by_id)
 
     def test_liver_high_returns_beacon_envelope_with_tissue_bands(self) -> None:
         r = self.client.post(

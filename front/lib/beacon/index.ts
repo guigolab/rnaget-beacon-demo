@@ -47,6 +47,7 @@ export {
   isTissueFeatureFilterId,
   isOntologyId,
   isSymbolCustomId,
+  matrixProfileSourceCustomFilter,
   symbolCustomFilter,
   symbolFromCustomId,
   matrixSearchParams,

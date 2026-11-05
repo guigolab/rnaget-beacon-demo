@@ -108,7 +108,10 @@ export function matrixCountForFeature(feature: Feature): number {
 export function matrixViewHref(matrixId: string, feature?: Feature | null): string {
   const params = new URLSearchParams()
   if (feature) {
-    params.set('featureIds', feature.id)
+    // Prefer native accession — matches expressionValue.featureId / slice stubs.
+    const native =
+      feature.genomicFeature?.featureIdentifier?.id?.trim() || feature.id
+    params.set('featureIds', native)
     const gene = featureSymbol(feature)
     if (gene) params.set('genes', gene)
   }

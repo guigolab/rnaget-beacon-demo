@@ -1,15 +1,23 @@
+'use client'
+
 import Link from 'next/link'
+import { useMemo } from 'react'
 import { NamespaceScopeChip } from '@/components/home/namespace-scope-chip'
 import { MetaBadge } from '@/components/shared/detail/meta-badge'
 import { LensMutedEndpoints } from '@/components/shared/lens-muted-endpoints'
 import { buttonVariants } from '@/components/ui/button'
-import type { EntryTypeInfo, FilteringResource, FilteringTerm } from '@/lib/beacon/types'
+import type {
+  EntryTypeInfo,
+  FilteringResource,
+  FilteringTerm,
+} from '@/lib/beacon/types'
 import { cn } from '@/lib/utils'
 import {
   entryTypeScope,
   groupHomeNamespaces,
   scopeCssVars,
   type BeaconScope,
+  type NamespaceScopeGroup,
 } from '@/lib/scope-theme'
 
 const ROUTES: Record<string, string> = {
@@ -24,7 +32,6 @@ const BROWSE_LABEL: Record<string, string> = {
   matrix: 'Browse matrices',
 }
 
-/** Root browsable types with filtering terms first: features → biosamples → matrices. */
 const ENTRY_ORDER: Record<string, number> = {
   feature: 0,
   biosample: 1,
@@ -53,7 +60,7 @@ function EntryAccent({ entryId }: { entryId: string }) {
   )
 }
 
-/** One version string — prefer partOfSpecification over schemaVersion, never both. */
+/** One version string — prefer partOfSpecification over schemaVersion. */
 function entryVersionLabel(entry: EntryTypeInfo): string | undefined {
   const part = entry.partOfSpecification?.trim()
   if (part) return part
@@ -75,31 +82,38 @@ export function EntryTypeCards({
   terms,
   resources = [],
 }: EntryTypeCardsProps) {
-  const sorted = [...entryTypes].sort((a, b) => {
-    const ai = ENTRY_ORDER[a.id ?? ''] ?? 50
-    const bi = ENTRY_ORDER[b.id ?? ''] ?? 50
-    if (ai !== bi) return ai - bi
-    return (a.id ?? '').localeCompare(b.id ?? '')
-  })
-
-  const groupsByScope = groupHomeNamespaces(terms, resources).reduce(
-    (acc, group) => {
-      const list = acc.get(group.scope) ?? []
-      list.push(group)
-      acc.set(group.scope, list)
-      return acc
-    },
-    new Map<BeaconScope, ReturnType<typeof groupHomeNamespaces>>()
+  const sorted = useMemo(
+    () =>
+      [...entryTypes].sort((a, b) => {
+        const ai = ENTRY_ORDER[a.id ?? ''] ?? 50
+        const bi = ENTRY_ORDER[b.id ?? ''] ?? 50
+        if (ai !== bi) return ai - bi
+        return (a.id ?? '').localeCompare(b.id ?? '')
+      }),
+    [entryTypes]
   )
 
+  const groupsByScope = useMemo(() => {
+    return groupHomeNamespaces(terms, resources).reduce(
+      (acc, group) => {
+        const list = acc.get(group.scope) ?? []
+        list.push(group)
+        acc.set(group.scope, list)
+        return acc
+      },
+      new Map<BeaconScope, NamespaceScopeGroup[]>()
+    )
+  }, [terms, resources])
+
   return (
-    <section className="space-y-3">
+    <section id="entities" className="space-y-3">
       <div>
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Entry types
+          Entry types &amp; filtering terms
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Catalogued entry types with filtering-term namespaces for each root scope.
+          Catalogued Beacon entry types with filtering-term namespaces for each
+          root scope.
         </p>
         <div className="mt-1">
           <LensMutedEndpoints lines={['GET /entry_types', 'GET /filtering_terms']} />
@@ -164,7 +178,10 @@ export function EntryTypeCards({
 
                 {nested && (
                   <p className="text-[11px] text-muted-foreground">
-                    Filtered via matrix scope · nested matrix endpoints
+                    Nested only — reached via{' '}
+                    <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">
+                      /matrices/&#123;id&#125;/expression_values
+                    </code>
                   </p>
                 )}
 

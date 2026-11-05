@@ -15,13 +15,13 @@ Request shapes and live OpenAPI: [api.md](api.md). Id-by-id match rules and labe
 
 | Area | Terms |
 |---|---|
-| Genomic features | SO and GO ontology facets; custom **`expression.percentile`** (Top expressed); custom **`feature.biotypeFamily`** (Gene type); alphanumeric **`feature.resource`** (Annotation resource) |
+| Genomic features | SO and GO ontology facets; custom **`expression.percentile`** (Top expressed); custom **`feature.biotypeFamily`** (Gene type); alphanumeric **`feature.resource`** (Annotation resource); custom **`tissueTop:{ontologyId}`** / **`tissuePresent:{ontologyId}`** (Explore tissue bands; one term per UBERON/EFO column) |
 | Biosamples | UBERON / EFO tissue and cell-type facets |
 | Matrices | alphanumeric **`matrix.unit`**, **`matrix.annotation`**, **`matrix.assembly.name`**; custom **`matrix.profileSource`** (Data source: encode / geo / gtex); matrix OBI assay ontology |
 
 **Not catalogued** (and not matched for schema-true biosamples): `sex`, `condition`, `age_bracket`, `timepoint`, `biosample.preset:`.
 
-**Match-only** (server may still accept the id; Explore uses some for heatmap bands): `tissueHigh:` / `tissueSpecific:` / `tissueTop:` / `tissuePresent:`. Gene symbols (`symbol:TP53`) and public gene ids (`HGNC:…`, `NCBIGene:…`) resolve via the gene lookup index and are not enumerated as individual terms.
+**Match-only** (server may still accept the id): `tissueHigh:` / `tissueSpecific:` (incl. `tissueHigh:matrix:…`). Gene symbols (`symbol:TP53`) and public gene ids (`HGNC:…`, `NCBIGene:…`) resolve via the gene lookup index and are not enumerated as individual terms.
 
 Individual HGNC / NCBIGene / ENSEMBL values and gene symbols are **not** listed as terms. `resources[]` in the catalog covers namespaces in use (`so`, `go`, `uberon`, `efo`, `obi`, `mondo`, `hp`, `ncit`, `hgnc`, `ncbigene`, `ensembl`, `symbol`).
 

@@ -80,11 +80,13 @@ def _features_list_response(
         results_are_page=True,
     )
     # Cache-Control / ETag only on GET (POST probes stay uncached by default).
+    fingerprint = getattr(store, "package_fingerprint", None)
+    etag = package_etag(fingerprint()) if callable(fingerprint) else None
     if method == "GET":
         return json_with_headers(
             body,
-            etag=package_etag(store.package_fingerprint()),
-            cache_control=_FEATURES_CACHE_CONTROL,
+            etag=etag,
+            cache_control=_FEATURES_CACHE_CONTROL if etag else None,
             timings_ms=timings,
         )
     return json_with_headers(body, timings_ms=timings)

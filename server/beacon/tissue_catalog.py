@@ -21,9 +21,9 @@ TISSUE_REFERENCE_MIN_BIOSAMPLES = 8
 
 TISSUE_HIGH_PREFIX = "tissueHigh:"
 TISSUE_SPECIFIC_PREFIX = "tissueSpecific:"
-# Explore-only synthetic filter (not catalogued): within-tissue percentile >= 99.
+# Within-tissue percentile >= 99 (catalogued on genomicFeature; Explore bands).
 TISSUE_TOP_PREFIX = "tissueTop:"
-# Explore-only synthetic filter (not catalogued): any row in tissue summary for oid.
+# Any row in tissue summary for oid (catalogued on genomicFeature; Explore bands).
 TISSUE_PRESENT_PREFIX = "tissuePresent:"
 MATRIX_PSEUDO_PREFIX = "matrix:"
 

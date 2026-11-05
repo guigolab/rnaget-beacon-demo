@@ -1489,8 +1489,8 @@ class DuckDBStore:
             except duckdb.Error as exc:
                 logger.debug("gene_lookup symbol presence check skipped: %s", exc)
 
-        # tissueHigh/Specific and biosample.preset are not catalogued (Explore uses
-        # synthetic tissuePresent + UBERON/EFO sample filters instead).
+        # biosample.preset and tissueHigh/Specific stay match-only (not catalogued).
+        # tissueTop / tissuePresent are advertised below via package merge.
 
         filtering_terms = sorted(terms.values(), key=lambda t: (t["id"], t["type"]))
         by_scope: Dict[str, List[str]] = {"biosample": [], "genomicFeature": []}
@@ -1527,6 +1527,7 @@ class DuckDBStore:
         self, *, scopes: Optional[Sequence[str]] = None
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         from beacon.matrix_catalog_seed import merge_filtering_terms
+        from beacon.tissue_explore_catalog import tissue_explore_filtering_terms_for_package
 
         doc = self._filtering_terms_doc or {}
         terms = list(doc.get("filteringTerms") or [])
@@ -1535,6 +1536,10 @@ class DuckDBStore:
         # was built without them (matches FixtureStore behavior).
         matrix_terms, matrix_resources = self.matrix_filtering_terms()
         terms = merge_filtering_terms(terms, matrix_terms)
+        # Advertise tissueTop / tissuePresent even when package JSON predates them.
+        tissue_terms = tissue_explore_filtering_terms_for_package(self.package_path)
+        if tissue_terms:
+            terms = merge_filtering_terms(terms, tissue_terms)
         resources_by_id = {
             str(r.get("id") or ""): dict(r)
             for r in (*resources, *matrix_resources)
