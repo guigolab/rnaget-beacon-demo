@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Build per-matrix expression stats parquet + matrices.json expressionValueRange.
 
-Feature stats include min/max/mean/median, detection counts, expression
-percentile band (quintiles of median among detected features), and (when the
-matrix has enough biosamples and ≥2 ontology groups) profile / enriched_in
-labels. Biosample stats include detected_genes and a percentile band.
+Feature stats include min/max/mean/median, detection counts, and median_percentile
+(percentile rank of median among detected features; no MIN_N gate — works for
+n_biosamples >= 1). Biosample stats include detected_genes (column only; not a filter).
 """
 
 from __future__ import annotations
@@ -18,34 +17,6 @@ from typing import Any, Dict, List, Optional, Tuple
 SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-
-# Minimum biosample count before band / profile labels are assigned.
-MIN_N = 10
-# Enrichment: max group median must be ≥ this multiple of the mean of others.
-ENRICHMENT_RATIO = 4.0
-# Detected in at least this fraction → "ubiquitous".
-UBIQUITOUS_FRACTION = 0.9
-# Detected below this fraction → "not-detected".
-NOT_DETECTED_FRACTION = 0.05
-# Quintile labels for ntile(5) among detected features / biosamples.
-# Tile 1 = lowest 20% … tile 5 = highest 20%. Undetected → "none".
-PERCENTILE_BAND_TILES = {
-    1: "0-20",
-    2: "20-40",
-    3: "40-60",
-    4: "60-80",
-    5: "80-100",
-}
-PERCENTILE_BAND_NTILE = 5
-
-
-def _percentile_band_sql(tile_col: str) -> str:
-    """CASE arms mapping ntile buckets to explicit percentile-range labels."""
-    arms = "\n".join(
-        f"                WHEN {tile_col} = {tile} THEN '{label}'"
-        for tile, label in sorted(PERCENTILE_BAND_TILES.items())
-    )
-    return arms
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -80,24 +51,6 @@ def _expression_source(matrix_dir: Path) -> Optional[str]:
     return None
 
 
-def _biosample_group_sql(matrix_dir: Path) -> Optional[str]:
-    """Return a subquery of (biosample_id, group_id) when ontology_id is present."""
-    bio_path = matrix_dir / "biosamples.parquet"
-    if not bio_path.is_file():
-        return None
-    import pyarrow.parquet as pq
-
-    names = set(pq.read_schema(bio_path).names)
-    if "biosample_id" not in names or "ontology_id" not in names:
-        return None
-    return (
-        f"SELECT biosample_id, "
-        f"COALESCE(NULLIF(TRIM(CAST(ontology_id AS VARCHAR)), ''), 'undefined') "
-        f"AS group_id "
-        f"FROM read_parquet('{_sql_path(bio_path)}')"
-    )
-
-
 def build_matrix_stats(matrix_dir: Path) -> Tuple[float, float, int, int]:
     """Write stats parquet files; return (global_min, global_max, n_features, n_biosamples)."""
     from duckdb_util import connect_duckdb
@@ -110,7 +63,6 @@ def build_matrix_stats(matrix_dir: Path) -> Tuple[float, float, int, int]:
 
     feat_out = matrix_dir / "feature_expression_stats.parquet"
     bio_out = matrix_dir / "biosample_expression_stats.parquet"
-    group_sql = _biosample_group_sql(matrix_dir)
     temp_dir = matrix_dir / ".duckdb-tmp-stats"
     temp_dir.mkdir(parents=True, exist_ok=True)
     con = connect_duckdb(database=":memory:")
@@ -142,109 +94,26 @@ def build_matrix_stats(matrix_dir: Path) -> Tuple[float, float, int, int]:
             """
         )
 
-        n_bio = int(
-            con.execute(
-                f"SELECT count(DISTINCT biosample_id) FROM {source}"
-            ).fetchone()[0]
-        )
-
-        # Profile / enrichment when the matrix is large enough and multi-group.
-        can_profile = False
-        if group_sql is not None and n_bio >= MIN_N:
-            con.execute(f"CREATE TEMP TABLE bio_groups AS {group_sql}")
-            n_groups = int(
-                con.execute(
-                    "SELECT count(DISTINCT group_id) FROM bio_groups "
-                    "WHERE group_id != 'undefined'"
-                ).fetchone()[0]
-            )
-            can_profile = n_groups >= 2
-
-        if can_profile:
-            con.execute(
-                f"""
-                CREATE TEMP TABLE feat_group_med AS
-                SELECT
-                  e.feature_id,
-                  g.group_id,
-                  median(e.value) AS group_median,
-                  count(*) FILTER (WHERE e.value > 0) AS group_nonzero
-                FROM {source} e
-                JOIN bio_groups g USING (biosample_id)
-                WHERE g.group_id != 'undefined'
-                GROUP BY e.feature_id, g.group_id
-                """
-            )
-            con.execute(
-                """
-                CREATE TEMP TABLE feat_enrich AS
-                SELECT
-                  feature_id,
-                  arg_max(group_id, group_median) AS top_group,
-                  max(group_median) AS top_median,
-                  CASE
-                    WHEN count(*) <= 1 THEN NULL
-                    WHEN (sum(group_median) - max(group_median))
-                         / NULLIF(count(*) - 1, 0) <= 0
-                      THEN NULL
-                    WHEN max(group_median) >= ? * (
-                         (sum(group_median) - max(group_median))
-                         / NULLIF(count(*) - 1, 0)
-                       )
-                      THEN arg_max(group_id, group_median)
-                    ELSE NULL
-                  END AS enriched_in
-                FROM feat_group_med
-                GROUP BY feature_id
-                """,
-                [ENRICHMENT_RATIO],
-            )
-            enrich_join = "LEFT JOIN feat_enrich e USING (feature_id)"
-            enrich_select = "e.enriched_in AS enriched_in"
-            profile_extra = (
-                "WHEN e.enriched_in IS NOT NULL THEN 'tissue-enriched'"
-            )
-        else:
-            enrich_join = ""
-            enrich_select = "CAST(NULL AS VARCHAR) AS enriched_in"
-            profile_extra = "WHEN FALSE THEN NULL"
-
-        # Quintile percentile bands among detected features only.
+        # Percentile rank of median among detected features (n_biosamples >= 1).
         con.execute(
-            f"""
-            CREATE TEMP TABLE feat_detected_tiles AS
+            """
+            CREATE TEMP TABLE feat_detected_pct AS
             SELECT
               feature_id,
-              ntile({PERCENTILE_BAND_NTILE}) OVER (ORDER BY median NULLS LAST)
-                AS median_tile
+              percent_rank() OVER (ORDER BY median NULLS LAST) * 100.0
+                AS median_percentile
             FROM feat_base
             WHERE detected_fraction > 0
             """
         )
         con.execute(
-            f"""
+            """
             CREATE TEMP TABLE feat_stats AS
             SELECT
               b.*,
-              CASE
-                WHEN {n_bio} < {MIN_N} THEN NULL
-                WHEN b.detected_fraction <= 0 THEN 'none'
-{_percentile_band_sql("t.median_tile")}
-                ELSE 'none'
-              END AS band,
-              CASE
-                WHEN {n_bio} < {MIN_N} THEN NULL
-                WHEN b.detected_fraction < {NOT_DETECTED_FRACTION}
-                  THEN 'not-detected'
-                WHEN b.detected_fraction >= {UBIQUITOUS_FRACTION}
-                  THEN 'ubiquitous'
-                {profile_extra}
-                ELSE 'low-specificity'
-              END AS profile,
-              {enrich_select}
+              p.median_percentile AS median_percentile
             FROM feat_base b
-            LEFT JOIN feat_detected_tiles t USING (feature_id)
-            {enrich_join}
+            LEFT JOIN feat_detected_pct p USING (feature_id)
             """
         )
 
@@ -264,29 +133,9 @@ def build_matrix_stats(matrix_dir: Path) -> Tuple[float, float, int, int]:
             """
         )
         con.execute(
-            f"""
-            CREATE TEMP TABLE bio_detected_tiles AS
-            SELECT
-              biosample_id,
-              ntile({PERCENTILE_BAND_NTILE}) OVER (ORDER BY detected_genes)
-                AS genes_tile
-            FROM bio_base
-            WHERE detected_genes > 0
             """
-        )
-        con.execute(
-            f"""
             CREATE TEMP TABLE bio_stats AS
-            SELECT
-              b.*,
-              CASE
-                WHEN {n_bio} < {MIN_N} THEN NULL
-                WHEN b.detected_genes <= 0 THEN 'none'
-{_percentile_band_sql("t.genes_tile")}
-                ELSE 'none'
-              END AS detected_genes_band
-            FROM bio_base b
-            LEFT JOIN bio_detected_tiles t USING (biosample_id)
+            SELECT * FROM bio_base
             """
         )
 

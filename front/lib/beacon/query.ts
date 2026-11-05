@@ -1,10 +1,17 @@
 import type { BeaconFilter, Granularity, UiFilter } from './types'
 import { needsPost, toBeaconFilter } from './filters'
 
-export type RequestParameters = Record<
-  string,
-  string | number | boolean | string[] | undefined | null
->
+/** Matches server `BeaconRequestParameters` under `query.requestParameters`. */
+export type RequestParameters = {
+  featureIDList?: string
+  biosampleIDList?: string
+  matrixIDList?: string
+  minValue?: number
+  maxValue?: number
+  /** expression_values only: order by cell value. */
+  order?: string
+  [key: string]: string | number | boolean | string[] | undefined | null
+}
 
 export type QueryOptions = {
   filters?: UiFilter[]

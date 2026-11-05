@@ -45,10 +45,16 @@ class FiltersSmokeTest(unittest.TestCase):
         self.assertTrue(terms)
         self.assertTrue({"so", "hgnc", "ncbigene", "ensembl"} <= resources)
         self.assertIn("efo", resources)
-        self.assertTrue(any(t["id"] == "sex" for t in terms))
         term_ids = {t["id"] for t in terms}
+        self.assertNotIn("sex", term_ids)
+        self.assertNotIn("condition", term_ids)
+        profile = next(t for t in terms if t["id"] == "matrix.profileSource")
+        self.assertEqual(profile["type"], "custom")
         self.assertNotIn("GEO:sample", term_ids)
         self.assertNotIn("resource:gencode", term_ids)
+        self.assertNotIn("resource:ncbigene", term_ids)
+        self.assertIn("feature.resource", term_ids)
+        self.assertIn("feature.biotypeFamily", term_ids)
         for t in terms:
             self.assertFalse(
                 str(t["id"]).startswith(("HGNC:", "NCBIGene:", "ENSEMBL:")),

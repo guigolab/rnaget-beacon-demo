@@ -112,8 +112,8 @@ Biosample rows are enriched during export with `biosampleStatus`, `phenotypicFea
 
 | File | Role |
 |------|------|
-| **feature_expression_stats.parquet** | Per-gene min/max/mean/median, detection counts, expression percentile `band` (quintiles + none) / `profile` / `enriched_in`, and argmin/argmax biosample ids |
-| **biosample_expression_stats.parquet** | Per-sample min/max, `detected_genes`, `detected_genes_band` (same quintile labels), and argmin/argmax feature ids |
+| **feature_expression_stats.parquet** | Per-gene min/max/mean/median, detection counts, `median_percentile` (gene rank among detected), and argmin/argmax biosample ids |
+| **biosample_expression_stats.parquet** | Per-sample min/max, `detected_genes`, and argmin/argmax feature ids |
 
 It also sets `expressionValueRange` on each matrix in `matrices.json`. These stats are **included in the release tarball**. `fetch_data_package.py` reuses them by default (pass `--force-stats` to rebuild).
 
@@ -154,7 +154,7 @@ data-package/
     <matrix-id>/
       features.parquet
       biosamples.parquet
-      feature_expression_stats.parquet   # per-gene stats + band/profile
+      feature_expression_stats.parquet   # per-gene stats + median_percentile
       biosample_expression_stats.parquet # per-sample stats + detected_genes
       percentile_in_feature.parquet      # optional (fetch-time)
       percentile_in_biosample.parquet    # optional (fetch-time)
@@ -164,7 +164,7 @@ data-package/
         …
 ```
 
-**Expression stats:** written on GHA and shipped in the release. Fetch reuses them unless missing or `--force-stats`. The API uses those tables for nested feature/biosample expression filters and related sorts.
+**Expression stats:** written on GHA and shipped in the release. Fetch reuses them unless missing or `--force-stats`. The API uses those tables for nested feature/biosample expression filters (not for nested listing sort keys).
 
 **Intended use of the gene tables:** look up a gene name or cross-reference in `gene_lookup`, get the native feature IDs, then join to expression for the matrices you care about. That supports future “search by gene symbol” APIs without re-parsing GTF/GFF at query time.
 

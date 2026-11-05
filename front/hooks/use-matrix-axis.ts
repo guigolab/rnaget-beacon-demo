@@ -8,7 +8,6 @@ import {
   filterKey,
   type Biosample,
   type Feature,
-  type MatrixAxisSort,
   type UiFilter,
 } from '@/lib/beacon'
 import { appendAxisPage } from '@/lib/matrix-axis-page'
@@ -44,10 +43,6 @@ type UseMatrixAxisInput = {
   filters: UiFilter[]
   featureIDList?: string
   biosampleIDList?: string
-  minValue?: number
-  maxValue?: number
-  sort?: MatrixAxisSort
-  order?: 'asc' | 'desc'
   pageSize: number
   enabled?: boolean
 }
@@ -62,12 +57,8 @@ export function useMatrixAxis<T extends AxisItem>(input: UseMatrixAxisInput): Ma
     matrixId: input.matrixId,
     axis: input.axis,
     filtersKey,
-    featureIDList: input.featureIDList ?? '',
-    biosampleIDList: input.biosampleIDList ?? '',
-    minValue: input.axis === 'features' ? (input.minValue ?? null) : null,
-    maxValue: input.axis === 'features' ? (input.maxValue ?? null) : null,
-    sort: input.axis === 'features' ? (input.sort ?? 'expression.max') : 'id',
-    order: input.axis === 'features' ? (input.order ?? 'desc') : 'asc',
+    featureIDList: input.axis === 'features' ? (input.featureIDList ?? '') : '',
+    biosampleIDList: input.axis === 'biosamples' ? (input.biosampleIDList ?? '') : '',
     pageSize: input.pageSize,
   })
 
@@ -89,16 +80,18 @@ export function useMatrixAxis<T extends AxisItem>(input: UseMatrixAxisInput): Ma
 
   const fetchPage = useCallback(
     (skip: number, signal: AbortSignal) => {
-      const opts = {
-        filters: filtersRef.current,
-        featureIDList: input.featureIDList,
-        biosampleIDList: input.biosampleIDList,
-        minValue: input.axis === 'features' ? input.minValue : undefined,
-        maxValue: input.axis === 'features' ? input.maxValue : undefined,
-        sort: input.axis === 'features' ? input.sort : undefined,
-        order: input.axis === 'features' ? input.order : undefined,
-        signal,
-      }
+      const opts =
+        input.axis === 'features'
+          ? {
+              filters: filtersRef.current,
+              featureIDList: input.featureIDList,
+              signal,
+            }
+          : {
+              filters: filtersRef.current,
+              biosampleIDList: input.biosampleIDList,
+              signal,
+            }
       return input.axis === 'features'
         ? listMatrixFeatures(input.matrixId, skip, input.pageSize, opts)
         : listMatrixBiosamples(input.matrixId, skip, input.pageSize, opts)
@@ -108,11 +101,7 @@ export function useMatrixAxis<T extends AxisItem>(input: UseMatrixAxisInput): Ma
       input.biosampleIDList,
       input.featureIDList,
       input.matrixId,
-      input.maxValue,
-      input.minValue,
-      input.order,
       input.pageSize,
-      input.sort,
     ]
   )
 
@@ -121,22 +110,6 @@ export function useMatrixAxis<T extends AxisItem>(input: UseMatrixAxisInput): Ma
     const gen = ++genRef.current
     moreControllerRef.current?.abort()
     moreRef.current = false
-    const rangeInverted =
-      input.axis === 'features' &&
-      input.minValue != null &&
-      input.maxValue != null &&
-      input.minValue > input.maxValue
-    if (rangeInverted) {
-      setSnapshot({
-        requestKey,
-        items: [],
-        total: 0,
-        nextSkip: 0,
-        status: 'error',
-        error: 'Minimum must be less than or equal to maximum.',
-      })
-      return
-    }
     const controller = new AbortController()
     setSnapshot((prev) => ({ ...prev, status: 'loading', error: '' }))
     setLoadingMore(false)

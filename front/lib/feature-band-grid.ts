@@ -2,12 +2,12 @@ import { listMatrixFeatures } from '@/lib/beacon/client'
 import type { Feature } from '@/lib/beacon/types'
 import {
   BAND_MATRIX_WINDOW_MAX,
-  EXPRESSION_BANDS,
+  FEATURE_PERCENTILE_THRESHOLDS,
   bandCellKey,
-  featurePercentileFilterId,
+  featurePercentileFilter,
   matrixIdsForEntities,
   type BandCellValue,
-  type ExpressionBand,
+  type FeaturePercentileThreshold,
 } from '@/lib/expression-band'
 import { featureTokens, nativeFeatureId } from '@/lib/heatmap-expression'
 
@@ -74,7 +74,7 @@ export function featureLookupByToken(features: Feature[]): Map<string, Feature> 
 export function applyColumnBandHits(
   cells: Map<string, FeatureBandCell>,
   matrixId: string,
-  band: ExpressionBand,
+  band: FeaturePercentileThreshold,
   hits: Feature[],
   byToken: Map<string, Feature>,
   claimed: Set<string>
@@ -95,7 +95,7 @@ export function applyColumnBandHits(
   }
 }
 
-/** Remaining in-matrix members with no band hit default to none. */
+/** Remaining in-matrix members with no percentile-threshold hit default to none. */
 export function finalizeColumnUnmatched(
   cells: Map<string, FeatureBandCell>,
   matrixId: string,
@@ -114,7 +114,8 @@ export function finalizeColumnUnmatched(
 
 /**
  * Paint one matrix column for the current feature page via
- * `POST /matrices/{id}/features` + `featureIDList` + `expression.percentile.*`.
+ * `POST /matrices/{id}/features` + `featureIDList` + alphanumeric
+ * `expression.percentile` (probes strongest first: 99 → 95 → 90).
  */
 export async function loadFeatureBandColumn(
   matrixId: string,
@@ -133,18 +134,18 @@ export async function loadFeatureBandColumn(
   ].join(',')
   const limit = Math.max(members.length, 1)
 
-  for (const band of EXPRESSION_BANDS) {
+  for (const threshold of FEATURE_PERCENTILE_THRESHOLDS) {
     if (signal?.aborted) break
     if (claimed.size >= members.length) break
     const page = await listMatrixFeatures(matrixId, 0, limit, {
       featureIDList,
-      filters: [{ kind: 'custom', id: featurePercentileFilterId(band) }],
+      filters: [featurePercentileFilter(threshold)],
       signal,
     })
     applyColumnBandHits(
       cells,
       matrixId,
-      band,
+      threshold,
       page.results ?? [],
       byToken,
       claimed

@@ -9,7 +9,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -136,8 +136,14 @@ def _biosample(bid: str, matrix_id: str, ontology: str, label: str, sex: str, ri
     }
 
 
-def _matrix_doc(mid: str, n_feat: int, n_bio: int) -> Dict[str, Any]:
-    return {
+def _matrix_doc(
+    mid: str,
+    n_feat: int,
+    n_bio: int,
+    *,
+    profile_source: Optional[str] = None,
+) -> Dict[str, Any]:
+    doc: Dict[str, Any] = {
         "matrixId": mid,
         "name": mid,
         "expressionUnitAndScale": {"unit": "TPM", "scale": "linear"},
@@ -151,6 +157,9 @@ def _matrix_doc(mid: str, n_feat: int, n_bio: int) -> Dict[str, Any]:
         "reproducible": True,
         "dimensions": {"features": n_feat, "biosamples": n_bio},
     }
+    if profile_source:
+        doc["info"] = {"profileSource": profile_source}
+    return doc
 
 
 def _build_package(root: Path) -> None:
@@ -410,10 +419,10 @@ def _build_package(root: Path) -> None:
     (root / "matrices.json").write_text(
         json.dumps(
             [
-                _matrix_doc("M_DENSE", 2, 2),
-                _matrix_doc("M_SPARSE", 3, 2),
-                _matrix_doc("M_OTHER", 1, 1),
-                _matrix_doc("M_HEAT", 12, 12),
+                _matrix_doc("M_DENSE", 2, 2, profile_source="gtex"),
+                _matrix_doc("M_SPARSE", 3, 2, profile_source="geo"),
+                _matrix_doc("M_OTHER", 1, 1, profile_source="gtex"),
+                _matrix_doc("M_HEAT", 12, 12, profile_source="encode"),
             ]
         ),
         encoding="utf-8",
@@ -479,11 +488,11 @@ def _build_package(root: Path) -> None:
                         "scopes": ["biosample"],
                     },
                     {
-                        "type": "alphanumeric",
-                        "id": "sex",
-                        "label": "Sex",
-                        "scopes": ["biosample"],
-                        "values": ["female", "male"],
+                        "type": "custom",
+                        "id": "matrix.profileSource",
+                        "label": "Data source",
+                        "scopes": ["matrix"],
+                        "values": ["encode", "geo", "gtex"],
                     },
                 ],
             }
@@ -802,21 +811,9 @@ class DuckDBPackageTest(unittest.TestCase):
         self.assertEqual(rejected.status_code, 400, rejected.text)
 
     def test_expression_values_id_lists_are_not_capped(self) -> None:
-        """The former 20/10 one-sided-list caps and combined-rank ordering
-        were removed: ID-list queries are now plain intersection filters with
-        no special page-size cap and no caps helper override.
+        """ID-list queries are plain intersection filters with no special
+        page-size cap from former one-sided-list helpers.
         """
-        from beacon.duckdb_store import apply_expression_values_limit_cap
-
-        # The (deprecated) cap helper is now a no-op clamp only.
-        self.assertEqual(apply_expression_values_limit_cap(100, "TP53", None), 100)
-        self.assertEqual(
-            apply_expression_values_limit_cap(100, None, "B1,B2,B3"), 100
-        )
-        self.assertEqual(
-            apply_expression_values_limit_cap(100, "TP53,GAPDH", "B1,B2"), 100
-        )
-
         single_feature = self.client.get(
             "/matrices/M_DENSE/expression_values",
             params={"featureIDList": "ENSG00000141510.18", "limit": 50},
@@ -865,13 +862,15 @@ class DuckDBPackageTest(unittest.TestCase):
         dense_body = densified.json()
         dense_rows = dense_body["response"]["resultSets"][0]["results"]
         self.assertEqual(len(dense_rows), 100)
-        axes = dense_body["info"]["axes"]
-        self.assertEqual(len(axes["featureIds"]), 10)
-        self.assertEqual(len(axes["biosampleIds"]), 10)
+        self.assertNotIn("info", dense_body)
         pair_set = {(r["featureId"], r["biosampleId"]) for r in dense_rows}
         self.assertEqual(len(pair_set), 100)
+        feature_ids = {r["featureId"] for r in dense_rows}
+        biosample_ids = {r["biosampleId"] for r in dense_rows}
+        self.assertEqual(len(feature_ids), 10)
+        self.assertEqual(len(biosample_ids), 10)
 
-    def test_expression_values_info_axes(self) -> None:
+    def test_expression_values_no_envelope_info(self) -> None:
         response = self.client.get(
             "/matrices/M_DENSE/expression_values",
             params={"limit": 10, "order": "desc"},
@@ -880,21 +879,9 @@ class DuckDBPackageTest(unittest.TestCase):
         body = response.json()
         results = body["response"]["resultSets"][0]["results"]
         self.assertTrue(results)
-        axes = body["info"]["axes"]
-        feature_ids = axes["featureIds"]
-        biosample_ids = axes["biosampleIds"]
-        self.assertEqual(
-            feature_ids,
-            list(dict.fromkeys(row["featureId"] for row in results)),
-        )
-        self.assertEqual(
-            biosample_ids,
-            list(dict.fromkeys(row["biosampleId"] for row in results)),
-        )
-        # Once per response — not on each cell.
+        self.assertNotIn("info", body)
         for row in results:
             self.assertNotIn("axes", row)
-            self.assertNotIn("info", row)
 
         count = self.client.get(
             "/matrices/M_DENSE/expression_values",
@@ -921,7 +908,40 @@ class DuckDBPackageTest(unittest.TestCase):
         bio = self.client.get("/biosamples/B1").json()["response"]["resultSets"][0]["results"][0]
         self.assertNotIn("ontology_source", bio)
         self.assertNotIn("sex", bio)
-        self.assertEqual(bio["info"]["sex"], "female")
+        self.assertNotIn("info", bio)
+
+    def test_matrix_profile_source_filter_and_public_doc(self) -> None:
+        from beacon.filters import matrix_matches, normalize_filters
+
+        raw_dense = self.store._matrices_by_id["M_DENSE"]
+        raw_sparse = self.store._matrices_by_id["M_SPARSE"]
+        gtex = normalize_filters([{"id": "matrix.profileSource:gtex"}])
+        geo = normalize_filters([{"id": "matrix.profileSource:geo"}])
+        self.assertTrue(matrix_matches(raw_dense, gtex))
+        self.assertFalse(matrix_matches(raw_sparse, gtex))
+        self.assertTrue(matrix_matches(raw_sparse, geo))
+
+        listed = self.client.post(
+            "/matrices",
+            json={
+                "query": {
+                    "filters": [{"id": "matrix.profileSource:gtex"}],
+                    "pagination": {"skip": 0, "limit": 10},
+                }
+            },
+        )
+        self.assertEqual(listed.status_code, 200, listed.text)
+        ids = {
+            row["matrixId"]
+            for row in listed.json()["response"]["resultSets"][0]["results"]
+        }
+        self.assertEqual(ids, {"M_DENSE", "M_OTHER"})
+
+        detail = self.client.get("/matrices/M_DENSE")
+        self.assertEqual(detail.status_code, 200, detail.text)
+        row = detail.json()["response"]["resultSets"][0]["results"][0]
+        self.assertNotIn("info", row)
+        self.assertNotIn("info", detail.json())
 
     def test_axis_filtering_terms_cover_ontology(self) -> None:
         r = self.client.get("/matrices/M_DENSE/filtering_terms")

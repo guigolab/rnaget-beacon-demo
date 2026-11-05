@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse
@@ -12,15 +12,18 @@ from beacon.schemas.envelopes import (
     OPENAPI_BEACON_RESPONSES,
     OPENAPI_FILTERING_TERMS_RESPONSES,
 )
-from routers.common import empty_entity_response, list_response
+from routers.common import (
+    FILTERS_CSV_QUERY_DESCRIPTION,
+    empty_entity_response,
+    list_response,
+    page_filtering_terms,
+)
 from routers.deps import (
     AxisOrder,
-    AxisSort,
     BeaconRequestBody,
     ExpressionValuesRequestBody,
     MatrixAxisRequestBody,
     axis_order_value,
-    axis_sort_value,
     model_to_dict,
     parse_id_list_or_error,
     partial_received_for_error,
@@ -37,12 +40,12 @@ from routers.request_params import params_from_get, params_from_post, params_sum
 router = APIRouter(tags=["Matrices"])
 
 
-@router.get("/matrices", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.get("/matrices", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="getMatrices")
 def get_matrices(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
-    filters: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None, description=FILTERS_CSV_QUERY_DESCRIPTION),
 ) -> Union[Dict[str, Any], JSONResponse]:
     partial = partial_received_for_error(
         skip=skip,
@@ -78,7 +81,7 @@ def get_matrices(
     )
 
 
-@router.post("/matrices", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.post("/matrices", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="postMatricesRequest")
 def post_matrices(
     body: BeaconRequestBody = Body(...),
 ) -> Union[Dict[str, Any], JSONResponse]:
@@ -112,7 +115,7 @@ def post_matrices(
     )
 
 
-@router.get("/matrices/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.get("/matrices/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="getOneMatrix")
 def get_matrix(
     id: str,
     requestedGranularity: Optional[str] = Query(None),
@@ -130,7 +133,7 @@ def get_matrix(
     return list_response([item], "matrix", id, 0, 1, gran, received)
 
 
-@router.post("/matrices/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.post("/matrices/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="postOneMatrix")
 def post_matrix(
     id: str, body: BeaconRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:
@@ -149,24 +152,37 @@ def post_matrix(
     return list_response([item], "matrix", id, 0, 1, gran, received)
 
 
-def _effective_axis_summary(
-    store: Any,
-    matrix_id: str,
-    *,
-    axis: str,
-    sort: Any,
-    order: Any,
-) -> Dict[str, str]:
-    sort_req = axis_sort_value(sort)
-    order_req = axis_order_value(order)
-    effective = getattr(store, "effective_axis_sort", None)
-    if callable(effective):
-        sort_v, order_v = effective(
-            matrix_id, axis=axis, sort=sort_req, order=order_req
+def _reject_disallowed_request_parameters(
+    params: Dict[str, Any],
+    allowed: frozenset,
+    received,
+) -> Optional[JSONResponse]:
+    bad = set(params) - allowed
+    if bad:
+        return error_json(
+            400,
+            "unsupported requestParameters for this path: "
+            + ", ".join(sorted(bad)),
+            received=received,
         )
-    else:
-        sort_v, order_v = sort_req, order_req
-    return {"sort": sort_v, "order": order_v}
+    return None
+
+
+def _listing_extra(
+    params: Dict[str, Any],
+    *filter_groups,
+) -> Dict[str, Any]:
+    extra: Dict[str, Any] = {}
+    merged: List[Any] = []
+    for group in filter_groups:
+        if group:
+            merged.extend(group)
+    if merged:
+        extra.update(filters_summary(merged) or {})
+    rp = params_summary(params)
+    if rp:
+        extra.update(rp)
+    return extra
 
 
 def _reject_inverted_range(params: Dict[str, Any], received):
@@ -185,50 +201,48 @@ def _reject_inverted_range(params: Dict[str, Any], received):
     return None
 
 
-def _matrix_axis_list(
+def _matrix_nested_list(
     id: str,
     *,
-    axis: str,
+    kind: str,
     entity_type: str,
     filt,
     skip_v: int,
     limit_v: int,
     gran,
     received,
-    sort: str,
-    order: str,
     biosample_filters=None,
     feature_filters=None,
     feature_id_list: Optional[str] = None,
     biosample_id_list: Optional[str] = None,
-    min_value: Optional[float] = None,
-    max_value: Optional[float] = None,
 ):
+    """Nested features/biosamples listing (id order; matching ID-list filter only)."""
     store = get_store()
     page_limit = limit_v if gran.value == "record" else 0
-    if axis == "features":
+    # Store APIs still accept sort/order; use stable id/asc defaults.
+    if kind == "features":
         results, total = store.features_for_matrix_page(
             id,
             skip=skip_v,
             limit=page_limit,
-            sort=sort,
-            order=order,
+            sort="id",
+            order="asc",
             biosample_filters=biosample_filters if biosample_filters is not None else filt,
             feature_filters=feature_filters,
             feature_id_list=feature_id_list,
-            biosample_id_list=biosample_id_list,
-            min_value=min_value,
-            max_value=max_value,
+            biosample_id_list=None,
+            min_value=None,
+            max_value=None,
         )
     else:
         results, total = store.biosamples_for_matrix_page(
             id,
             skip=skip_v,
             limit=page_limit,
-            sort=sort,
-            order=order,
+            sort="id",
+            order="asc",
             filters=filt,
-            feature_id_list=feature_id_list,
+            feature_id_list=None,
             biosample_id_list=biosample_id_list,
         )
     return list_response(
@@ -244,36 +258,18 @@ def _matrix_axis_list(
     )
 
 
-def _feature_axis_extra(store: Any, matrix_id: str, params: Dict[str, Any], feature_filters, biosample_filters):
-    extra = _effective_axis_summary(
-        store,
-        matrix_id,
-        axis="features",
-        sort=params.get("sort"),
-        order=params.get("order"),
-    )
-    merged = list(feature_filters or []) + list(biosample_filters or [])
-    if merged:
-        extra = {**extra, **(filters_summary(merged) or {})}
-    rp = params_summary(params)
-    if rp:
-        extra = {**extra, **rp}
-    return extra
+_FEATURES_RP = frozenset({"featureIDList"})
+_BIOSAMPLES_RP = frozenset({"biosampleIDList"})
 
 
-@router.get("/matrices/{id}/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.get("/matrices/{id}/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="getOneMatrixFeatures")
 def get_matrix_features(
     id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
-    filters: Optional[str] = Query(None),
-    sort: AxisSort = Query(AxisSort.id),
-    order: AxisOrder = Query(AxisOrder.asc),
-    featureIDList: Optional[str] = Query(None),
-    biosampleIDList: Optional[str] = Query(None),
-    minValue: Optional[float] = Query(None),
-    maxValue: Optional[float] = Query(None),
+    filters: Optional[str] = Query(None, description=FILTERS_CSV_QUERY_DESCRIPTION),
+    featureIDList: Optional[str] = Query(None, description="Comma-separated feature IDs."),
 ) -> Union[Dict[str, Any], JSONResponse]:
     store = get_store()
     partial = partial_received_for_error(
@@ -291,26 +287,19 @@ def get_matrix_features(
     params, perr = params_from_get(
         received=partial,
         featureIDList=featureIDList,
-        biosampleIDList=biosampleIDList,
-        minValue=minValue,
-        maxValue=maxValue,
-        sort=axis_sort_value(sort),
-        order=axis_order_value(order),
     )
     if perr:
         return perr
-    inverted = _reject_inverted_range(params, partial)
-    if inverted:
-        return inverted
-    extra = _feature_axis_extra(
-        store, id, params, feature_filters, biosample_filters
-    )
+    bad = _reject_disallowed_request_parameters(params, _FEATURES_RP, partial)
+    if bad:
+        return bad
+    extra = _listing_extra(params, feature_filters, biosample_filters)
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
         requested_granularity=requestedGranularity,
         cap_limit=True,
-        extra_summary=extra,
+        extra_summary=extra or None,
         entity_type="feature",
     )
     if err:
@@ -318,27 +307,22 @@ def get_matrix_features(
     skip_v, limit_v, gran, received = resolved
     if not store.get_matrix(id):
         return empty_entity_response("feature", id, gran, received)
-    return _matrix_axis_list(
+    return _matrix_nested_list(
         id,
-        axis="features",
+        kind="features",
         entity_type="feature",
         filt=biosample_filters,
         skip_v=skip_v,
         limit_v=limit_v,
         gran=gran,
         received=received,
-        sort=extra["sort"],
-        order=extra["order"],
         biosample_filters=biosample_filters,
         feature_filters=feature_filters,
         feature_id_list=params.get("featureIDList"),
-        biosample_id_list=params.get("biosampleIDList"),
-        min_value=params.get("minValue"),
-        max_value=params.get("maxValue"),
     )
 
 
-@router.post("/matrices/{id}/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.post("/matrices/{id}/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="postOneMatrixFeatures")
 def post_matrix_features(
     id: str, body: MatrixAxisRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:
@@ -348,21 +332,19 @@ def post_matrix_features(
     params, perr = params_from_post(payload, received=partial)
     if perr:
         return perr
+    bad = _reject_disallowed_request_parameters(params, _FEATURES_RP, partial)
+    if bad:
+        return bad
     split, ferr = resolve_matrix_feature_axis_filters(
         body=payload, received=partial
     )
     if ferr:
         return ferr
     feature_filters, biosample_filters = split
-    inverted = _reject_inverted_range(params, partial)
-    if inverted:
-        return inverted
-    extra = _feature_axis_extra(
-        store, id, params, feature_filters, biosample_filters
-    )
+    extra = _listing_extra(params, feature_filters, biosample_filters)
     resolved, err = resolve_or_error(
         body=payload,
-        extra_summary=extra,
+        extra_summary=extra or None,
         cap_limit=True,
         entity_type="feature",
     )
@@ -371,23 +353,18 @@ def post_matrix_features(
     skip_v, limit_v, gran, received = resolved
     if not store.get_matrix(id):
         return empty_entity_response("feature", id, gran, received)
-    return _matrix_axis_list(
+    return _matrix_nested_list(
         id,
-        axis="features",
+        kind="features",
         entity_type="feature",
         filt=biosample_filters,
         skip_v=skip_v,
         limit_v=limit_v,
         gran=gran,
         received=received,
-        sort=extra["sort"],
-        order=extra["order"],
         biosample_filters=biosample_filters,
         feature_filters=feature_filters,
         feature_id_list=params.get("featureIDList"),
-        biosample_id_list=params.get("biosampleIDList"),
-        min_value=params.get("minValue"),
-        max_value=params.get("maxValue"),
     )
 
 
@@ -395,34 +372,44 @@ def post_matrix_features(
     "/matrices/{id}/filtering_terms",
     response_model=None,
     responses=OPENAPI_FILTERING_TERMS_RESPONSES,
+    operation_id="getOneMatrixFilteringTerms",
 )
 @router.post(
     "/matrices/{id}/filtering_terms",
     response_model=None,
     responses=OPENAPI_FILTERING_TERMS_RESPONSES,
+    operation_id="postOneMatrixFilteringTerms",
 )
-def matrix_scoped_filtering_terms(id: str):
+def matrix_scoped_filtering_terms(
+    id: str,
+    skip: int = Query(0, ge=0, description="Number of terms to skip."),
+    limit: int = Query(
+        0,
+        ge=0,
+        description="Max terms to return; 0 means the server maximum (1000).",
+    ),
+):
     store = get_store()
     if not store.get_matrix(id):
         return build_filtering_terms_response([])
     getter = getattr(store, "matrix_scoped_filtering_terms", None)
     if callable(getter):
         terms, resources = getter(id)
-        return build_filtering_terms_response(terms, resources)
+        return build_filtering_terms_response(
+            page_filtering_terms(terms, skip=skip, limit=limit),
+            resources,
+        )
     return build_filtering_terms_response([])
 
 
-@router.get("/matrices/{id}/biosamples", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.get("/matrices/{id}/biosamples", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="getOneMatrixBiosamples")
 def get_matrix_biosamples(
     id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
-    filters: Optional[str] = Query(None),
-    sort: AxisSort = Query(AxisSort.id),
-    order: AxisOrder = Query(AxisOrder.asc),
-    featureIDList: Optional[str] = Query(None),
-    biosampleIDList: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None, description=FILTERS_CSV_QUERY_DESCRIPTION),
+    biosampleIDList: Optional[str] = Query(None, description="Comma-separated biosample IDs."),
 ) -> Union[Dict[str, Any], JSONResponse]:
     store = get_store()
     partial = partial_received_for_error(
@@ -438,31 +425,20 @@ def get_matrix_biosamples(
         return ferr
     params, perr = params_from_get(
         received=partial,
-        featureIDList=featureIDList,
         biosampleIDList=biosampleIDList,
-        sort=axis_sort_value(sort),
-        order=axis_order_value(order),
     )
     if perr:
         return perr
-    extra = _effective_axis_summary(
-        store,
-        id,
-        axis="biosamples",
-        sort=params.get("sort"),
-        order=params.get("order"),
-    )
-    if filt:
-        extra = {**extra, **(filters_summary(filt) or {})}
-    rp = params_summary(params)
-    if rp:
-        extra = {**extra, **rp}
+    bad = _reject_disallowed_request_parameters(params, _BIOSAMPLES_RP, partial)
+    if bad:
+        return bad
+    extra = _listing_extra(params, filt)
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
         requested_granularity=requestedGranularity,
         cap_limit=True,
-        extra_summary=extra,
+        extra_summary=extra or None,
         entity_type="biosample",
     )
     if err:
@@ -470,23 +446,20 @@ def get_matrix_biosamples(
     skip_v, limit_v, gran, received = resolved
     if not store.get_matrix(id):
         return empty_entity_response("biosample", id, gran, received)
-    return _matrix_axis_list(
+    return _matrix_nested_list(
         id,
-        axis="biosamples",
+        kind="biosamples",
         entity_type="biosample",
         filt=filt,
         skip_v=skip_v,
         limit_v=limit_v,
         gran=gran,
         received=received,
-        sort=extra["sort"],
-        order=extra["order"],
-        feature_id_list=params.get("featureIDList"),
         biosample_id_list=params.get("biosampleIDList"),
     )
 
 
-@router.post("/matrices/{id}/biosamples", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.post("/matrices/{id}/biosamples", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="postOneMatrixBiosamples")
 def post_matrix_biosamples(
     id: str, body: MatrixAxisRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:
@@ -496,26 +469,18 @@ def post_matrix_biosamples(
     params, perr = params_from_post(payload, received=partial)
     if perr:
         return perr
+    bad = _reject_disallowed_request_parameters(params, _BIOSAMPLES_RP, partial)
+    if bad:
+        return bad
     filt, ferr = resolve_entity_filters(
         entity="biosample", body=payload, received=partial
     )
     if ferr:
         return ferr
-    extra = _effective_axis_summary(
-        store,
-        id,
-        axis="biosamples",
-        sort=params.get("sort"),
-        order=params.get("order"),
-    )
-    if filt:
-        extra = {**extra, **(filters_summary(filt) or {})}
-    rp = params_summary(params)
-    if rp:
-        extra = {**extra, **rp}
+    extra = _listing_extra(params, filt)
     resolved, err = resolve_or_error(
         body=payload,
-        extra_summary=extra,
+        extra_summary=extra or None,
         cap_limit=True,
         entity_type="biosample",
     )
@@ -524,47 +489,17 @@ def post_matrix_biosamples(
     skip_v, limit_v, gran, received = resolved
     if not store.get_matrix(id):
         return empty_entity_response("biosample", id, gran, received)
-    return _matrix_axis_list(
+    return _matrix_nested_list(
         id,
-        axis="biosamples",
+        kind="biosamples",
         entity_type="biosample",
         filt=filt,
         skip_v=skip_v,
         limit_v=limit_v,
         gran=gran,
         received=received,
-        sort=extra["sort"],
-        order=extra["order"],
-        feature_id_list=params.get("featureIDList"),
         biosample_id_list=params.get("biosampleIDList"),
     )
-
-
-def _expression_values_page_axes(results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Unique feature/biosample ids in page order (Beacon ``info.axes`` extension)."""
-    feature_ids: List[str] = []
-    biosample_ids: List[str] = []
-    seen_features: Set[str] = set()
-    seen_biosamples: Set[str] = set()
-    for row in results:
-        feature_id = row.get("featureId")
-        if feature_id is not None:
-            key = str(feature_id)
-            if key not in seen_features:
-                seen_features.add(key)
-                feature_ids.append(key)
-        biosample_id = row.get("biosampleId")
-        if biosample_id is not None:
-            key = str(biosample_id)
-            if key not in seen_biosamples:
-                seen_biosamples.add(key)
-                biosample_ids.append(key)
-    return {
-        "axes": {
-            "featureIds": feature_ids,
-            "biosampleIds": biosample_ids,
-        }
-    }
 
 
 def _page_token_from_request(
@@ -632,15 +567,10 @@ def _expression_values_handler(
         )
     except ValueError as exc:
         return error_json(400, str(exc), received=received)
-    # Compatible with ExpressionValuesPage or legacy (results, total) tuple.
-    if hasattr(page, "results"):
-        results = page.results
-        total = page.total
-        next_page = getattr(page, "next_page", None)
-        previous_page = getattr(page, "previous_page", None)
-    else:
-        results, total = page
-        next_page = previous_page = None
+    results = page.results
+    total = page.total
+    next_page = getattr(page, "next_page", None)
+    previous_page = getattr(page, "previous_page", None)
     pagination = received.setdefault("pagination", {})
     if page_token:
         pagination["currentPage"] = page_token
@@ -648,7 +578,6 @@ def _expression_values_handler(
         pagination["nextPage"] = next_page
     if previous_page:
         pagination["previousPage"] = previous_page
-    info = _expression_values_page_axes(results) if gran.value == "record" else None
     return list_response(
         results,
         "expressionValue",
@@ -659,23 +588,25 @@ def _expression_values_handler(
         received,
         total_count=total,
         results_are_page=True,
-        info=info,
     )
 
 
-@router.get("/matrices/{id}/expression_values", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.get("/matrices/{id}/expression_values", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="getOneMatrixExpressionValues")
 def get_expression_values(
     id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
-    featureIDList: Optional[str] = Query(None),
-    biosampleIDList: Optional[str] = Query(None),
-    filters: Optional[str] = Query(None),
-    minValue: Optional[float] = Query(None),
-    maxValue: Optional[float] = Query(None),
-    order: AxisOrder = Query(AxisOrder.asc),
-    pageToken: Optional[str] = Query(None),
+    featureIDList: Optional[str] = Query(None, description="Comma-separated feature IDs."),
+    biosampleIDList: Optional[str] = Query(None, description="Comma-separated biosample IDs."),
+    filters: Optional[str] = Query(None, description=FILTERS_CSV_QUERY_DESCRIPTION),
+    minValue: Optional[float] = Query(None, description="Minimum expression value."),
+    maxValue: Optional[float] = Query(None, description="Maximum expression value."),
+    order: AxisOrder = Query(AxisOrder.asc, description="Order by value: asc | desc."),
+    pageToken: Optional[str] = Query(
+        None,
+        description="RNAget extension: opaque keyset page token (prefer over deep skip).",
+    ),
     # Reject legacy ``sort`` query (removed; ordering is always by value).
     sort: Optional[str] = Query(None, include_in_schema=False),
 ) -> Union[Dict[str, Any], JSONResponse]:
@@ -764,7 +695,7 @@ def get_expression_values(
     )
 
 
-@router.post("/matrices/{id}/expression_values", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.post("/matrices/{id}/expression_values", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="postOneMatrixExpressionValues")
 def post_expression_values(
     id: str, body: ExpressionValuesRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:

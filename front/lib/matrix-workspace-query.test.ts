@@ -64,12 +64,20 @@ assert.equal(accession.ok, true)
 if (accession.ok) assert.equal(accession.kind, 'featureId')
 
 const terms: FilteringTerm[] = [
-  { id: 'sex', type: 'alphanumeric', scopes: ['biosample'], values: ['female', 'male'] },
+  {
+    id: 'age_bracket',
+    type: 'alphanumeric',
+    scopes: ['biosample'],
+    values: ['adult'],
+  },
   { id: 'UBERON:0002107', type: 'UBERON', label: 'liver', scopes: ['biosample'] },
 ]
-const sex = interpretBiosampleQueryToken('female', terms, undefined)
-assert.equal(sex.ok, true)
-if (sex.ok) assert.equal(sex.kind, 'filter')
+const age = interpretBiosampleQueryToken('adult', terms, undefined)
+assert.equal(age.ok, true)
+if (age.ok && age.kind === 'filter') {
+  assert.equal(age.filter.kind, 'alphanumeric')
+  assert.equal(age.filter.id, 'age_bracket')
+}
 const tissue = interpretBiosampleQueryToken('liver', terms, undefined)
 assert.equal(tissue.ok, true)
 if (tissue.ok && tissue.kind === 'filter' && tissue.filter.kind === 'ontology') {

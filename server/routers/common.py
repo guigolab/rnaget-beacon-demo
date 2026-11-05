@@ -6,6 +6,33 @@ from typing import Any, Dict, List, Optional
 
 from beacon.responses import build_resultsets_response
 from beacon.schemas.envelopes import Granularity
+from routers.deps import MAX_PAGE_LIMIT, MAX_SKIP
+
+# OpenAPI description for GET ``filters`` (CSV; POST uses filter arrays).
+FILTERS_CSV_QUERY_DESCRIPTION = (
+    "Comma-separated Beacon filters (RNAget GET convention). "
+    "POST uses query.filters as a JSON array. "
+    "symbol: filters match aliases/symbols with exact case (Alb ≠ ALB)."
+)
+
+
+def page_filtering_terms(
+    terms: List[Dict[str, Any]],
+    *,
+    skip: int = 0,
+    limit: int = 0,
+) -> List[Dict[str, Any]]:
+    """Apply skip/limit to a filtering-terms list.
+
+    ``limit`` 0 means the server maximum (``MAX_PAGE_LIMIT``), matching collection
+    routes. ``skip`` is clamped to ``MAX_SKIP``.
+    """
+    skip_v = max(0, min(int(skip), MAX_SKIP))
+    if int(limit) <= 0:
+        limit_v = MAX_PAGE_LIMIT
+    else:
+        limit_v = max(0, min(int(limit), MAX_PAGE_LIMIT))
+    return terms[skip_v : skip_v + limit_v]
 
 
 def list_response(

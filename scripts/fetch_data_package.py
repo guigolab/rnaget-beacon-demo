@@ -268,6 +268,30 @@ def package_has_expression_stats(package: Path) -> bool:
     return True
 
 
+def package_has_tissue_expression_stats(package: Path) -> bool:
+    """True when every manifest matrix has tissue_expression_stats.parquet."""
+    manifest_path = package / "manifest.json"
+    if not manifest_path.is_file():
+        return False
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    matrices = manifest.get("matrices") or []
+    if not matrices:
+        return False
+    for entry in matrices:
+        dirname = entry.get("dir")
+        if not dirname:
+            return False
+        matrix_dir = package / "matrices" / str(dirname)
+        if not (matrix_dir / "tissue_expression_stats.parquet").is_file():
+            return False
+    return True
+
+
+def package_has_tissue_feature_summary(package: Path) -> bool:
+    """True when package-level tissue_feature_summary.parquet exists."""
+    return (package / "tissue_feature_summary.parquet").is_file()
+
+
 def _print_summary(package: Path) -> None:
     manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
     print("\nPackage summary")
@@ -321,12 +345,34 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         print("Reusing shipped expression stats")
 
+    if args.force_stats or not package_has_tissue_expression_stats(out):
+        if args.force_stats:
+            print("Building tissue expression stats… (--force-stats)")
+        else:
+            print("Building tissue expression stats… (not present in package)")
+        from build_tissue_expression_stats import build_package as build_tissue_stats
+
+        build_tissue_stats(out)
+    else:
+        print("Reusing shipped tissue expression stats")
+
+    if args.force_stats or not package_has_tissue_feature_summary(out):
+        if args.force_stats:
+            print("Building tissue feature summary… (--force-stats)")
+        else:
+            print("Building tissue feature summary… (not present in package)")
+        from build_tissue_feature_summary import build_package as build_tissue_summary
+
+        build_tissue_summary(out)
+    else:
+        print("Reusing shipped tissue feature summary")
+
     # Percentiles are fetch-time only (too large for the 2 GiB release asset).
     print("Building expression percentiles…")
     from build_expression_percentiles import build_package as build_percentiles
 
     build_percentiles(out)
-    # Rebuild so expression.percentileIn* terms appear after percentile files exist.
+    # Rebuild so expression.percentileIn* / tissueHigh|Specific terms appear.
     print("Building filtering_terms catalogs…")
     from build_matrix_filtering_terms import build_all_filtering_terms
 

@@ -93,9 +93,9 @@ def load_matrix_seed_terms(
     if profile_sources:
         terms.append(
             {
-                "type": "alphanumeric",
+                "type": "custom",
                 "id": "matrix.profileSource",
-                "label": "Catalog source",
+                "label": "Data source",
                 "scopes": ["matrix"],
                 "values": sorted(profile_sources),
             }

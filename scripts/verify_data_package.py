@@ -55,9 +55,7 @@ def _check_stats_parquet(
                 "detected_fraction",
                 "mean",
                 "median",
-                "band",
-                "profile",
-                "enriched_in",
+                "median_percentile",
             ]
         )
     else:
@@ -66,7 +64,6 @@ def _check_stats_parquet(
                 "min_feature_id",
                 "max_feature_id",
                 "detected_genes",
-                "detected_genes_band",
             ]
         )
     for required in required_cols:
@@ -565,9 +562,9 @@ def main(argv: List[str] | None = None) -> int:
     if genes_path.is_file():
         import pyarrow.parquet as pq
 
-        gsample = pq.read_table(genes_path, columns=["xrefs", "feature_id"]).to_pylist()[
-            :2000
-        ]
+        gsample = pq.read_table(
+            genes_path, columns=["xrefs", "feature_id", "ontology_terms"]
+        ).to_pylist()[:2000]
         ens_rows = [
             r
             for r in gsample
@@ -579,6 +576,23 @@ def main(argv: List[str] | None = None) -> int:
         ):
             errors.append(
                 "genes.parquet: expected NCBIGene xrefs on ENSG rows after enrich_gene_annotations"
+            )
+        # GO slim attach runs in the same enrich step; NCBIGene xrefs without any
+        # GO:* ontology_terms usually means gene2go header parsing failed.
+        has_ncbi = any(
+            any(str(x).startswith("NCBIGene:") for x in (r.get("xrefs") or []))
+            for r in gsample
+        )
+        go_ids = {
+            str(t.get("id"))
+            for r in gsample
+            for t in (r.get("ontology_terms") or [])
+            if isinstance(t, dict) and str(t.get("id") or "").startswith("GO:")
+        }
+        if has_ncbi and not go_ids and len(gsample) >= 50:
+            errors.append(
+                "genes.parquet: expected GO slim ontology_terms after enrich_gene_annotations "
+                "(NCBIGene xrefs present but no GO:* terms in sample)"
             )
 
     # filtering_terms.json catalog (Beacon facets; no gene CURIE dump)
@@ -605,7 +619,7 @@ def main(argv: List[str] | None = None) -> int:
                     errors.append(f"filteringTerm {term.get('id')!r} missing {req}")
                     break
             tid = str(term.get("id") or "")
-            if tid in ("resource:gencode", "GEO:sample", "genomicFeature.symbol"):
+            if tid in ("GEO:sample", "genomicFeature.symbol"):
                 errors.append(
                     f"filteringTerms must not include deprecated facet {tid!r}"
                 )
@@ -808,6 +822,99 @@ def main(argv: List[str] | None = None) -> int:
                         f"missing {name}"
                     )
 
+    # Tissue expression stats + package-level summary (Explore heatmap).
+    tissue_summary = root / "tissue_feature_summary.parquet"
+    tissue_labels = root / "tissue_column_labels.parquet"
+    if tissue_summary.is_file():
+        try:
+            import duckdb
+
+            con = duckdb.connect(database=":memory:")
+            try:
+                for entry in matrices:
+                    mid = entry.get("matrix_id")
+                    dirname = entry.get("dir") or mid
+                    if not mid or not dirname:
+                        continue
+                    matrix_dir = root / "matrices" / str(dirname)
+                    stats = matrix_dir / "tissue_expression_stats.parquet"
+                    bios = matrix_dir / "biosamples.parquet"
+                    if not stats.is_file():
+                        errors.append(
+                            f"tissue_feature_summary present but missing {stats}"
+                        )
+                        continue
+                    if not bios.is_file():
+                        continue
+                    expected = int(
+                        con.execute(
+                            f"SELECT count(*) FROM read_parquet('{bios.resolve().as_posix().replace(chr(39), chr(39)+chr(39))}')"
+                        ).fetchone()[0]
+                    )
+                    got = int(
+                        con.execute(
+                            f"""
+                            SELECT coalesce(sum(n), 0) FROM (
+                              SELECT DISTINCT ontology_id, n_biosamples AS n
+                              FROM read_parquet('{stats.resolve().as_posix().replace(chr(39), chr(39)+chr(39))}')
+                            )
+                            """
+                        ).fetchone()[0]
+                    )
+                    if expected != got:
+                        errors.append(
+                            f"{mid}: tissue column biosample sum {got} "
+                            f"!= biosample count {expected}"
+                        )
+                if index_files_present and (root / "feature_matrix.parquet").is_file():
+                    fm_path = (
+                        (root / "feature_matrix.parquet")
+                        .resolve()
+                        .as_posix()
+                        .replace("'", "''")
+                    )
+                    ts_path = tissue_summary.resolve().as_posix().replace("'", "''")
+                    orphan = int(
+                        con.execute(
+                            f"""
+                            SELECT count(*) FROM read_parquet('{ts_path}') s
+                            WHERE NOT EXISTS (
+                              SELECT 1
+                              FROM read_parquet('{fm_path}') fm
+                              WHERE CAST(fm.wrapper_id AS VARCHAR) =
+                                    CAST(s.wrapper_id AS VARCHAR)
+                            )
+                            """
+                        ).fetchone()[0]
+                    )
+                    if orphan:
+                        errors.append(
+                            f"tissue_feature_summary has {orphan} rows whose "
+                            f"wrapper_id is missing from feature_matrix"
+                        )
+            finally:
+                con.close()
+        except Exception as exc:
+            errors.append(f"tissue summary verify failed: {exc}")
+        meta = manifest.get("tissueFeatureSummary") or {}
+        if not isinstance(meta, dict) or not meta.get("path"):
+            errors.append("manifest.tissueFeatureSummary missing or incomplete")
+        if not tissue_labels.is_file():
+            errors.append("missing tissue_column_labels.parquet")
+    else:
+        # Soft: if any matrix has tissue stats, summary should exist.
+        any_stats = any(
+            (root / "matrices" / str(e.get("dir") or e.get("matrix_id") or "")
+             / "tissue_expression_stats.parquet").is_file()
+            for e in matrices
+            if e.get("matrix_id")
+        )
+        if any_stats:
+            errors.append(
+                "per-matrix tissue_expression_stats present but "
+                "tissue_feature_summary.parquet missing"
+            )
+
     if errors:
         print("Package verify failed:", file=sys.stderr)
         for e in errors[:40]:
@@ -821,6 +928,7 @@ def main(argv: List[str] | None = None) -> int:
         f"manifest schemaVersion={manifest.get('schemaVersion')}"
     )
     return 0
+
 
 
 if __name__ == "__main__":

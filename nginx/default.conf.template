@@ -1,4 +1,6 @@
-proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=my_cache:10m max_size=10g inactive=60m;
+# Per-client rate / connection zones (http context via nginx templates).
+limit_req_zone $binary_remote_addr zone=rnaget_api_req:10m rate=30r/s;
+limit_conn_zone $binary_remote_addr zone=rnaget_api_conn:10m;
 
 upstream beacon_api {
     server ${API_HOST}:${API_PORT};
@@ -11,14 +13,23 @@ server {
 
     listen ${API_PORT};
 
+    # Traefik / reverse proxies: rate-limit the real client, not the proxy hop.
+    set_real_ip_from 10.0.0.0/8;
+    set_real_ip_from 172.16.0.0/12;
+    set_real_ip_from 192.168.0.0/16;
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
     # Beacon API under /rnaget-beacon/api/* → FastAPI /*
     location ${BASE_PATH}/api/ {
         rewrite ^${BASE_PATH}/api/(.*)$ /$1 break;
 
-        proxy_cache my_cache;
-        proxy_cache_valid 200 10m;
-        proxy_cache_methods GET HEAD;
-        proxy_cache_key $scheme$proxy_host$request_uri;
+        limit_req zone=rnaget_api_req burst=150 nodelay;
+        limit_req_status 429;
+        limit_conn rnaget_api_conn 32;
+        limit_conn_status 429;
+
+        error_page 429 = @beacon_too_many;
 
         proxy_pass http://beacon_api;
         proxy_http_version 1.1;
@@ -27,8 +38,13 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Prefix ${BASE_PATH}/api;
-        client_max_body_size 1000M;
-        proxy_read_timeout 600s;
+        client_max_body_size 1m;
+        proxy_read_timeout 120s;
+    }
+
+    location @beacon_too_many {
+        default_type application/json;
+        return 429 '{"meta":{"apiVersion":"v2.0.0","beaconId":"org.crg.rnaget-beacon","returnedSchemas":[],"returnedGranularity":"record","receivedRequestSummary":{}},"error":{"errorCode":429,"errorMessage":"Too many requests"}}';
     }
 
     # Static Next export (files live under /usr/share/nginx/html${BASE_PATH}/)

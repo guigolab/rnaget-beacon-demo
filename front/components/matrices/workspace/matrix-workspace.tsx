@@ -3,18 +3,17 @@
 import { Popover } from '@base-ui/react/popover'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { useMatrixAxis } from '@/hooks/use-matrix-axis'
 import { useMatrixCellValues } from '@/hooks/use-matrix-cell-values'
+import { useMatrixExpressionSlice } from '@/hooks/use-matrix-expression-slice'
 import { useMatrixQueryState } from '@/hooks/use-matrix-query-state'
+import { useMatrixSliceLabels } from '@/hooks/use-matrix-slice-labels'
 import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index'
 import { scopeOf, type Matrix, type UiFilter } from '@/lib/beacon'
-import type { Biosample, Feature } from '@/lib/beacon/types'
 import { mergeGeneLensFilters } from '@/lib/gene-lens'
 import {
   cellKey,
   matrixHeatmapColorScaleBounds,
   nativeFeatureId,
-  preferLeadingBiosamples,
   windowPercentileColourValues,
   type MatrixColourMode,
 } from '@/lib/heatmap-expression'
@@ -38,11 +37,6 @@ import {
   type MatrixSortChoice,
 } from './matrix-results-toolbar'
 
-/** Feature axis page size: initial fetch and each load-more. */
-const FEATURE_PAGE = 10
-const BIOSAMPLE_PAGE = 20
-const EMPTY_IDS: string[] = []
-
 function sortChoice(query: MatrixWorkspaceQuery): MatrixSortChoice {
   return query.sort === 'expression.min' ? 'min' : 'max'
 }
@@ -50,6 +44,10 @@ function sortChoice(query: MatrixWorkspaceQuery): MatrixSortChoice {
 function sortPatch(choice: MatrixSortChoice): Pick<MatrixWorkspaceQuery, 'sort' | 'order'> {
   if (choice === 'min') return { sort: 'expression.min', order: 'asc' }
   return { sort: 'expression.max', order: 'desc' }
+}
+
+function sliceOrder(query: MatrixWorkspaceQuery): 'asc' | 'desc' {
+  return query.sort === 'expression.min' ? 'asc' : 'desc'
 }
 
 export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
@@ -64,84 +62,74 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
 
   const featureIDList = featureIdListCsv(query)
   const biosampleIDList = biosampleIdListCsv(query)
-  const featureRequestFilters = useMemo(
-    () => [...query.featureFilters, ...query.biosampleFilters],
-    [query.featureFilters, query.biosampleFilters]
+  const sliceFilters = useMemo(
+    () => [
+      ...query.featureFilters,
+      ...query.biosampleFilters,
+      ...query.expressionFilters,
+    ],
+    [query.biosampleFilters, query.expressionFilters, query.featureFilters]
   )
 
-  const features = useMatrixAxis<Feature>({
+  const slice = useMatrixExpressionSlice({
     matrixId,
-    axis: 'features',
-    filters: featureRequestFilters,
-    featureIDList,
-    biosampleIDList,
+    order: sliceOrder(query),
     minValue: query.minValue,
     maxValue: query.maxValue,
-    sort: query.sort,
-    order: query.order,
-    pageSize: FEATURE_PAGE,
-  })
-  const biosamples = useMatrixAxis<Biosample>({
-    matrixId,
-    axis: 'biosamples',
-    filters: query.biosampleFilters,
+    filters: sliceFilters,
     featureIDList,
     biosampleIDList,
-    pageSize: BIOSAMPLE_PAGE,
   })
+
+  const labels = useMatrixSliceLabels({
+    matrixId,
+    featureIds: slice.axes.featureIds,
+    biosampleIds: slice.axes.biosampleIds,
+    enabled: slice.status === 'ready' && slice.axes.featureIds.length > 0,
+  })
+
+  const heatmapFeatures = labels.features
+  const heatmapBiosamples = labels.biosamples
 
   const onVisibleBiosampleIds = useCallback((ids: string[]) => {
     setVisibleIds((prev) => (prev.join('|') === ids.join('|') ? prev : ids))
   }, [])
 
-  const axesLoading = features.status === 'loading' || biosamples.status === 'loading'
-
-  // Keep server feature order (expression.max / expression.min / id).
-  const heatmapFeatures = features.items
-
-  // Lead column = top row's packaged peak (or trough) biosample so top-left is the
-  // matrix-wide extreme for that feature. Remaining columns stay in arrival order.
-  const leadBiosampleId = useMemo(() => {
-    const top = heatmapFeatures[0]
-    const summary = top?.info?.expressionSummary
-    if (!summary) return ''
-    const id =
-      query.sort === 'expression.min' ? summary.minBiosampleId : summary.maxBiosampleId
-    return id?.trim() ?? ''
-  }, [heatmapFeatures, query.sort])
-
-  const leadBiosampleIds = useMemo(
-    () => (leadBiosampleId ? [leadBiosampleId] : EMPTY_IDS),
-    [leadBiosampleId]
-  )
-
-  const heatmapBiosamples = useMemo(
-    () => preferLeadingBiosamples(biosamples.items, leadBiosampleIds),
-    [biosamples.items, leadBiosampleIds]
-  )
-
-  // Fetch the visible column window only (lead peak is already first when present).
+  // Densify the visible column window (full derived axes when few / not scrolled).
   const fetchBiosamples = useMemo(() => {
     if (!heatmapBiosamples.length) return []
-    if (!visibleIds.length) {
-      return heatmapBiosamples.slice(0, Math.min(BIOSAMPLE_PAGE, heatmapBiosamples.length))
-    }
+    if (!visibleIds.length) return heatmapBiosamples
     const wanted = new Set(visibleIds)
     const matched = heatmapBiosamples.filter((sample) => wanted.has(sample.id))
-    return matched.length
-      ? matched
-      : heatmapBiosamples.slice(0, Math.min(BIOSAMPLE_PAGE, heatmapBiosamples.length))
+    return matched.length ? matched : heatmapBiosamples
   }, [heatmapBiosamples, visibleIds])
 
-  const cells = useMatrixCellValues({
+  const densify = useMatrixCellValues({
     matrixId,
     features: heatmapFeatures,
     biosamples: fetchBiosamples,
     minValue: query.minValue,
     maxValue: query.maxValue,
     filters: query.expressionFilters,
-    enabled: !axesLoading && heatmapFeatures.length > 0 && fetchBiosamples.length > 0,
+    enabled:
+      slice.status === 'ready' &&
+      heatmapFeatures.length > 0 &&
+      fetchBiosamples.length > 0,
   })
+
+  const values = useMemo(() => {
+    const merged = new Map(slice.axes.values)
+    for (const [key, value] of densify.values) merged.set(key, value)
+    return merged
+  }, [densify.values, slice.axes.values])
+
+  const pendingKeys = useMemo(() => {
+    const pending = new Set<string>()
+    for (const key of densify.pendingKeys) {
+      if (!slice.axes.values.has(key)) pending.add(key)
+    }
+    return pending
+  }, [densify.pendingKeys, slice.axes.values])
 
   useEffect(() => {
     setInspect(null)
@@ -167,8 +155,8 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
   }, [popoverHandle])
 
   const onNeedMoreColumns = useCallback(() => {
-    if (biosamples.hasMore && !biosamples.loadingMore) biosamples.loadMore()
-  }, [biosamples.hasMore, biosamples.loadingMore, biosamples.loadMore])
+    if (slice.hasMore && !slice.loadingMore) slice.loadMore()
+  }, [slice.hasMore, slice.loadingMore, slice.loadMore])
 
   function addFilter(filter: UiFilter) {
     patch((current) => {
@@ -206,14 +194,14 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
     Number.isFinite(catalogMax)
 
   const colourValues = useMemo(() => {
-    if (colourMode === 'value') return cells.values
+    if (colourMode === 'value') return values
     return windowPercentileColourValues(
-      cells.values,
+      values,
       heatmapFeatures,
       fetchBiosamples,
       colourMode
     )
-  }, [cells.values, colourMode, fetchBiosamples, heatmapFeatures])
+  }, [colourMode, fetchBiosamples, heatmapFeatures, values])
 
   const range = useMemo(() => {
     if (colourMode !== 'value') return { min: 0, max: 100 }
@@ -222,10 +210,10 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
     }
     let min = Infinity
     let max = -Infinity
-    for (const feature of features.items) {
+    for (const feature of heatmapFeatures) {
       const featureId = nativeFeatureId(feature)
       for (const sample of fetchBiosamples) {
-        const value = cells.values.get(cellKey(featureId, sample.id))
+        const value = values.get(cellKey(featureId, sample.id))
         if (value == null) continue
         if (value < min) min = value
         if (value > max) max = value
@@ -237,10 +225,10 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
     catalogMax,
     catalogMin,
     catalogReady,
-    cells.values,
     colourMode,
-    features.items,
     fetchBiosamples,
+    heatmapFeatures,
+    values,
   ])
 
   const colorScale = useMemo(
@@ -251,27 +239,13 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
     [catalog, colourMode, range.max, range.min]
   )
 
-  const hasRows = features.items.length > 0 && biosamples.items.length > 0
-  const error = features.error || biosamples.error || cells.error
-  const loading = axesLoading || cells.loading
-  const emptyLabel = (() => {
-    if (features.status === 'ready' && !features.stale && features.items.length === 0) {
-      return query.featureFilters.length ||
-        query.genes.length ||
-        query.featureIds.length ||
-        query.expressionFilters.length ||
-        query.minValue != null ||
-        query.maxValue != null
-        ? 'No features match these filters.'
-        : 'This matrix has no features.'
-    }
-    if (biosamples.status === 'ready' && !biosamples.stale && biosamples.items.length === 0) {
-      return query.biosampleFilters.length || query.biosampleIds.length
-        ? 'No biosamples match these filters.'
-        : 'This matrix has no biosamples.'
-    }
-    return ''
-  })()
+  const hasRows = heatmapFeatures.length > 0 && heatmapBiosamples.length > 0
+  const error = slice.error || densify.error
+  const loading = slice.status === 'loading' || densify.loading || slice.loadingMore
+  const emptyLabel =
+    slice.status === 'ready' && !hasRows
+      ? 'No expression values match this slice.'
+      : ''
 
   return (
     <section className="mt-6 space-y-6">
@@ -282,16 +256,17 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
         onClear={clearFilters}
       />
 
-      <div className={`min-w-0 space-y-3 ${features.stale || biosamples.stale ? 'opacity-80' : ''}`}>
+      <div className={`min-w-0 space-y-3 ${slice.loadingMore ? 'opacity-80' : ''}`}>
         <MatrixResultsToolbar
           sort={sortChoice(query)}
           onSortChange={(choice) => patch(sortPatch(choice))}
           colourMode={colourMode}
           onColourModeChange={setColourMode}
-          featureShown={features.items.length}
-          featureTotal={features.total}
-          biosampleShown={biosamples.items.length}
-          biosampleTotal={biosamples.total}
+          featureShown={heatmapFeatures.length}
+          featureTotal={heatmapFeatures.length}
+          biosampleShown={heatmapBiosamples.length}
+          biosampleTotal={heatmapBiosamples.length}
+          cellTotal={slice.total}
           loading={loading}
           catalogMin={catalog?.min}
           catalogMax={catalog?.max}
@@ -308,9 +283,8 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
               size="sm"
               variant="outline"
               onClick={() => {
-                features.retry()
-                biosamples.retry()
-                cells.retry()
+                slice.retry()
+                densify.retry()
               }}
             >
               Retry
@@ -331,8 +305,8 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
               }
             }}
           >
-            {axesLoading && !hasRows ? (
-              <p className="px-3 py-6 text-sm text-muted-foreground">Loading matrix…</p>
+            {slice.status === 'loading' && !hasRows ? (
+              <p className="px-3 py-6 text-sm text-muted-foreground">Loading expression slice…</p>
             ) : !hasRows ? (
               error ? null : (
                 <div className="space-y-2 px-3 py-6">
@@ -346,20 +320,20 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
               <MatrixHeatmapGrid
                 features={heatmapFeatures}
                 biosamples={heatmapBiosamples}
-                columnTotal={biosamples.total}
-                values={cells.values}
+                columnTotal={heatmapBiosamples.length}
+                values={values}
                 colorValues={colourMode === 'value' ? undefined : colourValues}
-                pendingKeys={cells.pendingKeys}
+                pendingKeys={pendingKeys}
                 colorMin={colorScale.min}
                 colorMax={colorScale.max}
                 popoverHandle={popoverHandle}
                 onInspect={openInspect}
                 onVisibleBiosampleIds={onVisibleBiosampleIds}
                 onNeedMoreColumns={onNeedMoreColumns}
-                canLoadMoreFeatures={features.hasMore}
-                onLoadMoreFeatures={features.loadMore}
-                loadingMore={features.loadingMore}
-                featureTotal={features.total}
+                canLoadMoreCells={slice.hasMore}
+                onLoadMoreCells={slice.loadMore}
+                loadingMore={slice.loadingMore}
+                cellTotal={slice.total}
               />
             )}
             <Popover.Portal>
@@ -369,8 +343,8 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
                     <MatrixInspectPopover
                       inspect={inspect}
                       matrix={matrix}
-                      features={features.items}
-                      biosamples={biosamples.items}
+                      features={heatmapFeatures}
+                      biosamples={heatmapBiosamples}
                       featureFilters={query.featureFilters}
                       onAddFilter={addFilter}
                       onIsolateFeature={(feature) => patch(isolateFeaturePatch(feature))}

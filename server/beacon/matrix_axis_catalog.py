@@ -83,6 +83,102 @@ def _matrix_feature_type_ids(matrix: Optional[Dict[str, Any]]) -> Set[str]:
     return ids
 
 
+def _matrix_feature_type_terms(matrix: Optional[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Ontology terms from matrix.featureTypes (post sync_matrix_feature_types)."""
+    out: List[Dict[str, str]] = []
+    if not matrix:
+        return out
+    raw = matrix.get("featureTypes")
+    if raw is None:
+        raw = matrix.get("featureType") or []
+    seen: Set[str] = set()
+    for ft in raw or []:
+        if not isinstance(ft, dict) or not ft.get("id"):
+            continue
+        tid = str(ft["id"])
+        key = tid.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        term: Dict[str, str] = {"id": tid}
+        if ft.get("label"):
+            term["label"] = str(ft["label"])
+        out.append(term)
+    return out
+
+
+def ensure_matrix_feature_so_terms(
+    terms: Sequence[Dict[str, Any]],
+    resources: Sequence[Dict[str, Any]],
+    *,
+    matrix: Optional[Dict[str, Any]],
+    present_ids: Optional[Set[str]] = None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Guarantee Sequence Ontology classes for this matrix appear under genomicFeature.
+
+    Sources (union):
+    - ``matrix.featureTypes`` (package sync from hydrated feature rows)
+    - ``SO:*`` ids already observed in ``present_ids`` (row feature_type_id / ontologyTerms)
+
+    Synthesizes catalog entries when the global filtering_terms subset omitted them.
+    """
+    out = [dict(t) for t in terms]
+    existing = {str(t.get("id") or "").lower() for t in out if t.get("id")}
+
+    candidates: Dict[str, Optional[str]] = {}
+    for ft in _matrix_feature_type_terms(matrix):
+        tid = ft["id"]
+        if not tid.upper().startswith("SO:"):
+            continue
+        candidates[tid] = ft.get("label")
+    for pid in present_ids or ():
+        s = str(pid)
+        if not s.upper().startswith("SO:"):
+            continue
+        candidates.setdefault(s, None)
+
+    from beacon.filter_display import so_display_label
+
+    for tid in sorted(candidates, key=lambda x: x.upper()):
+        key = tid.lower()
+        if key in existing:
+            # Refresh display label when we synthesize/ensure terms.
+            for term in out:
+                if str(term.get("id") or "").lower() == key:
+                    term["label"] = so_display_label(
+                        term.get("label") or candidates[tid], fallback_id=tid
+                    )
+                    break
+            continue
+        label = candidates[tid]
+        entry: Dict[str, Any] = {
+            "type": "SO",
+            "id": tid,
+            "scopes": ["genomicFeature"],
+            "label": so_display_label(label, fallback_id=tid),
+        }
+        out.append(entry)
+        existing.add(key)
+
+    resources_out = list(resources)
+    has_so = any(
+        str(r.get("id") or "").lower() == "so"
+        or str(r.get("nameSpacePrefix") or "").upper() == "SO"
+        for r in resources_out
+    )
+    if not has_so and any(str(t.get("id") or "").upper().startswith("SO:") for t in out):
+        resources_out.append(
+            {
+                "id": "so",
+                "name": "Sequence Ontology",
+                "nameSpacePrefix": "SO",
+                "iriPrefix": "http://purl.obolibrary.org/obo/SO_",
+                "url": "http://purl.obolibrary.org/obo/so.obo",
+            }
+        )
+    return out, resources_out
+
+
 def _prune_resources(
     terms: Sequence[Dict[str, Any]], resources: Sequence[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
@@ -94,8 +190,8 @@ def _prune_resources(
         typ = str(term.get("type") or "").lower()
         if typ in ("so", "uberon", "efo", "go", "obi", "mondo", "hp", "ncit"):
             keep_ids.add(typ)
-        if term.get("type") == "custom" and tid.lower().startswith("resource:"):
-            keep_ids.add(tid.split(":", 1)[-1].lower())
+        if tid == "feature.resource":
+            keep_ids.update({"ncbigene", "ensembl", "gencode"})
     keep_ids.update(
         {"hgnc", "ncbigene", "ensembl", "symbol", "so", "uberon", "efo", "go"}
     )
@@ -107,6 +203,34 @@ def _prune_resources(
     ]
 
 
+def _sex_ontology_pair_from_biosample_row(
+    row: Dict[str, Any],
+) -> Optional[Tuple[str, str]]:
+    """Same-row (sex_lower, ontology_id) when both are present on the row."""
+    sex = row.get("sex")
+    if not sex or not str(sex).strip():
+        return None
+    sex_l = str(sex).strip().lower()
+    oid = None
+    # Prefer explicit ontology_id / info tissue id when present (parquet shape).
+    for key in ("ontology_id", "ontologyId"):
+        raw = row.get(key)
+        if raw and str(raw).strip():
+            oid = str(raw).strip()
+            break
+    if oid is None:
+        for pf in row.get("phenotypicFeatures") or []:
+            if not isinstance(pf, dict):
+                continue
+            ft = pf.get("featureType") or {}
+            if isinstance(ft, dict) and ft.get("id"):
+                oid = str(ft["id"]).strip()
+                break
+    if not oid:
+        return None
+    return sex_l, oid
+
+
 def _subset_terms(
     global_terms: Sequence[Dict[str, Any]],
     global_resources: Sequence[Dict[str, Any]],
@@ -115,8 +239,12 @@ def _subset_terms(
     alphanumeric: Dict[str, Set[str]],
     scope: str,
     keep_symbol_resource: bool = False,
+    sex_ontology_pairs: Optional[Set[Tuple[str, str]]] = None,
+    allowed_expression_ids: Optional[Set[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     present_lower = {x.lower() for x in present_ids}
+    # sex_ontology_pairs kept for call-site compatibility; presets are not catalogued.
+    _ = sex_ontology_pairs
     out: List[Dict[str, Any]] = []
 
     for term in global_terms:
@@ -126,11 +254,66 @@ def _subset_terms(
         tid = str(term.get("id") or "")
         typ = str(term.get("type") or "")
 
+        # Catalog type may be custom (not a genomicFeature schema field) while
+        # request wire stays alphanumeric. Handle before typ branching.
+        if tid == "expression.percentile":
+            # Root-advertised with values; keep only when this matrix's
+            # allow-list includes it, intersecting observed chip values.
+            if (
+                allowed_expression_ids is None
+                or tid not in allowed_expression_ids
+            ):
+                continue
+            observed = alphanumeric.get(tid) or set()
+            catalog_values = term.get("values") or []
+            if catalog_values and observed:
+                intersected = [v for v in catalog_values if v in observed]
+                if not intersected:
+                    continue
+                copy = dict(term)
+                copy["values"] = intersected
+                out.append(copy)
+            elif observed:
+                copy = dict(term)
+                copy["values"] = sorted(
+                    observed, key=lambda x: int(x) if str(x).isdigit() else 0
+                )
+                out.append(copy)
+            else:
+                out.append(dict(term))
+            continue
+
+        if tid == "feature.biotypeFamily":
+            from beacon.biotype_families import families_present_in
+
+            present_fams = families_present_in(present_ids)
+            catalog_values = [
+                v for v in (term.get("values") or []) if v in present_fams
+            ]
+            if not catalog_values:
+                continue
+            copy = dict(term)
+            copy["values"] = catalog_values
+            out.append(copy)
+            continue
+
         if typ == "alphanumeric":
-            # Continuous expression.* fields are matrix-scoped and have no
-            # enumerated values; keep them when the scope matches.
+            # Dropped from catalogs (still matchable via API if sent).
+            if tid in ("matrix.scale", "matrix.reproducible"):
+                continue
+            # Other continuous expression.* fields (median/mean/max/value/…)
+            # have no enumerated values; keep when the scope matches.
             if tid.startswith("expression."):
                 out.append(dict(term))
+                continue
+            if tid == "feature.resource":
+                # Keep GenCode + NCBI Gene whenever the matrix has feature rows;
+                # matching still equals the stored resource column.
+                from beacon.filters import FEATURE_RESOURCE_CATALOG_VALUES
+
+                copy = dict(term)
+                copy["values"] = list(FEATURE_RESOURCE_CATALOG_VALUES)
+                out.append(copy)
                 continue
             observed = alphanumeric.get(tid) or set()
             catalog_values = term.get("values") or []
@@ -149,9 +332,18 @@ def _subset_terms(
                 out.append(copy)
             continue
 
-        # Precomputed categorical expression.* terms (percentile/profile/detected/…).
+        # Categorical expression.* customs: only keep ids this matrix supports.
+        # When allowed_expression_ids is None (live fallback), drop them so we
+        # never advertise another matrix's bands/profiles/enriched_in terms.
         if tid.startswith("expression."):
-            out.append(dict(term))
+            if allowed_expression_ids is not None and tid in allowed_expression_ids:
+                out.append(dict(term))
+            continue
+
+        # biosample.preset / tissueHigh / tissueSpecific are not catalogued.
+        if tid.startswith("biosample.preset:"):
+            continue
+        if tid.startswith("tissueHigh:") or tid.startswith("tissueSpecific:"):
             continue
 
         if tid.lower() in present_lower:
@@ -159,6 +351,13 @@ def _subset_terms(
             continue
 
         if typ in ("SO", "GO", "UBERON", "EFO", "OBI", "MONDO", "HP", "NCIT", "custom"):
+            if typ in ("GO", "MONDO", "HP", "NCIT", "OBI") and scope == "biosample":
+                continue
+            if typ == "EFO" and scope == "biosample":
+                from beacon.filter_display import is_biosample_catalog_ontology_id
+
+                if not is_biosample_catalog_ontology_id(tid):
+                    continue
             if any(pid.lower() == tid.lower() for pid in present_ids):
                 out.append(dict(term))
 
@@ -181,19 +380,25 @@ def build_matrix_features_filtering_terms(
     matrix: Optional[Dict[str, Any]],
     global_terms: Sequence[Dict[str, Any]],
     global_resources: Sequence[Dict[str, Any]],
+    *,
+    allowed_expression_ids: Optional[Set[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     present: Set[str] = set()
     present.update(_matrix_feature_type_ids(matrix))
     for row in features:
         present.update(_ids_from_feature_row(row))
 
-    return _subset_terms(
+    terms, resources = _subset_terms(
         global_terms,
         global_resources,
         present_ids=present,
         alphanumeric={},
         scope="genomicFeature",
         keep_symbol_resource=bool(features),
+        allowed_expression_ids=allowed_expression_ids,
+    )
+    return ensure_matrix_feature_so_terms(
+        terms, resources, matrix=matrix, present_ids=present
     )
 
 
@@ -201,13 +406,19 @@ def build_matrix_biosamples_filtering_terms(
     biosamples: Sequence[Dict[str, Any]],
     global_terms: Sequence[Dict[str, Any]],
     global_resources: Sequence[Dict[str, Any]],
+    *,
+    allowed_expression_ids: Optional[Set[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     present: Set[str] = set()
     alphanumeric: Dict[str, Set[str]] = {}
+    pairs: Set[Tuple[str, str]] = set()
     for row in biosamples:
         present.update(_ids_from_biosample_row(row))
         for field, values in _biosample_alphanumeric(row).items():
             alphanumeric.setdefault(field, set()).update(values)
+        pair = _sex_ontology_pair_from_biosample_row(row)
+        if pair:
+            pairs.add(pair)
 
     return _subset_terms(
         global_terms,
@@ -216,6 +427,8 @@ def build_matrix_biosamples_filtering_terms(
         alphanumeric=alphanumeric,
         scope="biosample",
         keep_symbol_resource=False,
+        sex_ontology_pairs=pairs,
+        allowed_expression_ids=allowed_expression_ids,
     )
 
 

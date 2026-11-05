@@ -28,9 +28,9 @@ export const SCOPE_LEGEND: Array<{
   label: string
   hint: string
 }> = [
-  { scope: 'biosample', label: 'Biosample', hint: 'Sample metadata & facets' },
-  { scope: 'genomicFeature', label: 'Genomic feature', hint: 'Genes & feature filters' },
-  { scope: 'matrix', label: 'Matrix', hint: 'Expression matrices & catalogs' },
+  { scope: 'biosample', label: 'Tissues and samples', hint: 'Tissue & sample filters' },
+  { scope: 'genomicFeature', label: 'Genes', hint: 'Gene & feature filters' },
+  { scope: 'matrix', label: 'Matrices', hint: 'Expression matrices & catalogs' },
   {
     scope: 'expressionValue',
     label: 'Expression value',
@@ -46,7 +46,6 @@ export function entryTypeScope(entryId: string): BeaconScope {
       return 'genomicFeature'
     case 'matrix':
     case 'expressionValue':
-    case 'expressionSummary':
       return 'matrix'
     default:
       return 'matrix'
@@ -96,8 +95,7 @@ export function namespaceLabel(
     return termId
   }
   if (t === 'custom') {
-    const m = termId.match(/^resource:(.+)$/)
-    return m ? m[1] : 'custom'
+    return 'custom'
   }
   const fromResource = resources.find((r) => r.nameSpacePrefix === t)?.name
   if (fromResource) return fromResource
@@ -157,7 +155,7 @@ export function groupTermsByNamespaceScope(
 /** Resource ids kept per scope — mirrors server filtering_terms(scopes=…). */
 export const SCOPE_RESOURCE_IDS: Record<BeaconScope, ReadonlySet<string>> = {
   genomicFeature: new Set(['so', 'go', 'hgnc', 'ncbigene', 'ensembl', 'symbol']),
-  biosample: new Set(['uberon', 'efo', 'obi', 'mondo', 'hp', 'go', 'ncit']),
+  biosample: new Set(['uberon', 'efo']),
   matrix: new Set(['so', 'obi']),
   expressionValue: new Set(),
 }

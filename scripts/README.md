@@ -155,8 +155,8 @@ Manifest stamps `feature*Path` / `biosamplesPath` / `biosampleMatrixPath` and `f
 
 Runs **after** `build_feature_indexes`. Writes a small Beacon-shaped `filtering_terms.json`:
 
-- **Facets:** DISTINCT SO (`feature_type` + biotype `ontology_terms`), UBERON/EFO biosample ontology ids, custom `resource:*` (except `resource:gencode`)
-- **Fields:** alphanumeric `genomicFeature.symbol`, `sex` (not every symbol value)
+- **Facets:** DISTINCT SO (`feature_type` + biotype `ontology_terms`), UBERON/EFO biosample ontology ids, alphanumeric `feature.resource` (GenCode / NCBI Gene) and `feature.biotypeFamily`
+- **Fields:** alphanumeric `sex` (not every symbol value)
 - **Resources:** `so`, `uberon`, `efo`, plus `hgnc` / `ncbigene` / `ensembl` namespaces — **never** one filteringTerm per HGNC/NCBIGene
 
 CI order: `export_parquet` → `hydrate_genes` → `sync_matrix_feature_types` → **`enrich_gene_annotations`** → **`build_feature_indexes`** → `build_expression_stats` → **`build_matrix_filtering_terms`** → `verify`.

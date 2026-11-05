@@ -97,6 +97,14 @@ const mergedSo = mergeFilterScopeIndexes(
 const soFilter: UiFilter = { kind: 'ontology', id: 'SO:0000704' }
 console.assert(isMatrixLensFilter(soFilter, mergedSo) === true)
 
+const profileSource: UiFilter = {
+  kind: 'custom',
+  id: 'matrix.profileSource:gtex',
+  label: 'GTEx',
+}
+console.assert(scopeOf(profileSource) === 'matrix')
+console.assert(isMatrixLensFilter(profileSource) === true)
+
 const dualSo: FilteringTerm = {
   id: 'SO:0000704',
   label: 'gene',
@@ -121,6 +129,36 @@ console.assert(isFeatureLensFilter(soBoth, roundTrip) === true)
 const featureWritten = geneLensSearchParams({ filters: [soBoth], index: roundTrip })
 const featureRead = parseGeneLensSearch(featureWritten, roundTrip)
 console.assert(featureRead.featureFilters.some((f) => ontologyId(f) === 'SO:0000704'))
+
+const biotype: UiFilter = {
+  kind: 'alphanumeric',
+  id: 'feature.biotypeFamily',
+  value: 'protein_coding',
+  label: 'Protein-coding',
+}
+const resource: UiFilter = {
+  kind: 'alphanumeric',
+  id: 'feature.resource',
+  value: 'GenCode',
+  label: 'Annotation resource',
+}
+console.assert(isFeatureLensFilter(biotype) === true)
+console.assert(isFeatureLensFilter(resource) === true)
+const featureAlphaWritten = geneLensSearchParams({
+  filters: [biotype, resource],
+  index: roundTrip,
+})
+const featureAlphaRead = parseGeneLensSearch(featureAlphaWritten, roundTrip)
+console.assert(
+  featureAlphaRead.featureFilters.some(
+    (f) => f.kind === 'alphanumeric' && f.id === 'feature.biotypeFamily' && f.value === 'protein_coding'
+  )
+)
+console.assert(
+  featureAlphaRead.featureFilters.some(
+    (f) => f.kind === 'alphanumeric' && f.id === 'feature.resource' && f.value === 'GenCode'
+  )
+)
 
 const sampleWritten = sampleLensSearchParams({
   filters: [

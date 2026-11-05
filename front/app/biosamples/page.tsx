@@ -3,7 +3,8 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { BiosampleFilterSidebar } from '@/components/samples/biosample-filter-sidebar'
-import { BiosampleMatrixHeatmap } from '@/components/samples/biosample-matrix-heatmap'
+import { BiosampleMatrixStrips } from '@/components/samples/biosample-matrix-strips'
+import { BiosampleOntologyMatrixHeatmap } from '@/components/samples/biosample-ontology-matrix-heatmap'
 import { BiosampleQueryBar } from '@/components/samples/biosample-query-bar'
 import { LensChrome } from '@/components/shared/lens-chrome'
 import { LensMatrixScopeBanner } from '@/components/shared/lens-matrix-scope-banner'
@@ -66,16 +67,23 @@ function BiosamplesLensContent() {
   })
 
   const writeFilters = useCallback(
-    (next: UiFilter[]) => {
+    (next: UiFilter[], matrix: string | null | undefined = focusMatrix) => {
       const params = sampleLensSearchParams({
         filters: dedupeFilters(next),
-        matrix: focusMatrix,
+        matrix: matrix ?? undefined,
         sample: null,
         index: scopeIndex,
       })
       router.replace(`/biosamples/?${params.toString()}`)
     },
     [router, focusMatrix, scopeIndex]
+  )
+
+  const browseRecords = useCallback(
+    (filter: UiFilter, matrixId: string) => {
+      writeFilters(mergeSampleLensFilters(biosampleFilters, filter), matrixId)
+    },
+    [biosampleFilters, writeFilters]
   )
 
   const canLoadMore =
@@ -94,14 +102,14 @@ function BiosamplesLensContent() {
   }, [biosampleFilters, scopeIndex])
 
   const endpoint = focusMatrix
-    ? `GET or POST /matrices/${focusMatrix}/biosamples`
-    : 'GET or POST /biosamples'
+    ? `POST /matrices/${focusMatrix}/biosamples · requestedGranularity: count`
+    : 'POST /matrices/{id}/biosamples · requestedGranularity: count'
 
   return (
     <PageFrame>
       <PageHeader
         title="Biosamples"
-        description="Query biosamples by tissue, ontology, or sample metadata, then inspect detected-genes bands across matrices."
+        description="See which matrices include which tissues and cell types (counts by ontology), then drill into matching samples."
       />
 
       {focusMatrix && (
@@ -126,7 +134,7 @@ function BiosamplesLensContent() {
         queryBar={
           <BiosampleQueryBar
             filters={biosampleFilters}
-            onChange={writeFilters}
+            onChange={(next) => writeFilters(next)}
             probe={list}
             scopeIndex={scopeIndex}
             termsPath={termsPath}
@@ -134,36 +142,63 @@ function BiosamplesLensContent() {
         }
         endpointLines={[endpoint]}
         hasFilters={biosampleFilters.length > 0}
+        alwaysShowResults
         emptyState={{
           title: 'Start with a filter',
           description:
             'Use an example chip, type in the bar, or pick a tissue term from the sidebar.',
         }}
         resultsPanel={
-          <LensResultsPanel
-            probe={list}
-            querySummary={querySummary}
-            previewLimit={list.items.length}
-            previewCount={list.items.length}
-            previewTruncatedSuffix="banded heatmap via POST /matrices/{id}/biosamples"
-            previewWhenShowing="Detected-genes percentile bands from POST /matrices/{id}/biosamples (biosampleIDList · expression.detectedGenesPercentile.*)"
-            noMatchesMessage="No biosamples match these filters."
-            loadErrorTitle="Could not load biosamples"
-            searchError={list.error}
-            searchLoading={list.loading}
-            hasMatches={list.items.length > 0}
-            refreshingLabel="Refreshing biosample list…"
-            canLoadMore={canLoadMore}
-            loadingMore={list.loadingMore}
-            pageSize={SAMPLE_LENS_PAGE_SIZE}
-            onLoadMore={list.loadMore}
-            onClearFilters={() => writeFilters([])}
-          >
-            <BiosampleMatrixHeatmap
-              samples={list.items}
-              focusMatrix={focusMatrix}
-            />
-          </LensResultsPanel>
+          <div className="space-y-8">
+            <div className="space-y-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Ontology × matrix coverage
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Rows are tissue/cell ontologies from each matrix&apos;s filtering
+                terms. Cells show biosample counts (
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">
+                  requestedGranularity: count
+                </code>
+                ).
+              </p>
+              <BiosampleOntologyMatrixHeatmap
+                focusMatrix={focusMatrix}
+                activeFilters={biosampleFilters}
+                onAddFilter={(added) =>
+                  writeFilters(mergeSampleLensFilters(biosampleFilters, added))
+                }
+                onBrowseRecords={browseRecords}
+              />
+            </div>
+
+            {biosampleFilters.length > 0 && (
+              <LensResultsPanel
+                probe={list}
+                querySummary={querySummary}
+                previewLimit={list.items.length}
+                previewCount={list.items.length}
+                previewTruncatedSuffix="grouped by matrix"
+                previewWhenShowing="Matching biosamples grouped into matrix strips; open a strip to explore that matrix workspace"
+                noMatchesMessage="No biosamples match these filters."
+                loadErrorTitle="Could not load biosamples"
+                searchError={list.error}
+                searchLoading={list.loading}
+                hasMatches={list.items.length > 0}
+                refreshingLabel="Refreshing biosample list…"
+                canLoadMore={canLoadMore}
+                loadingMore={list.loadingMore}
+                pageSize={SAMPLE_LENS_PAGE_SIZE}
+                onLoadMore={list.loadMore}
+                onClearFilters={() => writeFilters([])}
+              >
+                <BiosampleMatrixStrips
+                  samples={list.items}
+                  focusMatrix={focusMatrix}
+                />
+              </LensResultsPanel>
+            )}
+          </div>
         }
       />
     </PageFrame>

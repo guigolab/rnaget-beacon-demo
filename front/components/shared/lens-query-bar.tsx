@@ -26,6 +26,7 @@ type LensQueryBarProps = {
   onChange: (filters: UiFilter[]) => void
   probe: LensProbe
   examples: Array<{ label: string; filter: UiFilter }>
+  showExamples?: boolean
   labelCatalog: Map<string, string>
   resolveText: (raw: string) => UiFilter | null
   mergeAdded?: (current: UiFilter[], added: UiFilter) => UiFilter[]
@@ -39,6 +40,7 @@ export function LensQueryBar({
   onChange,
   probe,
   examples,
+  showExamples = true,
   labelCatalog,
   resolveText,
   mergeAdded,
@@ -116,7 +118,7 @@ export function LensQueryBar({
         </div>
       </div>
 
-      {examples.length > 0 && (
+      {showExamples && examples.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-muted-foreground">Examples</span>
           {examples.map((example) => (

@@ -629,9 +629,10 @@ def hydrate_package(
             add_lookup(uv, "feature_id_unversioned", fid, res, src, ver)
         sym = g.get("symbol")
         if sym:
-            add_lookup(sym.upper(), "symbol", fid, res, src, ver)
+            # Preserve original casing; symbol filters match lookup_key exactly.
+            add_lookup(str(sym), "symbol", fid, res, src, ver)
         for a in g.get("aliases") or []:
-            add_lookup(str(a).upper(), "alias", fid, res, src, ver)
+            add_lookup(str(a), "alias", fid, res, src, ver)
         for x in g.get("xrefs") or []:
             add_lookup(str(x), "xref", fid, res, src, ver)
 

@@ -7,8 +7,7 @@ import { APP_MAX_WIDTH_CLASS } from '@/components/ui-kit'
 import { cn } from '@/lib/utils'
 
 const links = [
-  { href: '/features/', label: 'Features' },
-  { href: '/biosamples/', label: 'Biosamples' },
+  { href: '/explore/', label: 'Explore' },
   { href: '/matrices/', label: 'Matrices' },
 ]
 

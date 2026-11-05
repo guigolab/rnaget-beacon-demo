@@ -24,7 +24,6 @@ export type BeaconFilter = OntologyFilter | AlphanumericFilter | CustomFilter
 export type UiFilter =
   | { kind: 'ontology'; id: string; label?: string }
   | { kind: 'symbol'; value: string }
-  | { kind: 'sex'; value: string }
   | { kind: 'alphanumeric'; id: string; value: string; label?: string }
   /** Continuous expression.* terms that require an operator (e.g. expression.median). */
   | {
@@ -35,7 +34,7 @@ export type UiFilter =
       label?: string
     }
   | { kind: 'matrixUnit'; value: string }
-  /** Includes categorical expression.* ids such as expression.percentile.80-100. */
+  /** Custom ids such as symbol:TP53 or matrix.profileSource:gtex. */
   | { kind: 'custom'; id: string; label?: string }
 
 export type FilteringTerm = {
@@ -181,21 +180,6 @@ export type GenomicInterval = {
   }
 }
 
-/** Embedded info.expressionSummary from packaged expression stats (not a summary endpoint). */
-export type ExpressionSummaryInfo = {
-  min?: number
-  max?: number
-  /** Feature-axis embed: biosample holding the min/max. */
-  minBiosampleId?: string
-  maxBiosampleId?: string
-  /** Biosample-axis embed: feature holding the min/max. */
-  minFeatureId?: string
-  maxFeatureId?: string
-}
-
-/** @deprecated Prefer ExpressionSummaryInfo */
-export type FeatureExpressionSummaryInfo = ExpressionSummaryInfo
-
 export type Feature = {
   id: string
   genomicFeature?: {
@@ -207,10 +191,6 @@ export type Feature = {
     genomicInterval?: GenomicInterval
   }
   matrixIds?: string[]
-  /** Present on nested `/matrices/{id}/features` when expression stats are packaged. */
-  info?: {
-    expressionSummary?: ExpressionSummaryInfo
-  }
 }
 
 export type OntologyTerm = { id?: string; label?: string }
@@ -238,24 +218,12 @@ export type Biosample = {
   description?: string
   summary?: string
   notes?: string
-  sex?: string
   sampleOriginType?: OntologyTerm
   sampleOriginDetail?: OntologyTerm
   sampleProcessing?: OntologyTerm
   sampleType?: OntologyTerm
   phenotypicFeatures?: PhenotypicFeature[]
   measurements?: Measurement[]
-  info?: {
-    sex?: string
-    lab?: string
-    age_bracket?: string
-    condition?: string
-    timepoint?: string
-    rin?: number
-    ischemic_time_min?: number
-    /** Present on nested `/matrices/{id}/biosamples` when expression stats are packaged. */
-    expressionSummary?: ExpressionSummaryInfo
-  }
 }
 
 export type ExpressionValue = {

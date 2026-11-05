@@ -52,9 +52,13 @@ Filled from export/hydrate when data exists; clinical biosample fields and gene 
 
 ## Filtering terms and `query.filters`
 
+Catalog of **custom** filter ids (expression customs, biotype families, sex×tissue
+presets), how stats bands/profiles are computed, and friendlier labels:
+[custom-filtering-terms.md](custom-filtering-terms.md).
+
 Informational catalogs:
 
-- `GET|POST /filtering_terms` — all scopes (`genomicFeature`, `biosample`, `matrix`); clients filter by `scopes`
+- `GET /filtering_terms` — all scopes (`genomicFeature`, `biosample`, `matrix`); clients filter by `scopes` (GET only; optional `skip`/`limit`)
 - `GET|POST /matrices/{id}/filtering_terms` — terms observed on that matrix’s features and biosamples (both scopes)
 
 Dropped: `/features/filtering_terms`, `/biosamples/filtering_terms`, `/matrices/filtering_terms`, and `/matrices/{id}/{features|biosamples}/filtering_terms`.
@@ -81,8 +85,8 @@ POST body: `{"query":{"filters":[…],"pagination":{"skip":0,"limit":10}}}`. GET
 - Expression value queries reject `skip` above 100000. Feature, biosample, and matrix listings do not use that cap.
 - `query.includeResultsetResponses` accepts `ALL`, `HIT`, `MISS`, or `NONE` (Beacon v2). It is echoed in `receivedRequestSummary`. `NONE` omits result sets; `HIT` includes the result set only when it exists; `MISS` includes it only when it does not.
 - Ontology filters match the term id exactly. `includeDescendantTerms` is not applied (the package has no ontology closure). Responses echo `includeDescendantTerms: false` and `similarity: "exact"`.
-- Nested `/matrices/{id}/features` and `/matrices/{id}/biosamples` accept expression axis filters (`expression.median`, `expression.percentile.*`, …), optional ID lists, and `sort` / `order` on packaged stats. Cell retrieval is `/matrices/{id}/expression_values` (optional `featureIDList` / `biosampleIDList`, `minValue` / `maxValue`, `order` by cell value, and cell-scoped `expression.value` / percentile filters). There is no separate heatmap or expression_summary route.
-- `/features/{id}/matrices` accepts membership filters such as `expression.percentile.80-100` (and optional `matrixIDList`).
+- Nested `/matrices/{id}/features` accepts filters plus optional `featureIDList` only; `/matrices/{id}/biosamples` accepts filters plus optional `biosampleIDList` only (no `sort`/`order`/cross ID lists/value bounds). Cell retrieval is `/matrices/{id}/expression_values` (optional `featureIDList` / `biosampleIDList`, `minValue` / `maxValue`, `order` by cell value, and cell-scoped `expression.value` / percentile filters). There is no separate heatmap or expression_summary route.
+- `/features/{id}/matrices` accepts alphanumeric `expression.percentile` (e.g. `>=` / `90`) and optional `matrixIDList`.
 - `biosampleStatus` is `EFO:0009654` (`reference sample`) when the source does not classify the sample. That includes GTEx post-mortem tissue.
 - `GET /service-info` returns a GA4GH Service Info document (no Beacon `meta` / `response` envelope).
 - `receivedRequestSummary.apiVersion` uses the same value as `meta.apiVersion` (including the `v` prefix).

@@ -47,10 +47,10 @@ type MatrixHeatmapGridProps = {
   onInspect: (inspect: MatrixInspect) => void
   onVisibleBiosampleIds: (ids: string[]) => void
   onNeedMoreColumns: () => void
-  canLoadMoreFeatures: boolean
-  onLoadMoreFeatures: () => void
+  canLoadMoreCells: boolean
+  onLoadMoreCells: () => void
   loadingMore: boolean
-  featureTotal: number
+  cellTotal: number
 }
 
 export function MatrixHeatmapGrid({
@@ -66,10 +66,10 @@ export function MatrixHeatmapGrid({
   onInspect,
   onVisibleBiosampleIds,
   onNeedMoreColumns,
-  canLoadMoreFeatures,
-  onLoadMoreFeatures,
+  canLoadMoreCells,
+  onLoadMoreCells,
   loadingMore,
-  featureTotal,
+  cellTotal,
 }: MatrixHeatmapGridProps) {
   const fillValues = colorValues ?? values
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -292,7 +292,7 @@ export function MatrixHeatmapGrid({
           })}
         </tbody>
       </table>
-      {canLoadMoreFeatures && (
+      {canLoadMoreCells && (
         <div className="sticky left-0 border-t border-border px-3 py-2">
           <Button
             type="button"
@@ -300,12 +300,12 @@ export function MatrixHeatmapGrid({
             size="sm"
             className="w-full"
             disabled={loadingMore}
-            onClick={onLoadMoreFeatures}
+            onClick={onLoadMoreCells}
           >
-            Load more features
-            {featureTotal > 0 && (
+            Load more cells
+            {cellTotal > 0 && (
               <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                {features.length.toLocaleString()} / {featureTotal.toLocaleString()}
+                {cellTotal.toLocaleString()} matching
               </span>
             )}
           </Button>

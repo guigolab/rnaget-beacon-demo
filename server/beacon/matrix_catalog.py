@@ -5,19 +5,57 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 from beacon.filters import (
-    MATRIX_ALPHANUMERIC_FIELDS,
     matrix_annotation_filter_value,
     matrix_matches,
+    matrix_profile_source,
 )
 from beacon.matrix_catalog_seed import load_matrix_seed_terms, merge_filtering_terms
 
+# Beacon matrix defaultSchema properties only (no info / packaging extras).
+MATRIX_SCHEMA_KEYS = frozenset(
+    {
+        "matrixId",
+        "createDateTime",
+        "description",
+        "downloadUrl",
+        "reproducible",
+        "assayType",
+        "name",
+        "dimensions",
+        "featureTypes",
+        "expressionUnitAndScale",
+        "expressionValueRange",
+        "annotation",
+        "assembly",
+    }
+)
+
+
+def public_matrix_doc(matrix: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a schema-true matrix document for API responses."""
+    return {
+        key: matrix[key]
+        for key in MATRIX_SCHEMA_KEYS
+        if key in matrix and matrix[key] is not None
+    }
+
 
 def list_matrices_filtered(
-    matrices: Sequence[Dict[str, Any]], filters: Optional[Sequence[Any]]
+    matrices: Sequence[Dict[str, Any]],
+    filters: Optional[Sequence[Any]],
+    *,
+    extra_ontology_ids_by_matrix: Optional[Dict[str, Set[str]]] = None,
 ) -> List[Dict[str, Any]]:
     if not filters:
         return list(matrices)
-    return [m for m in matrices if matrix_matches(m, filters)]
+    extra_map = extra_ontology_ids_by_matrix or {}
+    out: List[Dict[str, Any]] = []
+    for m in matrices:
+        mid = str(m.get("matrixId") or m.get("id") or "")
+        extra = extra_map.get(mid)
+        if matrix_matches(m, filters, extra_ontology_ids=extra):
+            out.append(m)
+    return out
 
 
 def build_matrix_filtering_terms(
@@ -25,10 +63,8 @@ def build_matrix_filtering_terms(
 ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Facet catalog for matrix-scoped terms on root /filtering_terms."""
     units: Set[str] = set()
-    scales: Set[str] = set()
     annotations: Set[str] = set()
     assemblies: Set[str] = set()
-    reproducible: Set[str] = set()
     profile_sources: Set[str] = set()
     assay_terms: Dict[str, str] = {}
     feature_types: Dict[str, str] = {}
@@ -37,8 +73,6 @@ def build_matrix_filtering_terms(
         uas = m.get("expressionUnitAndScale") or {}
         if uas.get("unit"):
             units.add(str(uas["unit"]))
-        if uas.get("scale"):
-            scales.add(str(uas["scale"]))
         ann = m.get("annotation") or {}
         merged = matrix_annotation_filter_value(ann.get("source"), ann.get("version"))
         if merged:
@@ -46,11 +80,9 @@ def build_matrix_filtering_terms(
         asm = m.get("assembly") or {}
         if asm.get("name"):
             assemblies.add(str(asm["name"]))
-        reproducible.add("true" if m.get("reproducible") else "false")
-        info = m.get("info") or {}
-        ps = info.get("profileSource") or info.get("catalogSource")
+        ps = matrix_profile_source(m)
         if ps:
-            profile_sources.add(str(ps))
+            profile_sources.add(ps)
         assay = m.get("assayType") or {}
         if isinstance(assay, dict) and assay.get("id"):
             assay_terms[str(assay["id"])] = str(assay.get("label") or assay["id"])
@@ -62,24 +94,22 @@ def build_matrix_filtering_terms(
                 feature_types[str(ft["id"])] = str(ft.get("label") or ft["id"])
 
     terms: List[Dict[str, Any]] = []
+    from beacon.filter_display import (
+        matrix_annotation_label,
+        matrix_assembly_label,
+        matrix_profile_source_label,
+        matrix_unit_label,
+        so_display_label,
+    )
+
     if units:
         terms.append(
             {
                 "type": "alphanumeric",
                 "id": "matrix.unit",
-                "label": "Expression unit",
+                "label": matrix_unit_label(),
                 "scopes": ["matrix"],
                 "values": sorted(units),
-            }
-        )
-    if scales:
-        terms.append(
-            {
-                "type": "alphanumeric",
-                "id": "matrix.scale",
-                "label": "Expression scale",
-                "scopes": ["matrix"],
-                "values": sorted(scales),
             }
         )
     if annotations:
@@ -87,7 +117,7 @@ def build_matrix_filtering_terms(
             {
                 "type": "alphanumeric",
                 "id": "matrix.annotation",
-                "label": "Annotation",
+                "label": matrix_annotation_label(),
                 "scopes": ["matrix"],
                 "values": sorted(annotations),
             }
@@ -97,20 +127,11 @@ def build_matrix_filtering_terms(
             {
                 "type": "alphanumeric",
                 "id": "matrix.assembly.name",
-                "label": "Assembly",
+                "label": matrix_assembly_label(),
                 "scopes": ["matrix"],
                 "values": sorted(assemblies),
             }
         )
-    terms.append(
-        {
-            "type": "alphanumeric",
-            "id": "matrix.reproducible",
-            "label": "Reproducible quantification",
-            "scopes": ["matrix"],
-            "values": sorted(reproducible),
-        }
-    )
     for oid, label in sorted(assay_terms.items()):
         terms.append(
             {
@@ -125,17 +146,18 @@ def build_matrix_filtering_terms(
             {
                 "type": "SO",
                 "id": oid,
-                "label": label,
+                "label": so_display_label(label, fallback_id=oid),
                 "scopes": ["matrix"],
             }
         )
     if profile_sources:
         terms.append(
             {
-                "type": "alphanumeric",
+                "type": "custom",
                 "id": "matrix.profileSource",
-                "label": "Catalog source",
+                "label": matrix_profile_source_label(),
                 "scopes": ["matrix"],
+                # Machine values (encode/geo/gtex); UI pretty-prints for display.
                 "values": sorted(profile_sources),
             }
         )

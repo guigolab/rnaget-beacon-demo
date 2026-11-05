@@ -9,6 +9,8 @@ type LensChromeProps = {
   queryBar: ReactNode
   endpointLines: string[]
   hasFilters: boolean
+  /** When true, always render resultsPanel (e.g. biosamples ontology heatmap). */
+  alwaysShowResults?: boolean
   emptyState: { title: string; description: string }
   resultsPanel: ReactNode
   detail?: ReactNode
@@ -19,31 +21,33 @@ export function LensChrome({
   queryBar,
   endpointLines,
   hasFilters,
+  alwaysShowResults = false,
   emptyState,
   resultsPanel,
   detail,
 }: LensChromeProps) {
+  const showResults = hasFilters || alwaysShowResults
   return (
     <div className="mt-6 flex flex-col gap-6 lg:flex-row lg:items-start">
       {sidebar}
 
-      <div className="min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="border-b border-border bg-muted/20 px-4 py-3">
+      <div className="flex h-[70vh] min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="shrink-0 border-b border-border bg-muted/20 px-4 py-3">
           {queryBar}
           <div className="mt-2">
             <LensMutedEndpoints lines={endpointLines} />
           </div>
         </div>
 
-        <div className="px-4 py-4">
-          {!hasFilters && (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 [scrollbar-width:thin]">
+          {!showResults && (
             <EmptyState
               title={emptyState.title}
               description={emptyState.description}
             />
           )}
 
-          {hasFilters && resultsPanel}
+          {showResults && resultsPanel}
 
           {detail && (
             <div className="mt-8 border-t border-border pt-6">{detail}</div>

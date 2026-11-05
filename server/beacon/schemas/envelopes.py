@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Granularity(str, Enum):
@@ -50,12 +50,48 @@ class CustomFilter(BaseModel):
 BeaconFilter = Union[AlphanumericFilter, OntologyFilter, CustomFilter]
 
 
+class BeaconRequestParameters(BaseModel):
+    """RNAget requestParameters under query.requestParameters.
+
+    Route-specific: nested matrix features → featureIDList only; nested
+    biosamples → biosampleIDList only; expression_values → both ID lists,
+    minValue/maxValue, and order (by cell value). Cross-links use matrixIDList.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    featureIDList: Optional[str] = Field(
+        None,
+        description="Comma-separated feature IDs (matrix row accessions).",
+    )
+    biosampleIDList: Optional[str] = Field(
+        None,
+        description="Comma-separated biosample IDs.",
+    )
+    matrixIDList: Optional[str] = Field(
+        None,
+        description="Comma-separated matrix IDs (cross-link listings).",
+    )
+    minValue: Optional[float] = Field(
+        None,
+        description="Minimum expression value (expression_values only).",
+    )
+    maxValue: Optional[float] = Field(
+        None,
+        description="Maximum expression value (expression_values only).",
+    )
+    order: Optional[str] = Field(
+        None,
+        description="Order expression_values by cell value: asc | desc.",
+    )
+
+
 class BeaconQuery(BaseModel):
     requestedGranularity: Optional[Granularity] = None
     pagination: Optional[Pagination] = None
     # Beacon anyOf OntologyFilter | AlphanumericFilter | CustomFilter
     filters: Optional[List[BeaconFilter]] = None
-    requestParameters: Optional[Dict[str, Any]] = None
+    requestParameters: Optional[BeaconRequestParameters] = None
     includeResultsetResponses: Optional[IncludeResultsetResponses] = None
     testMode: Optional[bool] = None
 

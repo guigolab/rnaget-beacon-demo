@@ -2,6 +2,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+import anyio
 from fastapi import FastAPI, Request
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.exceptions import RequestValidationError
@@ -17,6 +18,43 @@ from routers import register_beacon_routers
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+DEFAULT_API_MAX_INFLIGHT = 8
+
+
+def _api_max_inflight() -> int:
+    raw = os.environ.get("API_MAX_INFLIGHT", "").strip()
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    return DEFAULT_API_MAX_INFLIGHT
+
+
+def _is_duckdb_oom(exc: BaseException) -> bool:
+    """True when DuckDB refused work because memory / temp caps were hit."""
+    name = type(exc).__module__ + "." + type(exc).__name__
+    if "duckdb" not in name.lower() and type(exc).__name__ != "OutOfMemoryException":
+        # Still inspect message for wrapped / CapacityException cases.
+        pass
+    text = str(exc).lower()
+    markers = (
+        "out of memory",
+        "cannot allocate",
+        "memory_limit",
+        "memory limit",
+        "temp_directory",
+        "max_temp_directory_size",
+        "could not allocate",
+    )
+    if any(m in text for m in markers):
+        return True
+    return type(exc).__name__ in (
+        "OutOfMemoryException",
+        "CapacityException",
+        "InvalidInputException",
+    ) and ("memory" in text or "temp" in text)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -24,6 +62,11 @@ async def lifespan(app: FastAPI):
     store = get_store()
     backend = type(store).__name__
     logger.info("Beacon store ready: %s", backend)
+    # Bound concurrent sync route handlers (Starlette runs ``def`` on a thread pool).
+    inflight = _api_max_inflight()
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    limiter.total_tokens = inflight
+    logger.info("API sync in-flight cap: %s", inflight)
     yield
 
 
@@ -73,6 +116,17 @@ async def http_exception_handler(
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     from beacon.responses import build_error_response
+
+    if _is_duckdb_oom(exc):
+        logger.warning("DuckDB resource limit on %s: %s", request.url.path, exc)
+        return JSONResponse(
+            status_code=503,
+            content=build_error_response(
+                503,
+                "Query exceeds server memory budget; narrow filters or page size",
+                received=_default_received(),
+            ),
+        )
 
     logger.exception("Unhandled error on %s", request.url.path)
     return JSONResponse(

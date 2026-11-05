@@ -8,7 +8,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
@@ -21,25 +21,41 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 
-# Expression percentile bands / profiles advertised at root (unit-free, precomputed).
-# Quintiles of median (features) / detected_genes (biosamples); "none" = undetected.
-_EXPRESSION_PERCENTILE_BANDS = (
-    "none",
-    "0-20",
-    "20-40",
-    "40-60",
-    "60-80",
-    "80-100",
-)
-_EXPRESSION_PROFILES = (
-    "not-detected",
-    "ubiquitous",
-    "tissue-enriched",
-    "low-specificity",
-)
-_DETECTED_BUCKETS = ("10%", "50%", "90%")
-# Minimum biosamples before a matrix contributes band/profile terms.
-_EXPRESSION_MIN_N = 10
+def _emit_expression_support_terms(
+    support,
+    terms: Dict[str, Dict[str, Any]],
+    needed_resources: Set[str],
+    *,
+    matrix_scoped: bool = False,
+) -> None:
+    """Emit expression.percentile (custom) from support.
+
+    Catalog ``type`` is custom: median percentile is not a genomicFeature schema
+    field (Beacon filteringTermsSchema). Request wire stays alphanumeric
+    ``id`` + operator + value. Biosample presets are not catalogued.
+    """
+    from beacon.expression_filter_maps import (
+        EXPRESSION_PERCENTILE_ID,
+        PERCENTILE_CATALOG_VALUES,
+    )
+    from beacon.filter_display import expression_percentile_label
+
+    values = support.percentile_catalog_values()
+    if values:
+        # Prefer full demo chip set when all thresholds are present.
+        catalog_values = (
+            list(PERCENTILE_CATALOG_VALUES)
+            if set(values) >= set(PERCENTILE_CATALOG_VALUES)
+            else values
+        )
+        _add_term(
+            terms,
+            type_="custom",
+            id_=EXPRESSION_PERCENTILE_ID,
+            label=expression_percentile_label(matrix_scoped=matrix_scoped),
+            scopes=["genomicFeature"],
+            values=catalog_values,
+        )
 
 
 def _append_expression_root_terms(
@@ -47,8 +63,11 @@ def _append_expression_root_terms(
     terms: Dict[str, Dict[str, Any]],
     needed_resources: Set[str],
 ) -> None:
-    """Add categorical expression.* terms from per-matrix stats parquet."""
-    import pyarrow.parquet as pq
+    """Add expression.percentile from per-matrix stats parquet."""
+    from beacon.expression_catalog_support import (
+        merge_expression_support,
+        scan_matrix_expression_support,
+    )
 
     manifest_path = package / "manifest.json"
     if not manifest_path.is_file():
@@ -56,139 +75,64 @@ def _append_expression_root_terms(
     with manifest_path.open(encoding="utf-8") as fh:
         manifest = json.load(fh)
 
-    saw_feature_band = False
-    saw_feature_profile = False
-    saw_detected = False
-    saw_bio_band = False
-    enriched_ids: Dict[str, Optional[str]] = {}
-
+    parts = []
     for entry in manifest.get("matrices") or []:
         dirname = entry.get("dir")
         if not dirname:
             continue
-        matrix_dir = package / "matrices" / dirname
-        feat_stats = matrix_dir / "feature_expression_stats.parquet"
-        bio_stats = matrix_dir / "biosample_expression_stats.parquet"
-        bio_path = matrix_dir / "biosamples.parquet"
+        parts.append(scan_matrix_expression_support(package / "matrices" / dirname))
 
-        n_bio = 0
-        if bio_path.is_file():
-            n_bio = int(pq.ParquetFile(bio_path).metadata.num_rows or 0)
+    support = merge_expression_support(parts)
+    _emit_expression_support_terms(
+        support,
+        terms,
+        needed_resources,
+        matrix_scoped=False,
+    )
 
-        if feat_stats.is_file() and n_bio >= _EXPRESSION_MIN_N:
-            names = set(pq.read_schema(feat_stats).names)
-            want = [
-                c
-                for c in ("band", "profile", "enriched_in", "detected_fraction")
-                if c in names
-            ]
-            if want:
-                for batch in pq.ParquetFile(feat_stats).iter_batches(
-                    columns=want, batch_size=8192
-                ):
-                    rows = batch.to_pylist()
-                    for row in rows:
-                        band = row.get("band")
-                        if band:
-                            saw_feature_band = True
-                        profile = row.get("profile")
-                        if profile:
-                            saw_feature_profile = True
-                        enriched = row.get("enriched_in")
-                        if enriched and str(enriched).strip():
-                            enriched_ids.setdefault(str(enriched), None)
-                        frac = row.get("detected_fraction")
-                        if frac is not None:
-                            saw_detected = True
 
-        if bio_stats.is_file() and n_bio >= _EXPRESSION_MIN_N:
-            names = set(pq.read_schema(bio_stats).names)
-            if "detected_genes_band" in names:
-                for batch in pq.ParquetFile(bio_stats).iter_batches(
-                    columns=["detected_genes_band"], batch_size=8192
-                ):
-                    for val in batch.column(0).to_pylist():
-                        if val:
-                            saw_bio_band = True
-                            break
-                    if saw_bio_band:
-                        break
+def _append_biotype_family_terms(
+    terms: Dict[str, Dict[str, Any]],
+) -> None:
+    """Emit custom feature.biotypeFamily with present family keys as values.
 
-        # Resolve enrichment labels from biosample ontology when possible.
-        if enriched_ids and bio_path.is_file():
-            bio_names = set(pq.read_schema(bio_path).names)
-            if "ontology_id" in bio_names and "ontology_label" in bio_names:
-                for batch in pq.ParquetFile(bio_path).iter_batches(
-                    columns=["ontology_id", "ontology_label"], batch_size=8192
-                ):
-                    for row in batch.to_pylist():
-                        oid = row.get("ontology_id")
-                        if oid is None:
-                            continue
-                        oid_s = str(oid)
-                        if oid_s in enriched_ids and not enriched_ids[oid_s]:
-                            label = row.get("ontology_label")
-                            enriched_ids[oid_s] = (
-                                str(label) if label else None
-                            )
+    Catalog ``type`` is custom: biotype family is a rollup, not a genomicFeature
+    schema field (schema uses ontology ``featureType``). Request wire stays
+    alphanumeric ``id`` + ``=`` + value.
+    """
+    from beacon.biotype_families import families_present_in
+    from beacon.filters import FEATURE_BIOTYPE_FAMILY_ID
+    from beacon.filter_display import biotype_family_catalog_label
 
-    if saw_feature_band:
-        for band in _EXPRESSION_PERCENTILE_BANDS:
-            if band == "none":
-                label = "Expression percentile: none (not detected)"
-            else:
-                label = f"Expression percentile: {band}"
-            _add_term(
-                terms,
-                type_="custom",
-                id_=f"expression.percentile.{band}",
-                label=label,
-                scopes=["genomicFeature"],
-            )
-    if saw_feature_profile:
-        for profile in _EXPRESSION_PROFILES:
-            _add_term(
-                terms,
-                type_="custom",
-                id_=f"expression.profile:{profile}",
-                label=f"Expression profile: {profile}",
-                scopes=["genomicFeature"],
-            )
-    if saw_detected:
-        for bucket in _DETECTED_BUCKETS:
-            _add_term(
-                terms,
-                type_="custom",
-                id_=f"expression.detected:>={bucket}",
-                label=f"Detected in at least {bucket} of biosamples",
-                scopes=["genomicFeature"],
-            )
-    for oid, label in sorted(enriched_ids.items()):
-        pref = _prefix_of(oid)
-        if pref:
-            resource_key = pref.lower()
-            if resource_key in RESOURCE_DEFS:
-                needed_resources.add(resource_key)
-        _add_term(
-            terms,
-            type_="custom",
-            id_=f"expression.enrichedIn:{oid}",
-            label=f"Enriched in {label or oid}",
-            scopes=["genomicFeature"],
-        )
-    if saw_bio_band:
-        for band in _EXPRESSION_PERCENTILE_BANDS:
-            if band == "none":
-                label = "Detected-genes percentile: none (none detected)"
-            else:
-                label = f"Detected-genes percentile: {band}"
-            _add_term(
-                terms,
-                type_="custom",
-                id_=f"expression.detectedGenesPercentile.{band}",
-                label=label,
-                scopes=["biosample"],
-            )
+    so_ids = [
+        str(t.get("id"))
+        for t in terms.values()
+        if str(t.get("type") or "").upper() == "SO"
+        or str(t.get("id") or "").upper().startswith("SO:")
+    ]
+    values = sorted(families_present_in(so_ids))
+    if not values:
+        return
+    _add_term(
+        terms,
+        type_="custom",
+        id_=FEATURE_BIOTYPE_FAMILY_ID,
+        label=biotype_family_catalog_label(),
+        scopes=["genomicFeature"],
+        values=values,
+    )
+
+
+def _pretty_so_term_labels(terms: Dict[str, Dict[str, Any]]) -> None:
+    from beacon.filter_display import so_display_label
+
+    for term in terms.values():
+        tid = str(term.get("id") or "")
+        if str(term.get("type") or "").upper() != "SO" and not tid.upper().startswith(
+            "SO:"
+        ):
+            continue
+        term["label"] = so_display_label(term.get("label"), fallback_id=tid)
 
 
 def _append_matrix_scope_terms(
@@ -365,7 +309,11 @@ def _register_ontology_term(
     resource_key = pref.lower()
     if pref == "NCBIGENE":
         resource_key = "ncbigene"
+    # Biosample catalogs only advertise UBERON/EFO; other prefixes here are for
+    # genomicFeature / matrix (SO, GO, OBI, …).
     if pref in ("UBERON", "EFO", "OBI", "MONDO", "HP", "GO", "NCIT", "SO"):
+        if "biosample" in scopes and pref not in ("UBERON", "EFO"):
+            return
         if resource_key in RESOURCE_DEFS:
             needed_resources.add(resource_key)
         _add_term(
@@ -432,17 +380,25 @@ def _emit_resource_term(
     resource: Any,
     scopes: List[str],
 ) -> None:
+    """Emit alphanumeric feature.resource with GenCode + NCBI Gene values.
+
+    Both display values are catalogued whenever any annotation resource is seen;
+    matching equals the stored ``resource`` column (gencode|ncbigene).
+    """
     if resource is None:
         return
     res = str(resource).strip()
-    if not res or res.lower() == "gencode":
+    if not res:
         return
+    from beacon.filters import FEATURE_RESOURCE_CATALOG_VALUES, FEATURE_RESOURCE_ID
+
     _add_term(
         terms,
-        type_="custom",
-        id_=f"resource:{res}",
-        label=f"Annotation resource {res}",
+        type_="alphanumeric",
+        id_=FEATURE_RESOURCE_ID,
+        label="Annotation resource",
         scopes=scopes,
+        values=list(FEATURE_RESOURCE_CATALOG_VALUES),
     )
 
 
@@ -457,12 +413,11 @@ def build_catalog(package: Path) -> Dict[str, Any]:
 
     terms: Dict[str, Dict[str, Any]] = {}
     needed_resources: Set[str] = set()
-    sex_values: Set[str] = set()
-    age_values: Set[str] = set()
-    condition_values: Set[str] = set()
     xref_prefixes: Set[str] = set()
 
-    # --- Biosamples ---
+    # --- Biosamples (UBERON/EFO tissues only; no status/OBI/phenotype ontologies) ---
+    from beacon.filter_display import is_biosample_catalog_ontology_id
+
     for entry in manifest.get("matrices") or []:
         dirname = entry.get("dir")
         if not dirname:
@@ -476,19 +431,6 @@ def build_catalog(package: Path) -> Dict[str, Any]:
             for c in (
                 "ontology_id",
                 "ontology_label",
-                "ontology_source",
-                "biosample_status_id",
-                "biosample_status_label",
-                "sample_origin_type_id",
-                "sample_origin_type_label",
-                "sample_processing_id",
-                "sample_processing_label",
-                "phenotype_ids",
-                "phenotypic_features",
-                "measurement_assay_ids",
-                "sex",
-                "age_bracket",
-                "condition",
             )
             if c in bio_schema
         ]
@@ -500,19 +442,12 @@ def build_catalog(package: Path) -> Dict[str, Any]:
             for row in batch.to_pylist():
                 oid = row.get("ontology_id")
                 olabel = row.get("ontology_label")
-                sex = row.get("sex")
-                if sex is not None and str(sex).strip():
-                    sex_values.add(str(sex).strip())
-                age = row.get("age_bracket")
-                if age is not None and str(age).strip():
-                    age_values.add(str(age).strip())
-                cond = row.get("condition")
-                if cond is not None and str(cond).strip():
-                    condition_values.add(str(cond).strip())
                 oid_missing = oid is None or (isinstance(oid, float) and oid != oid)
                 if oid_missing:
                     continue
                 oid_s = str(oid)
+                if not is_biosample_catalog_ontology_id(oid_s):
+                    continue
                 _register_ontology_term(
                     terms,
                     needed_resources,
@@ -520,94 +455,6 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                     label=str(olabel) if olabel else None,
                     scopes=["biosample"],
                 )
-                st_id = row.get("biosample_status_id")
-                st_label = row.get("biosample_status_label")
-                if st_id is not None and not (
-                    isinstance(st_id, float) and st_id != st_id
-                ):
-                    _register_ontology_term(
-                        terms,
-                        needed_resources,
-                        oid=str(st_id),
-                        label=str(st_label) if st_label else None,
-                        scopes=["biosample"],
-                    )
-                for col, label_col in (
-                    ("sample_origin_type_id", "sample_origin_type_label"),
-                    ("sample_processing_id", "sample_processing_label"),
-                ):
-                    tid = row.get(col)
-                    tlabel = row.get(label_col)
-                    if tid is None or (isinstance(tid, float) and tid != tid):
-                        continue
-                    _register_ontology_term(
-                        terms,
-                        needed_resources,
-                        oid=str(tid),
-                        label=str(tlabel) if tlabel else None,
-                        scopes=["biosample"],
-                    )
-                for pid in row.get("phenotype_ids") or []:
-                    if pid:
-                        _register_ontology_term(
-                            terms,
-                            needed_resources,
-                            oid=str(pid),
-                            label=None,
-                            scopes=["biosample"],
-                        )
-                for feat in row.get("phenotypic_features") or []:
-                    if not isinstance(feat, dict):
-                        continue
-                    for key in ("featureType", "severity"):
-                        block = feat.get(key) or {}
-                        if isinstance(block, dict) and block.get("id"):
-                            _register_ontology_term(
-                                terms,
-                                needed_resources,
-                                oid=str(block["id"]),
-                                label=str(block.get("label"))
-                                if block.get("label")
-                                else None,
-                                scopes=["biosample"],
-                            )
-                for mid in row.get("measurement_assay_ids") or []:
-                    if mid:
-                        _register_ontology_term(
-                            terms,
-                            needed_resources,
-                            oid=str(mid),
-                            label=None,
-                            scopes=["biosample"],
-                        )
-
-    # Advertise sex field when any biosample matrix exists; values optional.
-    _add_term(
-        terms,
-        type_="alphanumeric",
-        id_="sex",
-        label="Sex",
-        scopes=["biosample"],
-        values=sorted(sex_values) if sex_values else None,
-    )
-    if age_values:
-        _add_term(
-            terms,
-            type_="alphanumeric",
-            id_="age_bracket",
-            label="Age bracket",
-            scopes=["biosample"],
-            values=sorted(age_values),
-        )
-    if condition_values:
-        _add_term(
-            terms,
-            type_="alphanumeric",
-            id_="condition",
-            label="Condition / treatment",
-            scopes=["biosample"],
-            values=sorted(condition_values),
-        )
 
     # --- Genes / features ---
     genes_path = package / "genes.parquet"
@@ -636,12 +483,18 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                     ft_s = str(ft_id)
                     if _prefix_of(ft_s) == "SO":
                         needed_resources.add("so")
+                        from beacon.filter_display import so_display_label
+
                         _add_term(
                             terms,
                             type_="SO",
                             id_=ft_s,
-                            label=str(ft_label) if ft_label else None,
-                            scopes=["genomicFeature"],
+                            label=so_display_label(
+                                str(ft_label) if ft_label else None,
+                                fallback_id=ft_s,
+                            ),
+                            # Dual-scope: feature lens + matrices listing (featureTypes / biotypes).
+                            scopes=["genomicFeature", "matrix"],
                         )
                 for term in g.get("ontology_terms") or []:
                     if not isinstance(term, dict):
@@ -651,7 +504,15 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                         continue
                     tid_s = str(tid)
                     pref = _prefix_of(tid_s)
-                    if pref in ("SO", "GO"):
+                    if pref == "SO":
+                        _register_ontology_term(
+                            terms,
+                            needed_resources,
+                            oid=tid_s,
+                            label=str(term["label"]) if term.get("label") else None,
+                            scopes=["genomicFeature", "matrix"],
+                        )
+                    elif pref == "GO":
                         _register_ontology_term(
                             terms,
                             needed_resources,
@@ -696,14 +557,20 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                     ft_id = row.get("feature_type_id")
                     if ft_id and _prefix_of(str(ft_id)) == "SO":
                         needed_resources.add("so")
+                        from beacon.filter_display import so_display_label
+
+                        ft_s = str(ft_id)
+                        raw_label = (
+                            str(row["feature_type_label"])
+                            if row.get("feature_type_label")
+                            else None
+                        )
                         _add_term(
                             terms,
                             type_="SO",
-                            id_=str(ft_id),
-                            label=str(row["feature_type_label"])
-                            if row.get("feature_type_label")
-                            else None,
-                            scopes=["genomicFeature"],
+                            id_=ft_s,
+                            label=so_display_label(raw_label, fallback_id=ft_s),
+                            scopes=["genomicFeature", "matrix"],
                         )
                     _emit_resource_term(
                         terms, row.get("resource"), scopes=["genomicFeature"]
@@ -725,15 +592,10 @@ def build_catalog(package: Path) -> Dict[str, Any]:
         needed_resources.add("symbol")
 
     _append_expression_root_terms(package, terms, needed_resources)
+    _append_biotype_family_terms(terms)
     _append_matrix_scope_terms(terms, needed_resources)
     _append_live_matrix_catalog_terms(package, terms, needed_resources)
-
-    # Drop sex term if no biosamples at all and no values — keep if any bio matrix
-    if not any(
-        (package / "matrices" / (e.get("dir") or "") / "biosamples.parquet").is_file()
-        for e in (manifest.get("matrices") or [])
-    ):
-        terms.pop("sex", None)
+    _pretty_so_term_labels(terms)
 
     if any("genomicFeature" in (t.get("scopes") or []) for t in terms.values()):
         needed_resources.add("so")

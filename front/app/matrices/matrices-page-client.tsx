@@ -94,7 +94,7 @@ function MatricesContent() {
   )
   const querySummary = useMemo(() => {
     const parts = [filtersQuerySummary(matrixFilters)]
-    if (gene) parts.push(`${gene} top percentile (80-100)`)
+    if (gene) parts.push(`${gene} high on matrix range`)
     return parts.filter((part) => part && part !== 'your filters').join(' · ') || 'your filters'
   }, [matrixFilters, gene])
 
@@ -116,7 +116,12 @@ function MatricesContent() {
       if (featureId) {
         return listFeatureMatrices(featureId, {
           filters: [
-            { kind: 'custom', id: 'expression.percentile.80-100' },
+            {
+              kind: 'expression',
+              id: 'expression.percentile',
+              operator: '>=',
+              value: '90',
+            },
             ...filtersRef.current,
           ],
           skip,
@@ -200,8 +205,8 @@ function MatricesContent() {
                 </span>
                 <input
                   value={geneDraft}
-                  placeholder="Gene symbol (80–100% band)"
-                  aria-label="Gene symbol for high-expression matrices"
+                  placeholder="Gene symbol (top 10%)"
+                  aria-label="Gene symbol for top-percentile matrices"
                   onChange={(event) => {
                     setGeneDraft(event.target.value)
                     if (geneError) setGeneError('')
@@ -232,21 +237,21 @@ function MatricesContent() {
               <p className="w-full text-[10px] text-muted-foreground">
                 Resolves a feature, then lists matrices via{' '}
                 <span className="font-mono">/features/&#123;id&#125;/matrices</span> with{' '}
-                <span className="font-mono">expression.percentile.80-100</span>.
+                <span className="font-mono">expression.percentile:&gt;=:90</span>.
               </p>
             </div>
           </div>
         }
         endpointLines={
           gene
-            ? ['GET or POST /features/{id}/matrices · expression.percentile.80-100']
+            ? ['GET or POST /features/{id}/matrices · expression.percentile:>=:90']
             : ['GET or POST /matrices']
         }
         hasFilters={hasFilters}
         emptyState={{
           title: 'Start with a filter',
           description:
-            'Use an example chip, type in the bar, pick OBI/SO terms from the sidebar, or enter a gene for top-percentile (80–100) membership.',
+            'Use an example chip, type in the bar, pick OBI/SO terms from the sidebar, or enter a gene for top-percentile expression in a matrix.',
         }}
         resultsPanel={
           <LensResultsPanel
@@ -256,7 +261,7 @@ function MatricesContent() {
             previewCount={list.items.length}
             previewHint={
               gene
-                ? 'GET or POST /features/{id}/matrices (expression.percentile.80-100)'
+                ? 'GET or POST /features/{id}/matrices (expression.percentile:>=:90)'
                 : 'GET or POST /matrices'
             }
             noMatchesMessage="No matrices match these filters."

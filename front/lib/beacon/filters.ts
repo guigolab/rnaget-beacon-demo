@@ -17,12 +17,45 @@ export function isOntologyId(value: string): boolean {
   return ONTOLOGY_ID.test(value.trim())
 }
 
+export const MATRIX_PROFILE_SOURCE_PREFIX = 'matrix.profileSource:'
+
+export function isMatrixProfileSourceFilterId(id: string): boolean {
+  return id.trim().toLowerCase().startsWith(MATRIX_PROFILE_SOURCE_PREFIX)
+}
+
+export function matrixProfileSourceCustomFilter(
+  value: string,
+  label?: string
+): UiFilter {
+  const v = value.trim()
+  return {
+    kind: 'custom',
+    id: `${MATRIX_PROFILE_SOURCE_PREFIX}${v}`,
+    label,
+  }
+}
+
 export function isCustomId(value: string): boolean {
   const text = value.trim().toLowerCase()
   return (
-    text.startsWith('resource:') ||
     text.startsWith('symbol:') ||
-    text.startsWith('expression.')
+    text.startsWith('expression.') ||
+    text.startsWith('biosample.preset:') ||
+    text.startsWith('matrix.profilesource:') ||
+    text.startsWith('tissuehigh:') ||
+    text.startsWith('tissuespecific:') ||
+    text.startsWith('tissuetop:') ||
+    text.startsWith('tissuepresent:')
+  )
+}
+
+export function isTissueFeatureFilterId(value: string): boolean {
+  const text = value.trim().toLowerCase()
+  return (
+    text.startsWith('tissuehigh:') ||
+    text.startsWith('tissuespecific:') ||
+    text.startsWith('tissuetop:') ||
+    text.startsWith('tissuepresent:')
   )
 }
 
@@ -45,21 +78,23 @@ export function symbolCustomFilter(symbol: string, label?: string): UiFilter {
   }
 }
 
-/** Biosample fields sent as Beacon alphanumeric filters (sex uses kind `sex`). */
+/** Biosample fields sent as Beacon alphanumeric filters (schema numeric only). */
 export const BIOSAMPLE_ALPHANUMERIC_FIELD_IDS = new Set([
-  'age_bracket',
-  'condition',
-  'timepoint',
   'rin',
   'ischemic_time_min',
 ])
 
 const BIOSAMPLE_ALPHANUMERIC_URL_PARAMS = [
-  'age_bracket',
-  'condition',
-  'timepoint',
   'rin',
   'ischemic_time_min',
+] as const
+
+export const FEATURE_BIOTYPE_FAMILY_ID = 'feature.biotypeFamily'
+export const FEATURE_RESOURCE_ID = 'feature.resource'
+
+const FEATURE_ALPHANUMERIC_URL_PARAMS = [
+  FEATURE_BIOTYPE_FAMILY_ID,
+  FEATURE_RESOURCE_ID,
 ] as const
 
 /** Matrix fields sent as Beacon alphanumeric filters. */
@@ -69,7 +104,6 @@ export const MATRIX_ALPHANUMERIC_FIELD_IDS = new Set([
   'matrix.annotation',
   'matrix.assembly.name',
   'matrix.reproducible',
-  'matrix.profileSource',
 ])
 
 export const MATRIX_ALPHANUMERIC_URL_PARAMS = [
@@ -78,19 +112,20 @@ export const MATRIX_ALPHANUMERIC_URL_PARAMS = [
   'matrix.annotation',
   'matrix.assembly.name',
   'matrix.reproducible',
-  'matrix.profileSource',
 ] as const
 
-/** Feature-axis continuous expression.* terms (matrix-path catalogs). */
+/** Feature-axis continuous expression.* terms.
+ * median/mean/max are matrix-path only; expression.percentile is also root-allowed.
+ */
 export const EXPRESSION_FEATURE_FIELD_IDS = new Set([
   'expression.median',
   'expression.mean',
   'expression.max',
-  'expression.detectedFraction',
+  'expression.percentile',
 ])
 
-/** Biosample-axis continuous expression.* terms. */
-export const EXPRESSION_BIOSAMPLE_FIELD_IDS = new Set(['expression.detectedGenes'])
+/** Biosample-axis continuous expression.* terms (none currently advertised). */
+export const EXPRESSION_BIOSAMPLE_FIELD_IDS = new Set<string>()
 
 /** Cell-level expressionValue-scoped continuous terms. */
 export const EXPRESSION_VALUE_FIELD_IDS = new Set([
@@ -99,16 +134,11 @@ export const EXPRESSION_VALUE_FIELD_IDS = new Set([
   'expression.percentileInBiosample',
 ])
 
-const EXPRESSION_FEATURE_CUSTOM_PREFIXES = [
-  'expression.percentile.',
-  'expression.profile:',
-  'expression.detected:>=',
-  'expression.enrichedIn:',
-] as const
+const EXPRESSION_FEATURE_CUSTOM_PREFIXES = [] as const
 
-const EXPRESSION_BIOSAMPLE_CUSTOM_PREFIXES = [
-  'expression.detectedGenesPercentile.',
-] as const
+const EXPRESSION_BIOSAMPLE_CUSTOM_PREFIXES = [] as const
+
+const BIOSAMPLE_PRESET_PREFIX = 'biosample.preset:'
 
 export function isExpressionCustomFeatureId(id: string): boolean {
   return EXPRESSION_FEATURE_CUSTOM_PREFIXES.some((prefix) => id.startsWith(prefix))
@@ -116,6 +146,18 @@ export function isExpressionCustomFeatureId(id: string): boolean {
 
 export function isExpressionCustomBiosampleId(id: string): boolean {
   return EXPRESSION_BIOSAMPLE_CUSTOM_PREFIXES.some((prefix) => id.startsWith(prefix))
+}
+
+export function isBiotypeFamilyFilterId(id: string): boolean {
+  return id === FEATURE_BIOTYPE_FAMILY_ID
+}
+
+export function isFeatureResourceFilterId(id: string): boolean {
+  return id === FEATURE_RESOURCE_ID
+}
+
+export function isBiosamplePresetFilterId(id: string): boolean {
+  return id.startsWith(BIOSAMPLE_PRESET_PREFIX)
 }
 
 export type FilterScope = 'feature' | 'biosample' | 'matrix' | 'expressionValue'
@@ -180,7 +222,6 @@ function scopeForExpressionFieldId(id: string, index?: FilterScopeIndex): Filter
 export function scopeOf(filter: UiFilter, index?: FilterScopeIndex): FilterScope {
   if (filter.kind === 'symbol') return 'feature'
   if (filter.kind === 'matrixUnit') return 'feature'
-  if (filter.kind === 'sex') return 'biosample'
   if (filter.kind === 'expression') {
     return scopeForExpressionFieldId(filter.id, index)
   }
@@ -193,14 +234,17 @@ export function scopeOf(filter: UiFilter, index?: FilterScopeIndex): FilterScope
     return 'feature'
   }
   if (filter.kind === 'custom') {
+    if (isMatrixProfileSourceFilterId(filter.id)) return 'matrix'
     if (
-      filter.id.toLowerCase().startsWith('resource:') ||
-      isSymbolCustomId(filter.id)
+      isSymbolCustomId(filter.id) ||
+      isExpressionCustomFeatureId(filter.id) ||
+      isTissueFeatureFilterId(filter.id)
     ) {
       return 'feature'
     }
-    if (isExpressionCustomBiosampleId(filter.id)) return 'biosample'
-    if (isExpressionCustomFeatureId(filter.id)) return 'feature'
+    if (isBiosamplePresetFilterId(filter.id) || isExpressionCustomBiosampleId(filter.id)) {
+      return 'biosample'
+    }
     if (index) {
       const hit = index.get(normalizeFilterTermId(filter.id))
       if (hit) return hit
@@ -233,20 +277,27 @@ export function scopeOf(filter: UiFilter, index?: FilterScopeIndex): FilterScope
  */
 export function isFeatureLensFilter(filter: UiFilter, index?: FilterScopeIndex): boolean {
   if (filter.kind === 'symbol') return true
-  if (filter.kind === 'sex' || filter.kind === 'matrixUnit') return false
-  if (filter.kind === 'alphanumeric') return false
+  if (filter.kind === 'matrixUnit') return false
+  if (filter.kind === 'alphanumeric') {
+    // Feature-axis alphanumeric facets (converted from custom ids).
+    return (
+      isBiotypeFamilyFilterId(filter.id) || isFeatureResourceFilterId(filter.id)
+    )
+  }
   if (filter.kind === 'expression') {
     return scopeOf(filter, index) === 'feature'
   }
   if (filter.kind === 'custom') {
     if (
-      filter.id.toLowerCase().startsWith('resource:') ||
-      isSymbolCustomId(filter.id)
+      isSymbolCustomId(filter.id) ||
+      isExpressionCustomFeatureId(filter.id) ||
+      isTissueFeatureFilterId(filter.id)
     ) {
       return true
     }
-    if (isExpressionCustomFeatureId(filter.id)) return true
-    if (isExpressionCustomBiosampleId(filter.id)) return false
+    if (isBiosamplePresetFilterId(filter.id) || isExpressionCustomBiosampleId(filter.id)) {
+      return false
+    }
     if (index) {
       const hit = index.get(normalizeFilterTermId(filter.id))
       if (hit !== undefined) return hit === 'feature'
@@ -264,6 +315,9 @@ export function isFeatureLensFilter(filter: UiFilter, index?: FilterScopeIndex):
 
 /** Filters applicable to GET/POST /matrices (SO feature types + matrix alphanumerics + OBI). */
 export function isMatrixLensFilter(filter: UiFilter, index?: FilterScopeIndex): boolean {
+  if (filter.kind === 'custom' && isMatrixProfileSourceFilterId(filter.id)) {
+    return true
+  }
   if (filter.kind === 'alphanumeric' && MATRIX_ALPHANUMERIC_FIELD_IDS.has(filter.id)) {
     return true
   }
@@ -288,7 +342,6 @@ export function isMatrixLensFilter(filter: UiFilter, index?: FilterScopeIndex): 
 
 export function filterKey(filter: UiFilter): string {
   if (filter.kind === 'symbol') return `symbol:${filter.value}`
-  if (filter.kind === 'sex') return `sex:${filter.value}`
   if (filter.kind === 'matrixUnit') return `matrixUnit:${filter.value}`
   if (filter.kind === 'alphanumeric') return `alphanumeric:${filter.id}:${filter.value}`
   if (filter.kind === 'expression') {
@@ -302,7 +355,6 @@ export function filterKey(filter: UiFilter): string {
 
 export function filterLabel(filter: UiFilter): string {
   if (filter.kind === 'symbol') return filter.value
-  if (filter.kind === 'sex') return `sex = ${filter.value}`
   if (filter.kind === 'matrixUnit') return `unit = ${filter.value}`
   if (filter.kind === 'alphanumeric') {
     return filter.label?.trim() || `${filter.id} = ${filter.value}`
@@ -331,9 +383,6 @@ export function toBeaconFilter(filter: UiFilter): BeaconFilter {
   if (filter.kind === 'symbol') {
     return { id: `symbol:${filter.value}` }
   }
-  if (filter.kind === 'sex') {
-    return { id: 'sex', operator: '=', value: filter.value }
-  }
   if (filter.kind === 'matrixUnit') {
     return { id: 'matrix.unit', operator: '=', value: filter.value }
   }
@@ -354,7 +403,6 @@ export function needsPost(filters: UiFilter[] | undefined): boolean {
   return Boolean(
     filters?.some(
       (filter) =>
-        filter.kind === 'sex' ||
         filter.kind === 'matrixUnit' ||
         filter.kind === 'alphanumeric' ||
         filter.kind === 'expression'
@@ -375,7 +423,7 @@ export function dedupeFilters(filters: UiFilter[]): UiFilter[] {
 }
 
 const EXPRESSION_ALPHANUMERIC_TOKEN =
-  /^(expression\.(?:median|mean|max|detectedFraction|detectedGenes|value|percentileInFeature|percentileInBiosample)):(>=|<=|=|!|<|>):(.+)$/i
+  /^(expression\.(?:median|mean|max|percentile|value|percentileInFeature|percentileInBiosample)):(>=|<=|=|!|<|>):(.+)$/i
 
 function pushId(filters: UiFilter[], id: string) {
   const text = id.trim()
@@ -408,9 +456,11 @@ export function parseCatalogSearch(params: URLSearchParams): {
   if (csv) {
     for (const token of csv.split(',')) pushId(filters, token)
   }
-  const sex = params.get('sex')?.trim()
-  if (sex) filters.push({ kind: 'sex', value: sex })
   for (const field of BIOSAMPLE_ALPHANUMERIC_URL_PARAMS) {
+    const value = params.get(field)?.trim()
+    if (value) filters.push({ kind: 'alphanumeric', id: field, value })
+  }
+  for (const field of FEATURE_ALPHANUMERIC_URL_PARAMS) {
     const value = params.get(field)?.trim()
     if (value) filters.push({ kind: 'alphanumeric', id: field, value })
   }
@@ -469,7 +519,6 @@ export function geneLensSearchParams(opts: {
   base.delete('granularity')
   base.delete('skip')
   base.delete('limit')
-  base.delete('sex')
   if (opts.feature) base.set('feature', opts.feature)
   else base.delete('feature')
   if (opts.matrix) base.set('matrix', opts.matrix)
@@ -535,7 +584,7 @@ export function sampleLensSearchParams(opts: {
 export type MatrixLensSearch = {
   matrixFilters: UiFilter[]
   matrix: string | null
-  /** Optional gene symbol for top-percentile (80–100) feature→matrices membership. */
+  /** Optional gene symbol for top-percentile feature→matrices membership. */
   gene: string | null
 }
 
@@ -569,7 +618,6 @@ export function matrixLensSearchParams(opts: {
   base.delete('granularity')
   base.delete('skip')
   base.delete('limit')
-  base.delete('sex')
   for (const field of BIOSAMPLE_ALPHANUMERIC_URL_PARAMS) {
     base.delete(field)
   }
@@ -623,8 +671,6 @@ export function catalogSearchParams(opts: {
     return []
   })
   if (ids.length) params.set('filters', ids.join(','))
-  const sex = opts.filters.find((filter) => filter.kind === 'sex')
-  if (sex && sex.kind === 'sex') params.set('sex', sex.value)
   for (const filter of opts.filters) {
     if (filter.kind === 'alphanumeric') params.set(filter.id, filter.value)
   }
@@ -679,7 +725,6 @@ export function matrixSearchParams(
   params.delete('granularity')
   if (patch.filters) {
     params.delete('filters')
-    params.delete('sex')
     for (const field of BIOSAMPLE_ALPHANUMERIC_URL_PARAMS) params.delete(field)
     for (const field of MATRIX_ALPHANUMERIC_URL_PARAMS) params.delete(field)
     const next = catalogSearchParams({
@@ -687,9 +732,7 @@ export function matrixSearchParams(
       granularity: 'record',
     })
     const filters = next.get('filters')
-    const sex = next.get('sex')
     if (filters) params.set('filters', filters)
-    if (sex) params.set('sex', sex)
     for (const field of BIOSAMPLE_ALPHANUMERIC_URL_PARAMS) {
       const value = next.get(field)
       if (value) params.set(field, value)
@@ -724,8 +767,8 @@ export function matrixSearchParams(
 
 const SHARED_QUERY_KEYS = [
   'filters',
-  'sex',
   ...BIOSAMPLE_ALPHANUMERIC_URL_PARAMS,
+  ...FEATURE_ALPHANUMERIC_URL_PARAMS,
   ...MATRIX_ALPHANUMERIC_URL_PARAMS,
 ] as const
 
@@ -748,7 +791,6 @@ export function withoutFilter(
   const filters = parsed.filters.filter((filter) => filterKey(filter) !== filterKey(remove))
   const next = new URLSearchParams(current.toString())
   next.delete('filters')
-  next.delete('sex')
   for (const field of BIOSAMPLE_ALPHANUMERIC_URL_PARAMS) next.delete(field)
   for (const field of MATRIX_ALPHANUMERIC_URL_PARAMS) next.delete(field)
   next.delete('skip')

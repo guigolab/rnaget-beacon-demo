@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from beacon.responses import (
     InvalidGranularity,
@@ -29,19 +29,14 @@ ALLOWED_REQUEST_PARAMETER_KEYS = frozenset(
         "matrixIDList",
         "minValue",
         "maxValue",
-        "sort",
         "order",
     }
 )
 
 
-class AxisSort(str, Enum):
-    id = "id"
-    expression_min = "expression.min"
-    expression_max = "expression.max"
-
-
 class AxisOrder(str, Enum):
+    """Order expression_values by cell quantification."""
+
     asc = "asc"
     desc = "desc"
 
@@ -52,15 +47,38 @@ class BeaconRequestBody(BaseModel):
     meta: Optional[BeaconRequestMeta] = None
     query: Optional[BeaconQuery] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy_top_level_slice_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        legacy = ALLOWED_REQUEST_PARAMETER_KEYS & set(data.keys())
+        if legacy:
+            raise ValueError(
+                "use query.requestParameters for "
+                + ", ".join(sorted(legacy))
+                + "; top-level fields are not accepted"
+            )
+        return data
+
 
 class MatrixAxisRequestBody(BeaconRequestBody):
-    """POST body for nested matrix features / biosamples listings."""
+    """POST body for nested matrix features / biosamples listings.
+
+    Under ``query.requestParameters``: features accept ``featureIDList`` only;
+    biosamples accept ``biosampleIDList`` only.
+    """
 
     pass
 
 
 class ExpressionValuesRequestBody(BeaconRequestBody):
-    """POST body for matrix expression_values."""
+    """POST body for matrix expression_values.
+
+    Slice params under ``query.requestParameters``:
+    featureIDList, biosampleIDList, minValue, maxValue, order (by value).
+    Top-level sibling fields and ``sort`` are not accepted.
+    """
 
     pass
 
@@ -96,14 +114,6 @@ def parse_id_list_or_error(
         return validate_id_list_csv(value), None
     except ValueError as exc:
         return None, error_json(400, str(exc), received=received)
-
-
-def axis_sort_value(sort: Union[AxisSort, str, None]) -> str:
-    if sort is None:
-        return AxisSort.id.value
-    if isinstance(sort, AxisSort):
-        return sort.value
-    return str(sort)
 
 
 def axis_order_value(order: Union[AxisOrder, str, None]) -> str:
@@ -163,7 +173,7 @@ def validate_request_parameters(raw: Any) -> Tuple[Optional[Dict[str, Any]], Opt
                 out[key] = float(val)
             except (TypeError, ValueError):
                 return None, f"requestParameters.{key} must be a number"
-        elif key in ("sort", "order"):
+        elif key == "order":
             out[key] = str(val)
         else:
             out[key] = val
@@ -179,7 +189,6 @@ def request_parameters_from_get(**kwargs: Any) -> Dict[str, Any]:
         "matrixIDList": "matrixIDList",
         "minValue": "minValue",
         "maxValue": "maxValue",
-        "sort": "sort",
         "order": "order",
     }
     for qkey, pkey in mapping.items():

@@ -265,9 +265,6 @@ export function interpretFeatureQueryToken(
 
   const typed = tokenToFilter(text, 'feature', index)
   if (typed) {
-    if ((typed.kind === 'ontology' || typed.kind === 'custom') && typed.id.toLowerCase().startsWith('resource:ncbigene')) {
-      return { ok: false, message: `${typed.id} is not a filter for this matrix.` }
-    }
     if (typed.kind === 'symbol') return { ok: true, kind: 'gene', value: typed.value }
     if (typed.kind === 'custom' && isSymbolCustomId(typed.id)) {
       return { ok: true, kind: 'gene', value: symbolFromCustomId(typed.id) }
@@ -301,10 +298,6 @@ export function interpretBiosampleQueryToken(
   if (BIOSAMPLE_ACCESSION.test(text) || text.includes('-SM-')) {
     return { ok: true, kind: 'biosampleId', value: text }
   }
-
-  const sexTerm = terms.find((term) => term.id === 'sex')
-  const sex = sexTerm?.values?.find((value) => value.toLowerCase() === text.toLowerCase())
-  if (sex) return { ok: true, kind: 'filter', filter: { kind: 'sex', value: sex } }
 
   for (const term of terms) {
     if (term.type !== 'alphanumeric') continue
@@ -377,7 +370,6 @@ export function querySuggestions(
   }
   for (const term of terms) {
     if (term.scopes?.length && !term.scopes.includes(scopeName)) continue
-    if (term.id.toLowerCase().startsWith('resource:')) continue
     const label = (term.label ?? '').trim()
     const ontology =
       isOntologyId(term.id) ||
@@ -394,8 +386,7 @@ export function querySuggestions(
     if (term.type === 'alphanumeric') {
       for (const value of term.values ?? []) {
         if (!value.toLowerCase().includes(q)) continue
-        const text = term.id === 'sex' ? value : `${label || term.id}: ${value}`
-        push(text, value)
+        push(`${label || term.id}: ${value}`, value)
       }
     }
   }

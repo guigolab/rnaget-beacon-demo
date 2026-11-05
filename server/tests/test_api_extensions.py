@@ -107,7 +107,7 @@ class ApiExtensionsTest(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 400, r.text)
 
-    def test_empty_cohort_filter_returns_no_expression(self) -> None:
+    def test_condition_filter_rejected_on_expression_values(self) -> None:
         r = self.client.post(
             "/matrices/matrix-gene-expression-001/expression_values",
             json={
@@ -124,8 +124,32 @@ class ApiExtensionsTest(unittest.TestCase):
                 }
             },
         )
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("condition", r.json()["error"]["errorMessage"])
+
+    def test_empty_cohort_filter_returns_no_expression(self) -> None:
+        r = self.client.post(
+            "/matrices/matrix-gene-expression-001/expression_values",
+            json={
+                "query": {
+                    "filters": [{"id": "UBERON:0000178"}],
+                    "pagination": {"skip": 0, "limit": 5},
+                    "requestParameters": {"featureIDList": "TP53"},
+                }
+            },
+        )
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["responseSummary"]["numTotalResults"], 0)
+
+    def test_root_features_feature_id_list(self) -> None:
+        r = self.client.get(
+            "/features",
+            params={"featureIDList": "TP53", "limit": 10},
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertGreaterEqual(r.json()["responseSummary"]["numTotalResults"], 1)
+        ids = {row["id"] for row in r.json()["response"]["resultSets"][0]["results"]}
+        self.assertIn("feature-tp53-gene", ids)
 
     def test_unknown_matrix_id_empty_200(self) -> None:
         r = self.client.get(
@@ -248,19 +272,16 @@ class ApiExtensionsTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self._feature_ids(r), {"feature-tp53-gene"})
 
-    def test_matrix_features_value_range(self) -> None:
+    def test_matrix_features_ignores_value_bounds(self) -> None:
+        """Nested features accept featureIDList only; minValue/maxValue are ignored."""
         r = self.client.get(
-            "/matrices/matrix-gene-expression-001/features",
-            params={"minValue": 90, "limit": 10},
-        )
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(self._feature_ids(r), {"feature-tp53-gene"})
-        empty = self.client.get(
             "/matrices/matrix-gene-expression-001/features",
             params={"minValue": 200, "limit": 10},
         )
-        self.assertEqual(empty.status_code, 200, empty.text)
-        self.assertEqual(empty.json()["responseSummary"]["numTotalResults"], 0)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertGreaterEqual(
+            r.json()["responseSummary"]["numTotalResults"], 1
+        )
 
     def test_matrix_features_mixed_feature_and_biosample_filters(self) -> None:
         r = self.client.post(
@@ -307,9 +328,9 @@ class ApiExtensionsTest(unittest.TestCase):
         self.assertEqual(r.status_code, 400, r.text)
         self.assertIn("matrix-scoped", r.json()["error"]["errorMessage"])
 
-    def test_matrix_features_rejects_inverted_range(self) -> None:
+    def test_matrix_expression_values_rejects_inverted_range(self) -> None:
         r = self.client.get(
-            "/matrices/matrix-gene-expression-001/features",
+            "/matrices/matrix-gene-expression-001/expression_values",
             params={"minValue": 10, "maxValue": 1},
         )
         self.assertEqual(r.status_code, 400, r.text)

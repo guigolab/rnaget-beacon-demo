@@ -89,6 +89,19 @@
   --scope-matrix-bg: oklch(0.96 0.035 55);
   --scope-matrix-border: oklch(0.72 0.12 55);
   --scope-matrix-text: oklch(0.38 0.09 55);
+  /* Filtering-term wire types (Explore namespace chips) */
+  --filter-ontology-bg: oklch(0.96 0.03 230);
+  --filter-ontology-border: oklch(0.72 0.1 230);
+  --filter-ontology-text: oklch(0.36 0.08 230);
+  --filter-ontology-dot: oklch(0.55 0.12 230);
+  --filter-alphanumeric-bg: oklch(0.97 0.035 85);
+  --filter-alphanumeric-border: oklch(0.74 0.1 85);
+  --filter-alphanumeric-text: oklch(0.4 0.08 85);
+  --filter-alphanumeric-dot: oklch(0.62 0.12 85);
+  --filter-custom-bg: oklch(0.96 0.035 20);
+  --filter-custom-border: oklch(0.72 0.1 20);
+  --filter-custom-text: oklch(0.4 0.08 20);
+  --filter-custom-dot: oklch(0.58 0.12 20);
 }
 
 .dark {

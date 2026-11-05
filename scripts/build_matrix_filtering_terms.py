@@ -38,7 +38,6 @@ _BIO_LIST_COLS = (
     "phenotype_ids",
     "measurement_assay_ids",
 )
-_BIO_ALPHA_COLS = ("sex", "condition", "age_bracket", "timepoint")
 
 
 def _matrix_unit_scale_label(entry: Dict[str, Any]) -> str:
@@ -81,7 +80,6 @@ def _expression_matrix_terms(
         return terms
 
     feat_stats = matrix_dir / "feature_expression_stats.parquet"
-    bio_stats = matrix_dir / "biosample_expression_stats.parquet"
     if feat_stats.is_file() and n_biosamples >= _EXPRESSION_MIN_N:
         terms.extend(
             [
@@ -103,22 +101,7 @@ def _expression_matrix_terms(
                     "label": f"Maximum expression ({unit_label})",
                     "scopes": ["genomicFeature"],
                 },
-                {
-                    "type": "alphanumeric",
-                    "id": "expression.detectedFraction",
-                    "label": "Fraction of cohort biosamples with a non-zero value",
-                    "scopes": ["genomicFeature"],
-                },
             ]
-        )
-    if bio_stats.is_file() and n_biosamples >= _EXPRESSION_MIN_N:
-        terms.append(
-            {
-                "type": "alphanumeric",
-                "id": "expression.detectedGenes",
-                "label": "Number of genes detected in the biosample",
-                "scopes": ["biosample"],
-            }
         )
 
     # Percentile files are optional (built at fetch time, not in CI packages).
@@ -221,17 +204,14 @@ def _feature_present_from_parquet(path: Path) -> Tuple[Set[str], bool]:
 def _biosample_facets_from_parquet(
     path: Path,
 ) -> Tuple[Set[str], Dict[str, Set[str]], bool]:
+    """Return present ontology ids and (empty) alphanumeric facets for biosamples."""
     import pyarrow.parquet as pq
 
     if not path.is_file():
         return set(), {}, False
     has_rows = _parquet_num_rows(path) > 0
     names = set(pq.read_schema(path).names)
-    cols = [
-        c
-        for c in (*_BIO_ID_COLS, *_BIO_LIST_COLS, *_BIO_ALPHA_COLS)
-        if c in names
-    ]
+    cols = [c for c in (*_BIO_ID_COLS, *_BIO_LIST_COLS) if c in names]
     present: Set[str] = set()
     alphanumeric: Dict[str, Set[str]] = {}
     for batch in _iter_column_batches(path, cols):
@@ -242,12 +222,6 @@ def _biosample_facets_from_parquet(
         for col in _BIO_LIST_COLS:
             if col in schema_names:
                 _add_list_column(present, batch.column(col))
-        for col in _BIO_ALPHA_COLS:
-            if col not in schema_names:
-                continue
-            for val in batch.column(col).to_pylist():
-                if val is not None and str(val).strip():
-                    alphanumeric.setdefault(col, set()).add(str(val))
     return present, alphanumeric, has_rows
 
 
@@ -260,6 +234,59 @@ def _matrix_feature_type_ids(matrix_entry: Dict[str, Any]) -> Set[str]:
         if isinstance(ft, dict) and ft.get("id"):
             ids.add(str(ft["id"]))
     return ids
+
+
+def _tissues_present_in_matrix(matrix_dir: Path, matrix_id: str) -> Set[str]:
+    """Ontology / matrix: column ids present in this matrix (any n >= 1)."""
+    from beacon.tissue_catalog import matrix_pseudo_ontology_id
+
+    stats = matrix_dir / "tissue_expression_stats.parquet"
+    if stats.is_file():
+        try:
+            import duckdb
+
+            con = duckdb.connect(database=":memory:")
+            try:
+                rows = con.execute(
+                    f"""
+                    SELECT DISTINCT CAST(ontology_id AS VARCHAR)
+                    FROM read_parquet('{stats.resolve().as_posix().replace("'", "''")}')
+                    WHERE ontology_id IS NOT NULL
+                    """
+                ).fetchall()
+            finally:
+                con.close()
+            return {str(oid) for (oid,) in rows if oid}
+        except Exception:
+            pass
+    bio = matrix_dir / "biosamples.parquet"
+    if not bio.is_file():
+        return set()
+    try:
+        import duckdb
+
+        con = duckdb.connect(database=":memory:")
+        try:
+            pseudo = matrix_pseudo_ontology_id(matrix_id)
+            rows = con.execute(
+                f"""
+                SELECT
+                  CASE
+                    WHEN ontology_id IS NULL
+                      OR TRIM(CAST(ontology_id AS VARCHAR)) = ''
+                    THEN ?
+                    ELSE CAST(ontology_id AS VARCHAR)
+                  END AS ontology_id
+                FROM read_parquet('{bio.resolve().as_posix().replace("'", "''")}')
+                GROUP BY 1
+                """,
+                [pseudo],
+            ).fetchall()
+        finally:
+            con.close()
+        return {str(oid) for (oid,) in rows if oid}
+    except Exception:
+        return set()
 
 
 def _load_matrices_by_id(package: Path) -> Dict[str, Dict[str, Any]]:
@@ -287,8 +314,10 @@ def _build_one_matrix_doc(
 ) -> Optional[Tuple[str, Dict[str, Any]]]:
     from beacon.matrix_axis_catalog import (
         _subset_terms,
+        ensure_matrix_feature_so_terms,
         merge_matrix_scoped_filtering_terms,
     )
+    from beacon.expression_catalog_support import scan_matrix_expression_support
 
     matrix_id = str(entry.get("matrix_id") or "").strip()
     dirname = entry.get("dir")
@@ -299,16 +328,35 @@ def _build_one_matrix_doc(
     feat_path = matrix_dir / "features.parquet"
     bio_path = matrix_dir / "biosamples.parquet"
 
+    support = scan_matrix_expression_support(matrix_dir)
+    allowed_expression_ids = support.categorical_expression_ids()
+    feat_alphanumeric: Dict[str, Set[str]] = {}
+    if support.has_percentile_thresholds:
+        from beacon.expression_filter_maps import EXPRESSION_PERCENTILE_ID
+
+        feat_alphanumeric[EXPRESSION_PERCENTILE_ID] = {
+            str(t) for t in support.percentile_thresholds
+        }
+
     feat_present, has_features = _feature_present_from_parquet(feat_path)
     matrix_doc = (matrices_by_id or {}).get(matrix_id) or entry
     feat_present |= _matrix_feature_type_ids(matrix_doc)
+    # Tissue customs are genomicFeature-scoped; keep columns present in this matrix.
+    feat_present |= _tissues_present_in_matrix(matrix_dir, matrix_id)
     feat_terms, feat_resources = _subset_terms(
         global_terms,
         global_resources,
         present_ids=feat_present,
-        alphanumeric={},
+        alphanumeric=feat_alphanumeric,
         scope="genomicFeature",
         keep_symbol_resource=has_features,
+        allowed_expression_ids=allowed_expression_ids,
+    )
+    feat_terms, feat_resources = ensure_matrix_feature_so_terms(
+        feat_terms,
+        feat_resources,
+        matrix=matrix_doc,
+        present_ids=feat_present,
     )
 
     bio_present, bio_alpha, _has_bios = _biosample_facets_from_parquet(bio_path)
@@ -319,21 +367,20 @@ def _build_one_matrix_doc(
         alphanumeric=bio_alpha,
         scope="biosample",
         keep_symbol_resource=False,
+        allowed_expression_ids=allowed_expression_ids,
     )
     terms, resources = merge_matrix_scoped_filtering_terms(
         feat_terms, feat_resources, bio_terms, bio_resources
     )
 
-    n_biosamples = _parquet_num_rows(bio_path) if bio_path.is_file() else 0
-    # Drop root categorical expression.* terms when the matrix is too small
-    # for bands/profiles (n < MIN_N). Continuous terms are re-added below.
-    if n_biosamples < _EXPRESSION_MIN_N:
-        terms = [
-            t
-            for t in terms
-            if not str(t.get("id") or "").startswith("expression.")
-        ]
+    from beacon.expression_filter_maps import EXPRESSION_PERCENTILE_ID
+    from beacon.filter_display import expression_percentile_label
 
+    for term in terms:
+        if str(term.get("id") or "") == EXPRESSION_PERCENTILE_ID:
+            term["label"] = expression_percentile_label(matrix_scoped=True)
+
+    n_biosamples = _parquet_num_rows(bio_path) if bio_path.is_file() else 0
     matrix_meta = (matrices_by_id or {}).get(matrix_id) or {}
     # Prefer matrices.json unit/scale; fall back to manifest entry fields.
     unit_entry = {**entry, **matrix_meta}
@@ -342,7 +389,8 @@ def _build_one_matrix_doc(
         entry=unit_entry,
         n_biosamples=n_biosamples,
     )
-    # Append expression terms (dedupe by id).
+    # Append continuous expression terms (dedupe by id). Categorical customs
+    # already came from this matrix's stats via allowed_expression_ids.
     seen = {str(t.get("id")) for t in terms}
     for term in expr_terms:
         tid = str(term.get("id") or "")

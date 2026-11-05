@@ -11,10 +11,23 @@ BIOSAMPLE_ONTOLOGY_PREFIXES = frozenset(
     {"UBERON", "EFO", "OBI", "GO", "MONDO", "HP", "NCIT"}
 )
 GENE_PUBLIC_ID_PREFIXES = frozenset({"HGNC", "NCBIGENE", "ENSEMBL"})
-ALPHANUMERIC_FEATURE_FIELDS: frozenset[str] = frozenset()
-ALPHANUMERIC_BIOSAMPLE_FIELDS = frozenset(
-    {"sex", "age_bracket", "condition", "timepoint"}
+FEATURE_BIOTYPE_FAMILY_ID = "feature.biotypeFamily"
+FEATURE_RESOURCE_ID = "feature.resource"
+
+# Catalog / request display values → stored feature.resource column values.
+FEATURE_RESOURCE_VALUE_TO_STORED: Dict[str, str] = {
+    "NCBI Gene": "ncbigene",
+    "GenCode": "gencode",
+    "ncbigene": "ncbigene",
+    "ncbi": "ncbigene",
+    "gencode": "gencode",
+}
+FEATURE_RESOURCE_CATALOG_VALUES: Tuple[str, ...] = ("GenCode", "NCBI Gene")
+
+ALPHANUMERIC_FEATURE_FIELDS: frozenset[str] = frozenset(
+    {FEATURE_BIOTYPE_FAMILY_ID, FEATURE_RESOURCE_ID}
 )
+ALPHANUMERIC_BIOSAMPLE_FIELDS: frozenset[str] = frozenset()
 NUMERIC_BIOSAMPLE_FIELDS = frozenset({"rin", "ischemic_time_min"})
 MATRIX_ALPHANUMERIC_FIELDS = frozenset(
     {
@@ -26,26 +39,31 @@ MATRIX_ALPHANUMERIC_FIELDS = frozenset(
         "matrix.annotation.version",
         "matrix.assembly.name",
         "matrix.reproducible",
-        "matrix.profileSource",
     }
 )
+MATRIX_PROFILE_SOURCE_ID = "matrix.profileSource"
+MATRIX_PROFILE_SOURCE_PREFIX = "matrix.profileSource:"
+CUSTOM_MATRIX_IDS = frozenset({MATRIX_PROFILE_SOURCE_ID})
 CUSTOM_BIOSAMPLE_IDS: frozenset[str] = frozenset()
 ALPHANUMERIC_OPS = frozenset({"=", "!", "<", ">", "<=", ">="})
 
-# Matrix-only continuous expression.* terms (require a path-bound matrix).
+# Continuous expression.* terms on genomicFeature.
+# Median/mean/max are matrix-only; expression.percentile is root-allowed
+# (UNION over per-matrix median_percentile).
 EXPRESSION_FEATURE_ALPHANUMERIC = frozenset(
     {
         "expression.median",
         "expression.mean",
         "expression.max",
-        "expression.detectedFraction",
+        "expression.percentile",
     }
 )
-EXPRESSION_BIOSAMPLE_ALPHANUMERIC = frozenset(
+EXPRESSION_FEATURE_ROOT_ALLOWED_ALPHANUMERIC = frozenset(
     {
-        "expression.detectedGenes",
+        "expression.percentile",
     }
 )
+EXPRESSION_BIOSAMPLE_ALPHANUMERIC: frozenset[str] = frozenset()
 EXPRESSION_VALUE_ALPHANUMERIC = frozenset(
     {
         "expression.value",
@@ -53,14 +71,57 @@ EXPRESSION_VALUE_ALPHANUMERIC = frozenset(
         "expression.percentileInBiosample",
     }
 )
-# Precomputed categorical expression.* custom terms (valid at root and matrix scope).
-EXPRESSION_FEATURE_CUSTOM_PREFIXES = (
-    "expression.percentile.",
-    "expression.profile:",
-    "expression.detected:>=",
-    "expression.enrichedIn:",
+# Custom genomicFeature expression.* prefixes (none remaining).
+EXPRESSION_FEATURE_CUSTOM_PREFIXES: tuple[str, ...] = ()
+BIOSAMPLE_PRESET_PREFIX = "biosample.preset:"
+EXPRESSION_BIOSAMPLE_CUSTOM_PREFIXES: tuple[str, ...] = ()
+TISSUE_HIGH_PREFIX = "tissueHigh:"
+TISSUE_SPECIFIC_PREFIX = "tissueSpecific:"
+TISSUE_TOP_PREFIX = "tissueTop:"
+TISSUE_PRESENT_PREFIX = "tissuePresent:"
+TISSUE_FEATURE_CUSTOM_PREFIXES: tuple[str, ...] = (
+    TISSUE_HIGH_PREFIX,
+    TISSUE_SPECIFIC_PREFIX,
+    TISSUE_TOP_PREFIX,
+    TISSUE_PRESENT_PREFIX,
 )
-EXPRESSION_BIOSAMPLE_CUSTOM_PREFIXES = ("expression.detectedGenesPercentile.",)
+
+
+def matrix_profile_source(doc: Dict[str, Any]) -> Optional[str]:
+    """Internal packaging profile source (not a matrix schema property).
+
+    Reads side-channel metadata kept for filtering/catalogs. Prefer explicit
+    top-level ``_profileSource`` (set when sanitizing API docs), then legacy
+    ``info.profileSource`` / ``info.catalogSource`` on raw package records.
+    """
+    raw = doc.get("_profileSource")
+    if raw is not None and str(raw).strip():
+        return str(raw).strip()
+    info = doc.get("info") or {}
+    if isinstance(info, dict):
+        for key in ("profileSource", "catalogSource"):
+            val = info.get(key)
+            if val is not None and str(val).strip():
+                return str(val).strip()
+    return None
+
+
+def matrix_profile_source_filter_value(fid: str) -> Optional[str]:
+    """Extract value from ``matrix.profileSource`` or ``matrix.profileSource:gtex``."""
+    if fid == MATRIX_PROFILE_SOURCE_ID:
+        return None
+    if fid.startswith(MATRIX_PROFILE_SOURCE_PREFIX):
+        val = fid[len(MATRIX_PROFILE_SOURCE_PREFIX) :].strip()
+        return val or None
+    return None
+
+
+def is_matrix_profile_source_filter_id(fid: str) -> bool:
+    return fid == MATRIX_PROFILE_SOURCE_ID or fid.startswith(MATRIX_PROFILE_SOURCE_PREFIX)
+
+
+def is_matrix_profile_source_filter(f: "NormalizedFilter") -> bool:
+    return f.kind == "custom" and is_matrix_profile_source_filter_id(f.id)
 
 
 def matrix_annotation_filter_value(
@@ -181,10 +242,12 @@ def normalize_filters(raw: Optional[Sequence[Any]]) -> List[NormalizedFilter]:
             )
         if (
             fid.lower().startswith("symbol:")
-            or fid.startswith("resource:")
+            or fid.startswith(BIOSAMPLE_PRESET_PREFIX)
             or fid in CUSTOM_BIOSAMPLE_IDS
+            or is_matrix_profile_source_filter_id(fid)
             or fid.startswith(EXPRESSION_FEATURE_CUSTOM_PREFIXES)
             or fid.startswith(EXPRESSION_BIOSAMPLE_CUSTOM_PREFIXES)
+            or fid.startswith(TISSUE_FEATURE_CUSTOM_PREFIXES)
         ):
             out.append(
                 NormalizedFilter(
@@ -250,22 +313,77 @@ BIOSAMPLE_OBI_ORIGIN = frozenset({"OBI:0001876", "OBI:0001479"})
 
 
 def is_expression_custom_feature(f: NormalizedFilter) -> bool:
-    """``expression.percentile.``/``profile:``/``detected:>=``/``enrichedIn:`` custom ids."""
+    """Categorical expression.* custom ids matched against feature expression stats."""
     return any(f.id.startswith(p) for p in EXPRESSION_FEATURE_CUSTOM_PREFIXES)
 
 
+def is_tissue_feature_filter_id(fid: str) -> bool:
+    return any(fid.startswith(p) for p in TISSUE_FEATURE_CUSTOM_PREFIXES)
+
+
+def is_tissue_feature_filter(f: NormalizedFilter) -> bool:
+    """Custom tissueHigh: / tissueSpecific: ids on genomicFeature."""
+    return f.kind == "custom" and is_tissue_feature_filter_id(f.id)
+
+
+def is_biotype_family_filter(f: NormalizedFilter) -> bool:
+    return f.kind == "alphanumeric" and f.id == FEATURE_BIOTYPE_FAMILY_ID
+
+
+def is_feature_resource_filter(f: NormalizedFilter) -> bool:
+    return f.kind == "alphanumeric" and f.id == FEATURE_RESOURCE_ID
+
+
+def biotype_family_from_filter(f: NormalizedFilter) -> Optional[str]:
+    """Return family key (protein_coding|…) from alphanumeric ``value``."""
+    from beacon.biotype_families import BIOTYPE_FAMILY_IDS
+    from beacon.filter_display import biotype_family_label
+
+    if not is_biotype_family_filter(f):
+        return None
+    raw = (f.value or "").strip()
+    if not raw:
+        return None
+    if raw in BIOTYPE_FAMILY_IDS:
+        return raw
+    for fam in BIOTYPE_FAMILY_IDS:
+        if biotype_family_label(fam) == raw:
+            return fam
+    return None
+
+
+def feature_resource_stored_from_filter(f: NormalizedFilter) -> Optional[str]:
+    """Return lowercase stored resource column value (ncbigene|gencode|…)."""
+    if not is_feature_resource_filter(f):
+        return None
+    raw = (f.value or "").strip()
+    if not raw:
+        return None
+    if raw in FEATURE_RESOURCE_VALUE_TO_STORED:
+        return FEATURE_RESOURCE_VALUE_TO_STORED[raw]
+    low = raw.lower()
+    if low in FEATURE_RESOURCE_VALUE_TO_STORED:
+        return FEATURE_RESOURCE_VALUE_TO_STORED[low]
+    return low
+
+
+def is_biosample_preset_filter(f: NormalizedFilter) -> bool:
+    return f.kind == "custom" and f.id.startswith(BIOSAMPLE_PRESET_PREFIX)
+
+
 def is_expression_custom_biosample(f: NormalizedFilter) -> bool:
-    """``expression.detectedGenesPercentile.`` custom ids."""
+    """Biosample-axis expression.* custom ids (none currently advertised)."""
     return any(f.id.startswith(p) for p in EXPRESSION_BIOSAMPLE_CUSTOM_PREFIXES)
 
 
 def is_matrix_only_expression_filter(f: NormalizedFilter) -> bool:
     """Continuous expression.* terms that require a path-bound matrix.
 
-    Categorical custom terms (percentile/profile/detected/enrichedIn/
-    detectedGenesPercentile) are allowed at root; only the alphanumeric
-    continuous terms are matrix-only.
+    ``expression.percentile`` is alphanumeric but root-allowed (exempt).
+    Cell-level expressionValue terms and median/mean/max remain matrix-only.
     """
+    if f.id in EXPRESSION_FEATURE_ROOT_ALLOWED_ALPHANUMERIC:
+        return False
     if f.id in (
         EXPRESSION_FEATURE_ALPHANUMERIC
         | EXPRESSION_BIOSAMPLE_ALPHANUMERIC
@@ -297,12 +415,14 @@ def axis_filter_scope(filt: NormalizedFilter) -> str:
             return "matrix"
         return "unknown"
     if filt.kind == "custom":
-        if filt.id.lower().startswith("symbol:") or filt.id.startswith("resource:"):
+        if filt.id.lower().startswith("symbol:"):
             return "feature"
-        if is_expression_custom_feature(filt):
+        if is_expression_custom_feature(filt) or is_tissue_feature_filter(filt):
             return "feature"
-        if is_expression_custom_biosample(filt):
+        if is_biosample_preset_filter(filt) or is_expression_custom_biosample(filt):
             return "biosample"
+        if is_matrix_profile_source_filter(filt):
+            return "matrix"
         return "unknown"
     if filt.id.startswith("NCBIGene:"):
         return "feature"
@@ -459,16 +579,33 @@ def validate_filters_for_entity(
                     return (
                         f"operator {f.operator!r} is only supported on numeric biosample fields"
                     )
+                if f.id == FEATURE_BIOTYPE_FAMILY_ID:
+                    fam = biotype_family_from_filter(f)
+                    if not fam:
+                        return (
+                            f"feature.biotypeFamily requires "
+                            f"protein_coding|lncRNA|pseudogene|sncRNA|other "
+                            f"(or their display labels): {f.value!r}"
+                        )
+                    continue
+                if f.id == FEATURE_RESOURCE_ID:
+                    stored = feature_resource_stored_from_filter(f)
+                    if not stored:
+                        return "feature.resource requires a non-empty value"
+                    continue
                 continue
             if f.kind == "custom":
                 if is_symbol_custom_filter_id(f.id):
                     if not symbol_id_lookup_key(f.id):
                         return "symbol filter requires a gene symbol after 'symbol:'"
                     continue
-                if f.id.startswith("resource:"):
-                    continue
                 if is_expression_custom_feature(f):
                     err = _validate_expression_custom_value(f.id)
+                    if err:
+                        return err
+                    continue
+                if is_tissue_feature_filter(f):
+                    err = _validate_tissue_feature_filter(f.id)
                     if err:
                         return err
                     continue
@@ -535,6 +672,14 @@ def validate_filters_for_entity(
                     return f"unsupported ontology filter prefix for matrices: {f.id}"
                 continue
             if f.kind == "custom":
+                if is_matrix_profile_source_filter(f):
+                    want = matrix_profile_source_filter_value(f.id)
+                    if not want:
+                        return (
+                            f"{MATRIX_PROFILE_SOURCE_ID} requires a value "
+                            f"(e.g. {MATRIX_PROFILE_SOURCE_PREFIX}gtex)"
+                        )
+                    continue
                 return f"unsupported custom filter for matrices: {f.id}"
             continue
         else:
@@ -542,32 +687,15 @@ def validate_filters_for_entity(
     return None
 
 
-# Allowed values for expression.percentile.* / detectedGenesPercentile.*
-_EXPRESSION_PERCENTILE_BAND_VALUES = frozenset(
-    {"none", "0-20", "20-40", "40-60", "60-80", "80-100"}
-)
-
-
 def _validate_expression_custom_value(fid: str) -> Optional[str]:
-    """Light validation for expression.* categorical custom filter ids.
+    """Light validation for remaining custom filter ids (biosample presets)."""
+    if fid.startswith(BIOSAMPLE_PRESET_PREFIX):
+        from beacon.expression_filter_maps import parse_biosample_preset
 
-    Supports both colon forms (``expression.profile:ubiquitous``) and dotted
-    percentile bands (``expression.percentile.80-100``).
-    """
-    if fid.startswith("expression.percentile."):
-        value = fid[len("expression.percentile.") :]
-        if value not in _EXPRESSION_PERCENTILE_BAND_VALUES:
+        if parse_biosample_preset(fid) is None:
             return (
-                f"expression.percentile filter requires a known band "
-                f"(none|0-20|20-40|40-60|60-80|80-100): {fid}"
-            )
-        return None
-    if fid.startswith("expression.detectedGenesPercentile."):
-        value = fid[len("expression.detectedGenesPercentile.") :]
-        if value not in _EXPRESSION_PERCENTILE_BAND_VALUES:
-            return (
-                f"expression.detectedGenesPercentile filter requires a known band "
-                f"(none|0-20|20-40|40-60|60-80|80-100): {fid}"
+                f"biosample.preset requires sex+ontologyId "
+                f"(e.g. biosample.preset:female+UBERON:0002048): {fid}"
             )
         return None
     if ":" not in fid:
@@ -575,13 +703,17 @@ def _validate_expression_custom_value(fid: str) -> Optional[str]:
     _, value = fid.split(":", 1)
     if not value.strip():
         return f"expression custom filter {fid!r} requires a value after ':'"
-    if fid.startswith("expression.detected:>="):
-        raw = value[2:] if value.startswith(">=") else value
-        pct = raw.rstrip("%")
-        try:
-            float(pct)
-        except ValueError:
-            return f"expression.detected filter requires a numeric percentage: {fid}"
+    return None
+
+
+def _validate_tissue_feature_filter(fid: str) -> Optional[str]:
+    from beacon.expression_filter_maps import parse_tissue_feature_filter
+
+    if parse_tissue_feature_filter(fid) is None:
+        return (
+            f"tissueHigh/tissueSpecific/tissueTop/tissuePresent requires ontologyId "
+            f"(e.g. tissueHigh:UBERON:0002107): {fid}"
+        )
     return None
 
 
@@ -714,11 +846,6 @@ def _biosample_ontology_ids(doc: Dict[str, Any]) -> Set[str]:
 
 def biosample_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> bool:
     for f in filters:
-        if f.kind == "alphanumeric" and f.id in ALPHANUMERIC_BIOSAMPLE_FIELDS:
-            actual = _biosample_field(doc, f.id if f.id != "sex" else "sex")
-            if not _compare_alphanumeric(actual, f.operator, f.value):
-                return False
-            continue
         if f.kind == "alphanumeric" and f.id in NUMERIC_BIOSAMPLE_FIELDS:
             actual = _biosample_field(doc, f.id)
             if not _compare_numeric(actual, f.operator, f.value):
@@ -736,15 +863,18 @@ def feature_doc_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]
     """In-memory match for fixture features (gene CURIE filters pre-resolved to ids)."""
     gf = doc.get("genomicFeature") or {}
     for f in filters:
-        if f.kind == "custom" and f.id.startswith("resource:"):
-            want = f.id.split(":", 1)[1]
+        if is_feature_resource_filter(f):
+            want = feature_resource_stored_from_filter(f)
+            if not want:
+                return False
             resource = (gf.get("featureIdentifier") or {}).get("resource")
-            if str(resource) != want:
+            if str(resource or "").lower() != want.lower():
                 return False
             continue
         if is_symbol_custom_filter(f):
-            aliases = [str(a).upper() for a in (gf.get("aliases") or [])]
-            sym = symbol_custom_lookup_key(f).upper()
+            # Exact case: symbol:Alb and symbol:ALB are distinct filters.
+            aliases = [str(a) for a in (gf.get("aliases") or [])]
+            sym = symbol_custom_lookup_key(f)
             if not sym:
                 return False
             if "%" in sym or "*" in sym:
@@ -753,6 +883,110 @@ def feature_doc_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]
             else:
                 hit = sym in aliases
             if not hit:
+                return False
+            continue
+        if is_biotype_family_filter(f):
+            from beacon.biotype_families import feature_matches_biotype_family
+
+            fam = biotype_family_from_filter(f)
+            if not fam:
+                return False
+            ft = (gf.get("featureType") or {}).get("id")
+            ont_ids = [
+                str(t.get("id"))
+                for t in (gf.get("ontologyTerms") or [])
+                if isinstance(t, dict) and t.get("id")
+            ]
+            if not feature_matches_biotype_family(
+                fam, feature_type_id=str(ft) if ft else None, ontology_term_ids=ont_ids
+            ):
+                return False
+            continue
+        if f.kind == "alphanumeric" and f.id in EXPRESSION_FEATURE_ALPHANUMERIC:
+            info = doc.get("info") if isinstance(doc.get("info"), dict) else {}
+            col = {
+                "expression.median": "median",
+                "expression.mean": "mean",
+                "expression.max": "max_value",
+                "expression.percentile": "median_percentile",
+            }[f.id]
+            actual = doc.get(col)
+            if actual is None:
+                actual = info.get(col)
+            if not _compare_numeric(actual, f.operator, f.value):
+                return False
+            continue
+        if f.kind == "custom" and is_expression_custom_feature(f):
+            return False
+        if is_tissue_feature_filter(f):
+            # Fixture docs may carry tissueBands / tissueLevels / legacy highs.
+            info = doc.get("info") if isinstance(doc.get("info"), dict) else {}
+            parsed = None
+            try:
+                from beacon.expression_filter_maps import parse_tissue_feature_filter
+
+                parsed = parse_tissue_feature_filter(f.id)
+            except Exception:
+                parsed = None
+            if parsed is None:
+                return False
+            kind, oid = parsed
+            oid_u = oid.upper()
+            bands_raw = info.get("tissueBands") or {}
+            band_val: Optional[int] = None
+            if isinstance(bands_raw, dict):
+                for k, v in bands_raw.items():
+                    if str(k).upper() == oid_u:
+                        try:
+                            band_val = int(v)
+                        except (TypeError, ValueError):
+                            band_val = None
+                        break
+            if kind == "top":
+                if band_val == 99:
+                    continue
+                return False
+            if kind == "present" and band_val is not None:
+                continue
+            levels_raw = info.get("tissueLevels") or {}
+            levels: Dict[str, int] = {}
+            if isinstance(levels_raw, dict):
+                for k, v in levels_raw.items():
+                    try:
+                        levels[str(k).upper()] = int(v)
+                    except (TypeError, ValueError):
+                        continue
+            if levels:
+                lvl = levels.get(oid_u)
+                if kind == "present":
+                    if lvl is None:
+                        return False
+                    continue
+                if kind == "high":
+                    if lvl is None or lvl < 1:
+                        return False
+                    continue
+                if lvl != 2:
+                    return False
+                continue
+            highs = {
+                str(x).upper()
+                for x in (info.get("tissueHighOntologyIds") or [])
+                if x
+            }
+            if kind == "present":
+                # Legacy fixtures only listed highs; treat as present.
+                if oid_u not in highs:
+                    return False
+                continue
+            if kind == "high":
+                if oid_u not in highs:
+                    return False
+                continue
+            # specific (legacy): high in oid and not high in any other listed tissue
+            if oid_u not in highs:
+                return False
+            if any(other != oid_u for other in highs):
                 return False
             continue
         if is_feature_ontology_filter(f):
@@ -779,7 +1013,18 @@ def feature_doc_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]
     return True
 
 
-def matrix_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> bool:
+def matrix_matches(
+    doc: Dict[str, Any],
+    filters: Sequence[NormalizedFilter],
+    *,
+    extra_ontology_ids: Optional[Set[str]] = None,
+) -> bool:
+    """Match matrix metadata filters.
+
+    Ontology ids are taken from ``assayType``, ``featureTypes``, and optional
+    ``extra_ontology_ids`` (e.g. SO ids present on the matrix's feature rows /
+    ontologyTerms so biotype SO filters work on ``GET /matrices``).
+    """
     for f in filters:
         if f.kind == "ontology":
             assay = doc.get("assayType") or {}
@@ -793,6 +1038,8 @@ def matrix_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> 
                 for item in ft:
                     if isinstance(item, dict) and item.get("id"):
                         ids.add(str(item["id"]))
+            if extra_ontology_ids:
+                ids.update(extra_ontology_ids)
             if f.id not in ids:
                 return False
             continue
@@ -816,9 +1063,6 @@ def matrix_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> 
             elif f.id == "matrix.reproducible":
                 actual = doc.get("reproducible")
                 val = str(val).lower() in ("1", "true", "yes")
-            elif f.id == "matrix.profileSource":
-                info = doc.get("info") or {}
-                actual = info.get("profileSource") or info.get("catalogSource")
             else:
                 return False
             if f.id == "matrix.reproducible":
@@ -827,6 +1071,14 @@ def matrix_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> 
                 if f.operator == "!" and bool(actual) == bool(val):
                     return False
             elif not _compare_alphanumeric(actual, f.operator, val):
+                return False
+            continue
+        if is_matrix_profile_source_filter(f):
+            want = matrix_profile_source_filter_value(f.id)
+            if not want:
+                return False
+            actual = matrix_profile_source(doc)
+            if str(actual or "").strip().lower() != want.lower():
                 return False
             continue
         return False

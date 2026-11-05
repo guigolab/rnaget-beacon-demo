@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from beacon import config
 from beacon.responses import build_filtering_terms_response, build_informational_response
@@ -11,6 +11,7 @@ from beacon.schemas.envelopes import (
     OPENAPI_FILTERING_TERMS_RESPONSES,
     OPENAPI_INFORMATIONAL_RESPONSES,
 )
+from routers.common import page_filtering_terms
 
 router = APIRouter(tags=["Informational endpoints"])
 
@@ -50,8 +51,8 @@ def _info_body() -> Dict[str, Any]:
     }
 
 
-@router.get("/", responses=OPENAPI_INFORMATIONAL_RESPONSES)
-@router.get("/info", responses=OPENAPI_INFORMATIONAL_RESPONSES)
+@router.get("/", responses=OPENAPI_INFORMATIONAL_RESPONSES, operation_id="getBeaconRoot")
+@router.get("/info", responses=OPENAPI_INFORMATIONAL_RESPONSES, operation_id="getBeaconInfoRoot")
 def get_info():
     return build_informational_response(
         entity_type="info",
@@ -60,7 +61,7 @@ def get_info():
     )
 
 
-@router.get("/service-info")
+@router.get("/service-info", operation_id="getBeaconServiceInfo")
 def get_service_info():
     """GA4GH Service Info (bare object, not a Beacon envelope)."""
     return {
@@ -77,7 +78,11 @@ def get_service_info():
     }
 
 
-@router.get("/configuration", responses=OPENAPI_INFORMATIONAL_RESPONSES)
+@router.get(
+    "/configuration",
+    responses=OPENAPI_INFORMATIONAL_RESPONSES,
+    operation_id="getBeaconConfiguration",
+)
 def get_configuration():
     return build_informational_response(
         entity_type="configuration",
@@ -86,7 +91,7 @@ def get_configuration():
     )
 
 
-@router.get("/map", responses=OPENAPI_INFORMATIONAL_RESPONSES)
+@router.get("/map", responses=OPENAPI_INFORMATIONAL_RESPONSES, operation_id="getBeaconMap")
 def get_map():
     return build_informational_response(
         entity_type="map",
@@ -95,7 +100,11 @@ def get_map():
     )
 
 
-@router.get("/entry_types", responses=OPENAPI_INFORMATIONAL_RESPONSES)
+@router.get(
+    "/entry_types",
+    responses=OPENAPI_INFORMATIONAL_RESPONSES,
+    operation_id="getEntryTypes",
+)
 def get_entry_types():
     cfg = _load_fixture("beaconConfiguration.json")
     return build_informational_response(
@@ -105,10 +114,24 @@ def get_entry_types():
     )
 
 
-@router.get("/filtering_terms", responses=OPENAPI_FILTERING_TERMS_RESPONSES)
-@router.post("/filtering_terms", responses=OPENAPI_FILTERING_TERMS_RESPONSES)
-def filtering_terms():
+@router.get(
+    "/filtering_terms",
+    responses=OPENAPI_FILTERING_TERMS_RESPONSES,
+    operation_id="getFilteringTerms",
+)
+def filtering_terms(
+    skip: int = Query(0, ge=0, description="Number of terms to skip."),
+    limit: int = Query(
+        0,
+        ge=0,
+        description="Max terms to return; 0 means the server maximum (1000).",
+    ),
+):
+    """Root filtering-term catalog (GET only; matches Beacon root endpoints.json)."""
     from beacon.fixtures import get_store
 
     terms, resources = get_store().filtering_terms()
-    return build_filtering_terms_response(terms, resources)
+    return build_filtering_terms_response(
+        page_filtering_terms(terms, skip=skip, limit=limit),
+        resources,
+    )

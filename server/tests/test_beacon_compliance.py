@@ -222,7 +222,7 @@ class BeaconComplianceTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertFalse(r.json()["responseSummary"]["exists"])
 
-    def test_empty_cohort_matrix_features(self) -> None:
+    def test_condition_filter_rejected_on_matrix_features(self) -> None:
         r = self.client.post(
             "/matrices/matrix-gene-expression-001/features",
             json={
@@ -238,8 +238,135 @@ class BeaconComplianceTest(unittest.TestCase):
                 }
             },
         )
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("condition", r.json()["error"]["errorMessage"])
+
+    def test_empty_cohort_matrix_features(self) -> None:
+        r = self.client.post(
+            "/matrices/matrix-gene-expression-001/features",
+            json={
+                "query": {
+                    "filters": [{"id": "UBERON:0000178"}],
+                    "pagination": {"skip": 0, "limit": 5},
+                }
+            },
+        )
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["responseSummary"]["numTotalResults"], 0)
+
+    def test_root_filtering_terms_get_only(self) -> None:
+        r = self.client.post("/filtering_terms", json={})
+        self.assertIn(r.status_code, (405, 404), r.text)
+
+    def test_expression_values_request_parameters_ok(self) -> None:
+        mid = "matrix-gene-expression-001"
+        r = self.client.post(
+            f"/matrices/{mid}/expression_values",
+            json={
+                "query": {
+                    "requestedGranularity": "count",
+                    "pagination": {"skip": 0, "limit": 5},
+                    "requestParameters": {"order": "desc"},
+                }
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn("info", r.json())
+        self.assertIn(
+            "numTotalResults", r.json()["responseSummary"]
+        )
+
+    def test_expression_values_rejects_top_level_slice_fields(self) -> None:
+        mid = "matrix-gene-expression-001"
+        r = self.client.post(
+            f"/matrices/{mid}/expression_values",
+            json={
+                "featureIDList": "ENSG00000141510",
+                "query": {
+                    "requestedGranularity": "count",
+                    "pagination": {"skip": 0, "limit": 5},
+                },
+            },
+        )
+        self.assertIn(r.status_code, (400, 422), r.text)
+        text = r.text
+        self.assertIn("query.requestParameters", text)
+
+    def test_expression_values_no_envelope_info(self) -> None:
+        mid = "matrix-gene-expression-001"
+        r = self.client.get(
+            f"/matrices/{mid}/expression_values",
+            params={"limit": 3, "requestedGranularity": "record"},
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn("info", r.json())
+
+    def test_expression_values_page_token_roundtrip(self) -> None:
+        mid = "matrix-gene-expression-001"
+        first = self.client.get(
+            f"/matrices/{mid}/expression_values",
+            params={"limit": 2, "order": "asc"},
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        body = first.json()
+        self.assertNotIn("info", body)
+        pagination = body["meta"]["receivedRequestSummary"].get("pagination") or {}
+        next_page = pagination.get("nextPage")
+        if not next_page:
+            self.skipTest("fixture matrix has fewer than 3 expression values")
+        second = self.client.get(
+            f"/matrices/{mid}/expression_values",
+            params={"limit": 2, "order": "asc", "pageToken": next_page},
+        )
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertNotIn("info", second.json())
+
+    def test_openapi_operation_ids_and_schema_drift(self) -> None:
+        import yaml
+
+        from app import app
+
+        live = app.openapi()
+        schema_path = SERVER_DIR.parent / "rnaget-beacon-schema.yaml"
+        self.assertTrue(schema_path.is_file(), "run scripts/export_openapi.py")
+        committed = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+
+        required_ops = {
+            "getMatrices",
+            "postOneMatrixExpressionValues",
+            "getFilteringTerms",
+            "getOneMatrixExpressionValues",
+        }
+        live_ops = {
+            op.get("operationId")
+            for path_item in (live.get("paths") or {}).values()
+            for op in path_item.values()
+            if isinstance(op, dict) and op.get("operationId")
+        }
+        for op_id in required_ops:
+            self.assertIn(op_id, live_ops, msg=f"missing operationId {op_id}")
+
+        live_paths = set((live.get("paths") or {}).keys())
+        committed_paths = set((committed.get("paths") or {}).keys())
+        self.assertEqual(
+            live_paths,
+            committed_paths,
+            msg="OpenAPI path drift — regenerate rnaget-beacon-schema.yaml",
+        )
+        # Root filtering_terms must not advertise POST.
+        ft = (live.get("paths") or {}).get("/filtering_terms") or {}
+        self.assertIn("get", ft)
+        self.assertNotIn("post", ft)
+        # Typed requestParameters surface.
+        schemas = (live.get("components") or {}).get("schemas") or {}
+        self.assertIn("BeaconRequestParameters", schemas)
+        bq = schemas.get("BeaconQuery") or {}
+        rp = (bq.get("properties") or {}).get("requestParameters") or {}
+        self.assertTrue(
+            "$ref" in rp
+            or "BeaconRequestParameters" in json.dumps(rp),
+            msg="BeaconQuery.requestParameters should reference BeaconRequestParameters",
+        )
 
 
 if __name__ == "__main__":

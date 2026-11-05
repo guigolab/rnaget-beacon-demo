@@ -99,23 +99,18 @@ async function beaconFetch(path: string, init?: RequestInit): Promise<unknown> {
 }
 
 function extractNextPage(data: unknown, meta: BeaconMeta): string | undefined {
+  // Prefer Beacon receivedRequestSummary.pagination (PageToken); do not use
+  // response-envelope info (info.axes / info.nextPage are not part of RNAget).
   const fromReceived = meta.receivedRequestSummary?.pagination?.nextPage
   if (typeof fromReceived === 'string' && fromReceived.trim()) {
     return fromReceived.trim()
   }
   const envelope = (data ?? {}) as {
-    response?: {
-      info?: { nextPage?: unknown; pagination?: { nextPage?: unknown } }
-      pagination?: { nextPage?: unknown }
-      resultSets?: Array<{ info?: { nextPage?: unknown } }>
-    }
+    response?: { pagination?: { nextPage?: unknown } }
     meta?: BeaconMeta
   }
   const candidates = [
-    envelope.response?.info?.nextPage,
-    envelope.response?.info?.pagination?.nextPage,
     envelope.response?.pagination?.nextPage,
-    envelope.response?.resultSets?.[0]?.info?.nextPage,
     envelope.meta?.receivedRequestSummary?.pagination?.nextPage,
   ]
   for (const value of candidates) {
@@ -124,7 +119,7 @@ function extractNextPage(data: unknown, meta: BeaconMeta): string | undefined {
   return undefined
 }
 
-export function parseResultset<T>(data: unknown): BeaconResult<T> {
+function parseResultset<T>(data: unknown): BeaconResult<T> {
   const envelope = (data ?? {}) as ResultEnvelope<T>
   const results = envelope.response?.resultSets?.[0]?.results ?? []
   const meta = envelope.meta ?? {}
@@ -151,16 +146,12 @@ export async function queryCollection<T>(
   return parseResultset<T>(data)
 }
 
-export async function getInformational<T>(path: string): Promise<T> {
+async function getInformational<T>(path: string): Promise<T> {
   const data = (await beaconFetch(path)) as InfoEnvelope<T>
   if (!data?.response) {
     throw new BeaconError(`Empty informational response for ${path}`, 500)
   }
   return data.response
-}
-
-export function getRootInfo(): Promise<BeaconInfo> {
-  return getInformational<BeaconInfo>('/')
 }
 
 export function getInfo(): Promise<BeaconInfo> {
@@ -249,14 +240,21 @@ export async function getMatrix(id: string, signal?: AbortSignal): Promise<Matri
 export function listFeatures(
   skip = 0,
   limit = 20,
-  opts?: { filters?: UiFilter[]; granularity?: Granularity; signal?: AbortSignal }
+  opts?: {
+    filters?: UiFilter[]
+    featureIDList?: string
+    granularity?: Granularity
+    signal?: AbortSignal
+  }
 ) {
+  const featureIDList = opts?.featureIDList?.trim()
   return queryCollection<Feature>('/features', {
     skip,
     limit,
     filters: opts?.filters,
     granularity: opts?.granularity ?? 'record',
     signal: opts?.signal,
+    ...(featureIDList ? { requestParameters: { featureIDList } } : {}),
   })
 }
 
@@ -296,17 +294,15 @@ export async function getBiosample(
   return page.results[0] ?? null
 }
 
-export type MatrixAxisSort = 'id' | 'expression.min' | 'expression.max'
-
-/** Paging options for `/matrices/{id}/features` and `/biosamples`. */
+/** Paging options for nested `/matrices/{id}/features` or `/biosamples`. */
 export type MatrixAxisPageOpts = {
-  sort?: MatrixAxisSort
-  order?: 'asc' | 'desc'
   filters?: UiFilter[]
+  /** Features listing only. */
   featureIDList?: string
+  /** Biosamples listing only. */
   biosampleIDList?: string
-  minValue?: number
-  maxValue?: number
+  /** Defaults to `record`. Use `boolean` / `count` for presence or totals without rows. */
+  granularity?: Granularity
   signal?: AbortSignal
 }
 
@@ -333,18 +329,13 @@ function listMatrixAxis<T>(
   skip: number,
   limit: number,
   opts: MatrixAxisPageOpts,
-  includeRange: boolean
+  idListKey: 'featureIDList' | 'biosampleIDList'
 ) {
-  const range = includeRange
-    ? { minValue: opts.minValue, maxValue: opts.maxValue }
-    : {}
-  const hasRange =
-    includeRange && (opts.minValue != null || opts.maxValue != null)
-  const hasIdList = Boolean(opts.featureIDList || opts.biosampleIDList)
-  const post = needsPost(opts.filters) || hasIdList || hasRange
-  const sort = { sort: opts.sort, order: opts.order }
+  const idList = opts[idListKey]
+  const hasIdList = Boolean(idList?.trim())
+  const post = needsPost(opts.filters) || hasIdList
   return queryCollection<T>(path, {
-    granularity: 'record',
+    granularity: opts.granularity ?? 'record',
     skip,
     limit,
     filters: opts.filters,
@@ -352,13 +343,10 @@ function listMatrixAxis<T>(
     ...(post
       ? {
           requestParameters: {
-            featureIDList: opts.featureIDList,
-            biosampleIDList: opts.biosampleIDList,
-            ...range,
-            ...sort,
+            [idListKey]: idList,
           },
         }
-      : { search: sort }),
+      : {}),
   })
 }
 
@@ -374,7 +362,7 @@ export function listMatrixFeatures(
     skip,
     limit,
     normalizeMatrixAxisOpts(axisOrSignal, signal),
-    true
+    'featureIDList'
   )
 }
 
@@ -390,8 +378,24 @@ export function listMatrixBiosamples(
     skip,
     limit,
     normalizeMatrixAxisOpts(axisOrSignal, signal),
-    false
+    'biosampleIDList'
   )
+}
+
+/** Presence (`boolean`) or total (`count`) without returning biosample records. */
+export function probeMatrixBiosamples(
+  matrixId: string,
+  opts: {
+    filters?: UiFilter[]
+    granularity: Exclude<Granularity, 'record'>
+    signal?: AbortSignal
+  }
+) {
+  return listMatrixBiosamples(matrixId, 0, 0, {
+    filters: opts.filters,
+    granularity: opts.granularity,
+    signal: opts.signal,
+  })
 }
 
 export type ExpressionValueOrder = 'asc' | 'desc'

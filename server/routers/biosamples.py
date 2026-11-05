@@ -7,7 +7,11 @@ from beacon.filters import is_matrix_only_expression_filter
 from beacon.fixtures import get_store
 from beacon.responses import error_json
 from beacon.schemas.envelopes import OPENAPI_BEACON_RESPONSES
-from routers.common import empty_entity_response, list_response
+from routers.common import (
+    FILTERS_CSV_QUERY_DESCRIPTION,
+    empty_entity_response,
+    list_response,
+)
 from routers.deps import (
     BeaconRequestBody,
     model_to_dict,
@@ -35,12 +39,12 @@ def _reject_matrix_only(filt, received):
     return None
 
 
-@router.get("/biosamples", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.get("/biosamples", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="getBiosamples")
 def get_biosamples(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
-    filters: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None, description=FILTERS_CSV_QUERY_DESCRIPTION),
 ) -> Union[Dict[str, Any], JSONResponse]:
     partial = partial_received_for_error(
         skip=skip,
@@ -84,7 +88,7 @@ def get_biosamples(
     )
 
 
-@router.post("/biosamples", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.post("/biosamples", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="postBiosamplesRequest")
 def post_biosamples(
     body: BeaconRequestBody = Body(...),
 ) -> Union[Dict[str, Any], JSONResponse]:
@@ -127,7 +131,7 @@ def post_biosamples(
     )
 
 
-@router.get("/biosamples/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.get("/biosamples/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="getOneBiosample")
 def get_biosample(
     id: str,
     requestedGranularity: Optional[str] = Query(None),
@@ -145,7 +149,7 @@ def get_biosample(
     return list_response([item], "biosample", id, 0, 1, gran, received)
 
 
-@router.post("/biosamples/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.post("/biosamples/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="postOneBiosample")
 def post_biosample(
     id: str, body: BeaconRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:
@@ -180,13 +184,16 @@ def _biosample_matrices_handler(
     page_limit = limit_v if gran.value == "record" else 0
     page_fn = getattr(store, "matrices_for_biosample_page", None)
     if callable(page_fn):
-        results, total = page_fn(
-            id,
-            filters=filters or None,
-            matrix_id_list=matrix_id_list,
-            skip=skip_v,
-            limit=page_limit,
-        )
+        try:
+            results, total = page_fn(
+                id,
+                filters=filters or None,
+                matrix_id_list=matrix_id_list,
+                skip=skip_v,
+                limit=page_limit,
+            )
+        except ValueError as exc:
+            return error_json(400, str(exc), received=received)
     else:
         results = store.matrices_for_biosample(id)
         if matrix_id_list:
@@ -211,14 +218,17 @@ def _biosample_matrices_handler(
     "/biosamples/{id}/matrices",
     response_model=None,
     responses=OPENAPI_BEACON_RESPONSES,
+    operation_id="getOneBiosampleMatrices",
 )
 def get_biosample_matrices(
     id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
-    filters: Optional[str] = Query(None),
-    matrixIDList: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None, description=FILTERS_CSV_QUERY_DESCRIPTION),
+    matrixIDList: Optional[str] = Query(
+        None, description="RNAget extension: comma-separated matrix IDs."
+    ),
 ) -> Union[Dict[str, Any], JSONResponse]:
     partial = partial_received_for_error(
         skip=skip,
@@ -266,6 +276,7 @@ def get_biosample_matrices(
     "/biosamples/{id}/matrices",
     response_model=None,
     responses=OPENAPI_BEACON_RESPONSES,
+    operation_id="postOneBiosampleMatrices",
 )
 def post_biosample_matrices(
     id: str, body: BeaconRequestBody = Body(...)

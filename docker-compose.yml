@@ -21,6 +21,8 @@ services:
       - "traefik.http.services.rnaget-nginx.loadBalancer.server.port=80"
     ports:
       - "94:5000"
+    mem_limit: 256m
+    cpus: "0.5"
     networks:
       - monstre
     depends_on:
@@ -37,6 +39,12 @@ services:
       - DATA_PACKAGE_PATH=/data/package
       - BEACON_BASE_URL=https://genome.crg.es/rnaget-beacon/api
       - CORS_ALLOW_ORIGINS=*
+      - DUCKDB_MEMORY_LIMIT=1GB
+      - DUCKDB_THREADS=2
+      - API_MAX_INFLIGHT=8
+      - UVICORN_LIMIT_CONCURRENCY=64
+    mem_limit: 3g
+    cpus: "1.5"
     networks:
       - monstre
 

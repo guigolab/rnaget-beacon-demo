@@ -19,6 +19,7 @@ type GeneFeatureQueryBarProps = {
   probe: LensProbe
   scopeIndex?: FilterScopeIndex
   termsPath?: string
+  showExamples?: boolean
 }
 
 export function GeneFeatureQueryBar({
@@ -27,6 +28,7 @@ export function GeneFeatureQueryBar({
   probe,
   scopeIndex,
   termsPath = '/filtering_terms',
+  showExamples = true,
 }: GeneFeatureQueryBarProps) {
   const { terms, resources, error, loading } = useFilteringTerms(termsPath)
   const labelCatalog = useMemo(() => catalogLabelById(terms), [terms])
@@ -42,12 +44,6 @@ export function GeneFeatureQueryBar({
   function resolveText(raw: string): UiFilter | null {
     const typed = tokenToFilter(raw, 'feature', scopeIndex)
     if (!typed) return null
-    if (
-      (typed.kind === 'ontology' || typed.kind === 'custom') &&
-      typed.id.toLowerCase().startsWith('resource:')
-    ) {
-      return null
-    }
     if (typed.kind === 'ontology' || typed.kind === 'custom') {
       return { ...typed, label: labelCatalog.get(typed.id.toLowerCase()) ?? typed.label }
     }
@@ -62,6 +58,7 @@ export function GeneFeatureQueryBar({
       onChange={onChange}
       probe={probe}
       examples={examples}
+      showExamples={showExamples}
       labelCatalog={labelCatalog}
       resolveText={resolveText}
       mergeAdded={mergeGeneLensFilters}

@@ -7,7 +7,11 @@ from beacon.filters import is_matrix_only_expression_filter
 from beacon.fixtures import get_store
 from beacon.responses import error_json
 from beacon.schemas.envelopes import OPENAPI_BEACON_RESPONSES
-from routers.common import empty_entity_response, list_response
+from routers.common import (
+    FILTERS_CSV_QUERY_DESCRIPTION,
+    empty_entity_response,
+    list_response,
+)
 from routers.deps import (
     BeaconRequestBody,
     model_to_dict,
@@ -35,12 +39,16 @@ def _reject_matrix_only(filt, received):
     return None
 
 
-@router.get("/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+_FEATURES_RP = frozenset({"featureIDList"})
+
+
+@router.get("/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="getFeatures")
 def get_features(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
-    filters: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None, description=FILTERS_CSV_QUERY_DESCRIPTION),
+    featureIDList: Optional[str] = Query(None, description="Comma-separated feature IDs."),
 ) -> Union[Dict[str, Any], JSONResponse]:
     partial = partial_received_for_error(
         skip=skip,
@@ -56,12 +64,27 @@ def get_features(
     rejected = _reject_matrix_only(filt, partial)
     if rejected:
         return rejected
+    params, perr = params_from_get(received=partial, featureIDList=featureIDList)
+    if perr:
+        return perr
+    bad_keys = set(params) - _FEATURES_RP
+    if bad_keys:
+        from beacon.responses import error_json
+
+        return error_json(
+            400,
+            f"unsupported requestParameters for /features: {', '.join(sorted(bad_keys))}",
+            received=partial,
+        )
+    extra = filters_summary(filt)
+    if params:
+        extra = {**(extra or {}), "requestParameters": params}
     resolved, err = resolve_or_error(
         skip=skip,
         limit=limit,
         requested_granularity=requestedGranularity,
         cap_limit=True,
-        extra_summary=filters_summary(filt),
+        extra_summary=extra or None,
         entity_type="feature",
     )
     if err:
@@ -69,7 +92,10 @@ def get_features(
     skip_v, limit_v, gran, received = resolved
     page_limit = limit_v if gran.value == "record" else 0
     results, total = get_store().list_features_page(
-        skip=skip_v, limit=page_limit, filters=filt or None
+        skip=skip_v,
+        limit=page_limit,
+        filters=filt or None,
+        feature_id_list=params.get("featureIDList"),
     )
     return list_response(
         results,
@@ -84,15 +110,24 @@ def get_features(
     )
 
 
-@router.post("/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.post("/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="postGenomicFeaturesRequest")
 def post_features(
     body: BeaconRequestBody = Body(...),
 ) -> Union[Dict[str, Any], JSONResponse]:
     body_dict = model_to_dict(body)
     partial = partial_received_for_error(body=body_dict, entity_type="feature")
-    _, perr = params_from_post(body_dict, received=partial)
+    params, perr = params_from_post(body_dict, received=partial)
     if perr:
         return perr
+    bad_keys = set(params) - _FEATURES_RP
+    if bad_keys:
+        from beacon.responses import error_json
+
+        return error_json(
+            400,
+            f"unsupported requestParameters for /features: {', '.join(sorted(bad_keys))}",
+            received=partial,
+        )
     filt, ferr = resolve_entity_filters(
         entity="feature", body=body_dict, received=partial
     )
@@ -101,10 +136,13 @@ def post_features(
     rejected = _reject_matrix_only(filt, partial)
     if rejected:
         return rejected
+    extra = filters_summary(filt)
+    if params:
+        extra = {**(extra or {}), "requestParameters": params}
     resolved, err = resolve_or_error(
         body=body_dict,
         cap_limit=True,
-        extra_summary=filters_summary(filt),
+        extra_summary=extra or None,
         entity_type="feature",
     )
     if err:
@@ -112,7 +150,10 @@ def post_features(
     skip_v, limit_v, gran, received = resolved
     page_limit = limit_v if gran.value == "record" else 0
     results, total = get_store().list_features_page(
-        skip=skip_v, limit=page_limit, filters=filt or None
+        skip=skip_v,
+        limit=page_limit,
+        filters=filt or None,
+        feature_id_list=params.get("featureIDList"),
     )
     return list_response(
         results,
@@ -127,7 +168,7 @@ def post_features(
     )
 
 
-@router.get("/features/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.get("/features/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="getOneFeature")
 def get_feature(
     id: str,
     requestedGranularity: Optional[str] = Query(None),
@@ -145,7 +186,7 @@ def get_feature(
     return list_response([item], "feature", id, 0, 1, gran, received)
 
 
-@router.post("/features/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.post("/features/{id}", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="postOneFeature")
 def post_feature(
     id: str, body: BeaconRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:
@@ -181,13 +222,16 @@ def _feature_matrices_handler(
     page_limit = limit_v if gran.value == "record" else 0
     page_fn = getattr(store, "matrices_for_feature_page", None)
     if callable(page_fn):
-        results, total = page_fn(
-            id,
-            filters=filters or None,
-            matrix_id_list=matrix_id_list,
-            skip=skip_v,
-            limit=page_limit,
-        )
+        try:
+            results, total = page_fn(
+                id,
+                filters=filters or None,
+                matrix_id_list=matrix_id_list,
+                skip=skip_v,
+                limit=page_limit,
+            )
+        except ValueError as exc:
+            return error_json(400, str(exc), received=received)
     else:
         results = [
             matrix
@@ -212,14 +256,16 @@ def _feature_matrices_handler(
     )
 
 
-@router.get("/features/{id}/matrices", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.get("/features/{id}/matrices", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="getOneFeatureMatrices")
 def get_feature_matrices(
     id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=0),
     requestedGranularity: Optional[str] = Query(None),
-    filters: Optional[str] = Query(None),
-    matrixIDList: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None, description=FILTERS_CSV_QUERY_DESCRIPTION),
+    matrixIDList: Optional[str] = Query(
+        None, description="RNAget extension: comma-separated matrix IDs."
+    ),
 ) -> Union[Dict[str, Any], JSONResponse]:
     partial = partial_received_for_error(
         skip=skip,
@@ -263,7 +309,7 @@ def get_feature_matrices(
     )
 
 
-@router.post("/features/{id}/matrices", response_model=None, responses=OPENAPI_BEACON_RESPONSES)
+@router.post("/features/{id}/matrices", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="postOneFeatureMatrices")
 def post_feature_matrices(
     id: str, body: BeaconRequestBody = Body(...)
 ) -> Union[Dict[str, Any], JSONResponse]:

@@ -40,12 +40,12 @@ const byToken = new Map<string, Feature>([
 applyColumnBandHits(
   cells,
   'm2',
-  '80-100',
+  99,
   [{ id: 'feat-b', genomicFeature: { featureIdentifier: { id: 'ENSG0002' } } }],
   byToken,
   claimed
 )
-console.assert(cells.get(bandCellKey('feat-b', 'm2'))?.band === '80-100')
+console.assert(cells.get(bandCellKey('feat-b', 'm2'))?.band === 99)
 console.assert(claimed.has('feat-b'))
 
 finalizeColumnUnmatched(cells, 'm1', [f1], new Set())

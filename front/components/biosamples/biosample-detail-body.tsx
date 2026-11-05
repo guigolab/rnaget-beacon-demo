@@ -91,13 +91,7 @@ export function BiosampleDetailBody({
     }
   }, [sample.id])
 
-  const sex = sample.sex ?? sample.info?.sex
-  const meta = [
-    `${matrixCountForBiosample(sample)} matrices`,
-    sex != null ? String(sex) : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  const meta = `${matrixCountForBiosample(sample)} matrices`
 
   const infoRows = biosampleInfoScalarFacts(sample).map((f) => ({
     label: f.label,

@@ -1,14 +1,10 @@
 'use client'
 
 import { MetaBadge } from '@/components/shared/detail/meta-badge'
-import {
-  PageHeaderDownloadButtons,
-  type PageHeaderDownloadItem,
-} from '@/components/ui-kit'
+import { type PageHeaderDownloadItem } from '@/components/ui-kit'
 import { ncbiAssemblyFtp, type Matrix } from '@/lib/beacon'
 import type { OntologyTerm } from '@/lib/beacon/types'
 import { formatHeatmapValue } from '@/lib/heatmap-expression'
-import { matrixDisplayLabel } from '@/lib/matrix-lens'
 
 function matrixFeatureTypes(matrix: Matrix): OntologyTerm[] {
   const raw = matrix.featureTypes ?? matrix.featureType
@@ -149,22 +145,5 @@ export function MatrixDetailHeaderBadges({ matrix }: { matrix: Matrix }) {
       showFeatureTypes={false}
       showValueRange={false}
     />
-  )
-}
-
-/** @deprecated Use PageHeader + MatrixDetailHeaderBadges + matrixPageHeaderDownloads. */
-export function MatrixDetailBody({ matrix }: { matrix: Matrix }) {
-  return (
-    <section className="rounded-xl border border-[var(--scope-matrix-border)]/40 bg-card shadow-sm">
-      <div className="space-y-4 px-4 py-4">
-        <MatrixDetailMetaChips matrix={matrix} />
-        {matrix.description?.trim() ? (
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            {matrix.description.trim()}
-          </p>
-        ) : null}
-        <PageHeaderDownloadButtons items={matrixPageHeaderDownloads(matrix)} />
-      </div>
-    </section>
   )
 }

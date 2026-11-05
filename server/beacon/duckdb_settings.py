@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MEMORY_LIMIT = "512MB"
+DEFAULT_MEMORY_LIMIT = "1GB"
 DEFAULT_THREADS = 2
 
 
@@ -19,12 +19,14 @@ def configure_duckdb_connection(
     threads: Optional[int] = None,
     temp_directory: Optional[str] = None,
 ) -> None:
-    """Apply memory_limit / threads / temp_directory from args or env.
+    """Apply memory_limit / threads and disable temp-file spill.
 
     Env:
-      DUCKDB_MEMORY_LIMIT (default 512MB)
+      DUCKDB_MEMORY_LIMIT (default 1GB)
       DUCKDB_THREADS (default 2)
-      DUCKDB_TEMP_DIR (optional)
+
+    ``temp_directory`` and ``DUCKDB_TEMP_DIR`` are ignored on the API path so
+    queries that do not fit in memory fail instead of writing spill files.
     """
     mem = (memory_limit or os.environ.get("DUCKDB_MEMORY_LIMIT") or DEFAULT_MEMORY_LIMIT).strip()
     thr_raw = threads
@@ -32,19 +34,16 @@ def configure_duckdb_connection(
         env_thr = os.environ.get("DUCKDB_THREADS", "").strip()
         thr_raw = int(env_thr) if env_thr else DEFAULT_THREADS
     thr = max(1, int(thr_raw))
-    temp = temp_directory
-    if temp is None:
-        temp = os.environ.get("DUCKDB_TEMP_DIR", "").strip() or None
+    # Spill is disabled: ignore temp_directory / DUCKDB_TEMP_DIR on the API path.
+    _ = temp_directory
 
     mem_sql = mem.replace("'", "''")
     con.execute(f"SET memory_limit='{mem_sql}'")
     con.execute(f"SET threads TO {thr}")
-    if temp:
-        temp_sql = str(temp).replace("'", "''")
-        con.execute(f"SET temp_directory='{temp_sql}'")
+    # '0B' disables spill; bare '0' is a parser error in DuckDB.
+    con.execute("SET max_temp_directory_size='0B'")
     logger.info(
-        "DuckDB caps: memory_limit=%s threads=%s temp_directory=%s",
+        "DuckDB caps: memory_limit=%s threads=%s max_temp_directory_size=0B",
         mem,
         thr,
-        temp or "(default)",
     )

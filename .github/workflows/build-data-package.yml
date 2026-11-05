@@ -133,10 +133,18 @@ jobs:
         # fetch builds those after download/merge.
         run: python scripts/build_expression_stats.py --package dist/data-package
 
+      - name: Build tissue expression stats
+        # Within-tissue median percentiles for tissueHigh / tissueSpecific customs.
+        run: python scripts/build_tissue_expression_stats.py --package dist/data-package
+
+      - name: Build tissue feature summary
+        # Package-level gene×tissue levels (Explore heatmap + root tissueHigh/Specific).
+        run: python scripts/build_tissue_feature_summary.py --package dist/data-package
+
       - name: Build filtering_terms catalogs
         # Base catalogs shipped in the tarball (categorical + continuous expression.*
-        # from stats). fetch_data_package.py rebuilds after percentiles so
-        # expression.percentileIn* terms appear locally.
+        # from stats, plus tissueHigh/tissueSpecific). fetch_data_package.py rebuilds
+        # after percentiles so expression.percentileIn* terms appear locally.
         run: python scripts/build_matrix_filtering_terms.py --with-root --package dist/data-package
 
       - name: Disk usage after hydrate

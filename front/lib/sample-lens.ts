@@ -3,6 +3,12 @@ import type { Biosample, FilteringTerm, OntologyTerm, UiFilter } from '@/lib/bea
 
 export const SAMPLE_LENS_PAGE_SIZE = 5
 
+const CORE_TISSUES = [
+  { id: 'UBERON:0002107', label: 'liver' },
+  { id: 'UBERON:0000955', label: 'brain' },
+  { id: 'UBERON:0002048', label: 'lung' },
+] as const
+
 /** Used when filtering_terms is empty (offline / loading). */
 export const SAMPLE_LENS_QUERY_FALLBACK: Array<{ label: string; filter: UiFilter }> = [
   {
@@ -10,14 +16,13 @@ export const SAMPLE_LENS_QUERY_FALLBACK: Array<{ label: string; filter: UiFilter
     filter: { kind: 'ontology', id: 'UBERON:0002107', label: 'liver' },
   },
   {
-    label: 'female reproductive system',
-    filter: {
-      kind: 'ontology',
-      id: 'UBERON:0000474',
-      label: 'female reproductive system',
-    },
+    label: 'brain',
+    filter: { kind: 'ontology', id: 'UBERON:0000955', label: 'brain' },
   },
-  { label: 'female', filter: { kind: 'sex', value: 'female' } },
+  {
+    label: 'lung',
+    filter: { kind: 'ontology', id: 'UBERON:0002048', label: 'lung' },
+  },
 ]
 
 export function sampleLensQueryExamples(
@@ -27,78 +32,12 @@ export function sampleLensQueryExamples(
   const biosample = (term: FilteringTerm) =>
     term.scopes?.includes('biosample') ?? false
 
-  const tissues = terms
-    .filter((t) => biosample(t) && (t.type === 'UBERON' || t.type === 'EFO'))
-    .sort((a, b) => (a.label ?? a.id).localeCompare(b.label ?? b.id))
-
-  for (const term of tissues.slice(0, 3)) {
+  for (const tissue of CORE_TISSUES) {
+    const term = terms.find((t) => biosample(t) && t.id === tissue.id)
+    if (!term) continue
     examples.push({
-      label: term.label ?? term.id,
-      filter: { kind: 'ontology', id: term.id, label: term.label },
-    })
-  }
-
-  const sexTerm = terms.find((t) => t.id === 'sex' && biosample(t))
-  if (sexTerm?.values?.includes('female')) {
-    examples.push({ label: 'female', filter: { kind: 'sex', value: 'female' } })
-  }
-
-  const condition = terms.find((t) => t.id === 'condition' && biosample(t))
-  const firstCondition = condition?.values?.[0]
-  if (firstCondition) {
-    examples.push({
-      label: firstCondition,
-      filter: {
-        kind: 'alphanumeric',
-        id: 'condition',
-        value: firstCondition,
-        label: `${condition?.label ?? 'condition'} = ${firstCondition}`,
-      },
-    })
-  }
-
-  const efoStatus = terms.find(
-    (t) => biosample(t) && t.type === 'EFO' && t.id === 'EFO:0009655'
-  )
-  if (efoStatus) {
-    examples.push({
-      label: efoStatus.label ?? 'abnormal sample',
-      filter: {
-        kind: 'ontology',
-        id: efoStatus.id,
-        label: efoStatus.label,
-      },
-    })
-  }
-
-  const phenotype = terms.find(
-    (t) =>
-      biosample(t) &&
-      (t.type === 'MONDO' || t.type === 'HP') &&
-      t.id.includes(':')
-  )
-  if (phenotype) {
-    examples.push({
-      label: phenotype.label ?? phenotype.id,
-      filter: {
-        kind: 'ontology',
-        id: phenotype.id,
-        label: phenotype.label,
-      },
-    })
-  }
-
-  const rinAssay = terms.find(
-    (t) => biosample(t) && t.type === 'NCIT' && t.id.startsWith('NCIT:')
-  )
-  if (rinAssay) {
-    examples.push({
-      label: rinAssay.label ?? rinAssay.id,
-      filter: {
-        kind: 'ontology',
-        id: rinAssay.id,
-        label: rinAssay.label,
-      },
+      label: term.label ?? tissue.label,
+      filter: { kind: 'ontology', id: term.id, label: term.label ?? tissue.label },
     })
   }
 
@@ -143,9 +82,6 @@ export function biosamplePhenotypeDisplay(sample: Biosample): string {
 }
 
 export function mergeSampleLensFilters(current: UiFilter[], added: UiFilter): UiFilter[] {
-  if (added.kind === 'sex') {
-    return dedupeFilters([...current.filter((f) => f.kind !== 'sex'), added])
-  }
   if (added.kind === 'alphanumeric') {
     return dedupeFilters([
       ...current.filter(
@@ -234,20 +170,6 @@ function pickSubtitle(sample: Biosample, title: string): { text?: string; isId: 
     return { text: id.length > 22 ? `${id.slice(0, 20)}…` : id, isId: true }
   }
 
-  const sex = sample.sex ?? sample.info?.sex
-  if (sex != null) {
-    const s = String(sex)
-    if (norm(s) !== titleNorm) return { text: s, isId: false }
-  }
-
-  const info = sample.info
-  for (const value of [info?.condition, info?.timepoint, info?.lab]) {
-    if (value != null) {
-      const s = String(value).trim()
-      if (s && norm(s) !== titleNorm) return { text: s, isId: false }
-    }
-  }
-
   const phenotype = biosamplePhenotypeDisplay(sample)
   if (phenotype !== '—' && norm(phenotype) !== titleNorm) {
     return { text: phenotype, isId: false }
@@ -315,6 +237,80 @@ export function biosampleMatrixHeatmapHref(sampleId: string, matrixId: string): 
   return matrixHref(matrixId, `biosampleIds=${encodeURIComponent(sampleId)}`)
 }
 
+/** Matrix workspace with one or more biosample ids selected. */
+export function biosampleMatrixStripHref(matrixId: string, sampleIds: string[]): string {
+  const unique = [...new Set(sampleIds.map((id) => id.trim()).filter(Boolean))]
+  if (!unique.length) return matrixHref(matrixId)
+  return matrixHref(matrixId, `biosampleIds=${unique.map(encodeURIComponent).join(',')}`)
+}
+
+export const UNLINKED_BIOSAMPLE_STRIP_ID = '__unlinked__'
+
+export type BiosampleMatrixStrip = {
+  matrixId: string
+  samples: Biosample[]
+}
+
+/**
+ * Group page biosamples by matrix membership for strip preview.
+ * Multi-matrix samples appear in each strip; samples with no matrixIds go to
+ * a trailing unlinked strip.
+ */
+export function groupBiosamplesIntoMatrixStrips(
+  samples: Biosample[],
+  focusMatrix?: string | null
+): BiosampleMatrixStrip[] {
+  const byMatrix = new Map<string, Biosample[]>()
+  const unlinked: Biosample[] = []
+
+  for (const sample of samples) {
+    const ids = (sample.matrixIds ?? []).map((id) => id.trim()).filter(Boolean)
+    if (!ids.length) {
+      unlinked.push(sample)
+      continue
+    }
+    for (const matrixId of ids) {
+      const list = byMatrix.get(matrixId)
+      if (list) list.push(sample)
+      else byMatrix.set(matrixId, [sample])
+    }
+  }
+
+  const strips: BiosampleMatrixStrip[] = [...byMatrix.entries()].map(
+    ([matrixId, members]) => ({
+      matrixId,
+      samples: sortBiosamplesInStrip(members),
+    })
+  )
+
+  strips.sort((a, b) => {
+    if (focusMatrix) {
+      if (a.matrixId === focusMatrix && b.matrixId !== focusMatrix) return -1
+      if (b.matrixId === focusMatrix && a.matrixId !== focusMatrix) return 1
+    }
+    const byCount = b.samples.length - a.samples.length
+    if (byCount !== 0) return byCount
+    return a.matrixId.localeCompare(b.matrixId)
+  })
+
+  if (unlinked.length) {
+    strips.push({
+      matrixId: UNLINKED_BIOSAMPLE_STRIP_ID,
+      samples: sortBiosamplesInStrip(unlinked),
+    })
+  }
+
+  return strips
+}
+
+function sortBiosamplesInStrip(samples: Biosample[]): Biosample[] {
+  return [...samples].sort((a, b) =>
+    biosampleDisplayLabel(a).localeCompare(biosampleDisplayLabel(b), undefined, {
+      sensitivity: 'base',
+    })
+  )
+}
+
 function ontologyChipLabel(term: OntologyTerm | string | undefined): string | null {
   if (!term) return null
   if (typeof term === 'string') return term.trim() || null
@@ -339,9 +335,6 @@ export function biosampleResultChipTerms(sample: Biosample): Array<{
   pushTerm('type', sample.sampleType, true)
   pushTerm('origin', sample.sampleOriginDetail ?? sample.sampleOriginType)
   pushTerm('processing', sample.sampleProcessing)
-
-  const sex = sample.sex ?? sample.info?.sex
-  if (sex) chips.push({ key: 'sex', label: String(sex), accent: true })
 
   const pf = sample.phenotypicFeatures?.[0]
   if (pf?.featureType) pushTerm('phenotype', pf.featureType)

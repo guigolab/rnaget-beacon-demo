@@ -2,15 +2,17 @@
 
 Next.js App Router frontend for the Beacon v2–style RNA-Get API. Built as a **static export** and served by nginx under `/rnaget-beacon/`. The API is proxied at `/rnaget-beacon/api/` (see `nginx/`).
 
+API contract: server routers + [`../rnaget-beacon-schema.yaml`](../rnaget-beacon-schema.yaml). Root filtering-term discovery is **`GET /filtering_terms` only**. Slice params go under `query.requestParameters` on POST (never top-level). Expression densify uses axis lists + `expression_values` cells (no response-envelope `info.axes`).
+
 ## Lenses and routes
 
 | Route | Purpose |
 |-------|---------|
 | `/` | Light-themed home: scope legend, entry-type cards, ontology resources, namespace×scope filtering chips (popover detail) |
-| `/features/` | Features lens: `GET /filtering_terms` (scope `genomicFeature`), multi-filter search (symbol/HGNC/SO/expression.percentile.*/…), banded matrix heatmap (`POST /features/{id}/matrices` with `expression.percentile.*` + `matrixIDList`) + popovers |
-| `/biosamples/` | Biosamples lens: tissue/ontology filters, banded matrix heatmap (`POST /biosamples/{id}/matrices` with `expression.detectedGenesPercentile.*` + `matrixIDList`) + popovers |
-| `/biosamples/` | Biosamples lens: root `/filtering_terms` sidebar (scope `biosample`), compound query bar + probe, preview table (load 5 more), `?sample=` selection |
-| `/matrices/` | Matrix lens: root `/filtering_terms` sidebar (scope `matrix`), query bar + probe, matrix preview table |
+| `/features/` | Features lens: `GET /filtering_terms` (scope `genomicFeature`), multi-filter search (symbol/HGNC/SO/`expression.percentile:>=:90|95|99`/…), top-percentile matrix heatmap (`POST /matrices/{id}/features` with alphanumeric percentile + `featureIDList`) + popovers |
+| `/biosamples/` | Biosamples lens: tissue/ontology filters, matrix-grouped sample strips + popovers |
+| `/biosamples/` | Biosamples lens: root `GET /filtering_terms` sidebar (scope `biosample`), compound query bar + probe, preview table (load 5 more), `?sample=` selection |
+| `/matrices/` | Matrix lens: root `GET /filtering_terms` sidebar (scope `matrix`), query bar + probe, matrix preview table |
 | `/matrices/[id]` | Matrix workspace (heatmap, provenance) |
 
 Every page includes a floating **Show API call** drawer (last Beacon request + curl).

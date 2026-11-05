@@ -9,11 +9,28 @@ function ontologyId(filter: UiFilter): string | undefined {
   return filter.kind === 'ontology' ? filter.id : undefined
 }
 
+function allExamples(
+  set: ReturnType<typeof matrixHeatmapFeatureExamples>
+) {
+  return [...set.pinned, ...set.more]
+}
+
 const gtexFeatureTerms: FilteringTerm[] = [
   { id: 'SO:0000704', type: 'SO', label: 'gene', scopes: ['genomicFeature', 'matrix'] },
   { id: 'SO:0001217', type: 'SO', label: 'protein_coding_gene', scopes: ['genomicFeature'] },
-  { id: 'SO:0002127', type: 'SO', label: 'lncRNA_gene', scopes: ['genomicFeature'] },
-  { id: 'SO:0000336', type: 'SO', label: 'pseudogene', scopes: ['genomicFeature'] },
+  {
+    id: 'feature.biotypeFamily',
+    type: 'custom',
+    label: 'Gene type',
+    scopes: ['genomicFeature'],
+    values: ['protein_coding', 'lncRNA'],
+  },
+  {
+    id: 'expression.percentile',
+    type: 'custom',
+    scopes: ['genomicFeature'],
+    values: ['90', '95', '99'],
+  },
 ]
 
 const gtexBiosampleTerms: FilteringTerm[] = [
@@ -38,34 +55,87 @@ const preview: Feature[] = [
       featureIdentifier: { id: 'ENSG00000198938.2' },
     },
   },
+  {
+    id: 'feature-ENSG00000198763.3',
+    genomicFeature: {
+      aliases: ['ENSG00000198763', 'MT-ND2'],
+      featureIdentifier: { id: 'ENSG00000198763.3' },
+    },
+  },
+  {
+    id: 'feature-ENSG00000198804.2',
+    genomicFeature: {
+      aliases: ['ENSG00000198804', 'MT-CO1'],
+      featureIdentifier: { id: 'ENSG00000198804.2' },
+    },
+  },
 ]
 
 const gtexFeatures = matrixHeatmapFeatureExamples(gtexFeatureTerms, preview)
+assert.ok(gtexFeatures.pinned.length <= 3)
+assert.ok(gtexFeatures.more.length >= 1)
+const gtexAll = allExamples(gtexFeatures)
 assert.deepEqual(
-  gtexFeatures
+  gtexAll
     .filter(
       (example) =>
         example.filter.kind === 'custom' &&
         example.filter.id.toLowerCase().startsWith('symbol:')
     )
     .map((example) => example.label),
+  ['MT-ND4', 'MT-CO3', 'MT-ND2', 'MT-CO1']
+)
+assert.ok(
+  gtexAll.some(
+    (example) =>
+      example.filter.kind === 'alphanumeric' &&
+      example.filter.id === 'feature.biotypeFamily' &&
+      example.filter.value === 'protein_coding'
+  )
+)
+assert.ok(
+  gtexAll.some(
+    (example) =>
+      example.filter.kind === 'expression' &&
+      example.filter.id === 'expression.percentile' &&
+      example.filter.value === '99'
+  )
+)
+assert.ok(!gtexAll.some((example) => ontologyId(example.filter) === 'SO:0000704'))
+assert.ok(!gtexAll.some((example) => example.label === 'TP53' || example.label === 'ALB'))
+assert.deepEqual(
+  gtexFeatures.pinned.map((e) => e.label).slice(0, 2),
   ['MT-ND4', 'MT-CO3']
 )
-assert.ok(!gtexFeatures.some((example) => ontologyId(example.filter) === 'SO:0000704'))
-const firstBiotypes = gtexFeatures.filter((example) => example.filter.kind === 'ontology')
-assert.equal(ontologyId(firstBiotypes[0].filter), 'SO:0001217')
-assert.ok(gtexFeatures.some((example) => ontologyId(example.filter) === 'SO:0002127'))
-assert.ok(!gtexFeatures.some((example) => example.label === 'TP53' || example.label === 'ALB'))
 
 const noGenes = matrixHeatmapFeatureExamples(gtexFeatureTerms, [])
-assert.ok(noGenes.every((example) => example.filter.kind === 'ontology'))
-assert.ok(!noGenes.some((example) => example.label === 'TP53'))
+assert.ok(noGenes.pinned.length <= 3)
+assert.ok(
+  allExamples(noGenes).every(
+    (example) =>
+      example.filter.kind === 'alphanumeric' || example.filter.kind === 'expression'
+  )
+)
+assert.ok(!allExamples(noGenes).some((example) => example.label === 'TP53'))
 
 const gtexBiosamples = matrixHeatmapBiosampleExamples(gtexBiosampleTerms)
-assert.deepEqual(gtexBiosamples.map((example) => ontologyId(example.filter) ?? example.label), ['UBERON:0002107'])
-assert.ok(!gtexBiosamples.some((example) => ontologyId(example.filter) === 'NCIT:C63637'))
-assert.ok(!gtexBiosamples.some((example) => example.filter.kind === 'sex'))
-assert.ok(!gtexBiosamples.some((example) => example.label === 'female reproductive system'))
+assert.ok(gtexBiosamples.pinned.length <= 3)
+assert.deepEqual(
+  gtexBiosamples.pinned.map((example) => ontologyId(example.filter) ?? example.label),
+  ['UBERON:0002107']
+)
+assert.ok(!allExamples(gtexBiosamples).some((example) => ontologyId(example.filter) === 'NCIT:C63637'))
+assert.ok(
+  !allExamples(gtexBiosamples).some(
+    (example) =>
+      example.filter.kind === 'alphanumeric' && example.filter.id === 'condition'
+  )
+)
+assert.ok(
+  !allExamples(gtexBiosamples).some(
+    (example) => example.label === 'female reproductive system'
+  )
+)
 
 const geoTerms: FilteringTerm[] = [
   { id: 'sex', type: 'alphanumeric', label: 'Sex', scopes: ['biosample'], values: ['female', 'male'] },
@@ -87,24 +157,35 @@ const geoTerms: FilteringTerm[] = [
   { id: 'EFO:0009655', type: 'EFO', label: 'abnormal sample', scopes: ['biosample'] },
 ]
 const geo = matrixHeatmapBiosampleExamples(geoTerms)
-assert.ok(geo.some((example) => example.filter.kind === 'sex' && example.filter.value === 'female'))
+assert.ok(geo.pinned.length <= 3)
+assert.ok(geo.pinned.length + geo.more.length >= 2)
+const geoAll = allExamples(geo)
 assert.ok(
-  geo.some(
+  geoAll.some(
     (example) =>
-      example.filter.kind === 'alphanumeric' &&
-      example.filter.id === 'condition' &&
-      example.filter.value === 'Healthy'
+      example.filter.kind === 'ontology' && example.filter.id === 'UBERON:0000178'
   )
 )
-const geoOntology = geo.filter((example) => example.filter.kind === 'ontology')
-assert.ok(geoOntology.length > 0 && geoOntology.length <= 2)
+assert.ok(
+  !geoAll.some(
+    (example) =>
+      example.filter.kind === 'alphanumeric' &&
+      example.filter.id === 'condition'
+  )
+)
+const geoOntology = geoAll.filter((example) => example.filter.kind === 'ontology')
+assert.ok(geoOntology.length > 0)
 assert.ok(
   geoOntology.every((example) =>
     ['UBERON:0000178', 'EFO:0004167'].includes(ontologyId(example.filter) ?? '')
   )
 )
-assert.ok(!geo.some((example) => ontologyId(example.filter) === 'MONDO:0100096'))
-assert.ok(!geo.some((example) => example.label === 'liver' && ontologyId(example.filter) === 'UBERON:0002107'))
+assert.ok(!geoAll.some((example) => ontologyId(example.filter) === 'MONDO:0100096'))
+assert.ok(
+  !geoAll.some(
+    (example) => example.label === 'liver' && ontologyId(example.filter) === 'UBERON:0002107'
+  )
+)
 
 const encodeTerms: FilteringTerm[] = [
   { id: 'sex', type: 'alphanumeric', label: 'Sex', scopes: ['biosample'], values: ['female'] },
@@ -113,10 +194,16 @@ const encodeTerms: FilteringTerm[] = [
   { id: 'OBI:0001876', type: 'OBI', label: 'cell culture', scopes: ['biosample'] },
 ]
 const encode = matrixHeatmapBiosampleExamples(encodeTerms)
-assert.ok(encode.some((example) => example.filter.kind === 'sex' && example.filter.value === 'female'))
-assert.ok(encode.some((example) => ontologyId(example.filter) === 'EFO:0002784'))
-assert.ok(!encode.some((example) => ontologyId(example.filter) === 'EFO:0009654'))
-assert.ok(!encode.some((example) => example.filter.kind === 'alphanumeric'))
-assert.ok(!encode.some((example) => ontologyId(example.filter) === 'UBERON:0002107'))
+const encodeAll = allExamples(encode)
+assert.ok(encodeAll.some((example) => ontologyId(example.filter) === 'EFO:0002784'))
+assert.ok(
+  !encodeAll.some(
+    (example) =>
+      example.filter.kind === 'alphanumeric' && example.filter.id === 'condition'
+  )
+)
+assert.ok(!encodeAll.some((example) => ontologyId(example.filter) === 'EFO:0009654'))
+assert.ok(!encodeAll.some((example) => example.filter.kind === 'alphanumeric'))
+assert.ok(!encodeAll.some((example) => ontologyId(example.filter) === 'UBERON:0002107'))
 
 console.log('matrix-workspace-examples.test.ts ok')

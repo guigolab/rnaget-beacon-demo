@@ -36,6 +36,26 @@ def _open_text(path: Path):
     return path.open("r", encoding="utf-8", errors="replace")
 
 
+def _ncbi_tsv_dict_reader(fh):
+    """DictReader for NCBI gene DATA TSVs whose header line starts with ``#``.
+
+    Files such as ``gene2go.gz`` / ``gene2ensembl.gz`` begin with
+    ``#tax_id\\tGeneID\\t...``. A plain ``csv.DictReader`` would keep the
+    leading ``#`` on the first column name, so ``row.get("tax_id")`` never
+    matches and every row is skipped (silent empty GO enrichment).
+    """
+    import csv
+
+    header_line = fh.readline()
+    if not header_line:
+        return iter(())
+    if header_line.startswith("#"):
+        header_line = header_line[1:]
+    fieldnames = next(csv.reader([header_line], delimiter="\t"))
+    fieldnames = [name.strip() for name in fieldnames]
+    return csv.DictReader(fh, fieldnames=fieldnames, delimiter="\t")
+
+
 def _unversion_ensg(feature_id: str) -> str:
     fid = str(feature_id).strip()
     if fid.upper().startswith("ENSG") and "." in fid:
@@ -73,12 +93,7 @@ def load_ensembl_to_ncbi(
 ) -> Dict[str, str]:
     out: Dict[str, str] = {}
     with _open_text(path) as fh:
-        header = fh.readline()
-        if not header.startswith("#"):
-            fh.seek(0)
-        import csv
-
-        reader = csv.DictReader(fh, delimiter="\t")
+        reader = _ncbi_tsv_dict_reader(fh)
         for row in reader:
             if (row.get("tax_id") or "").strip() != tax_id:
                 continue
@@ -96,11 +111,13 @@ def load_gene_info_by_id(
 ) -> Dict[str, Dict[str, Any]]:
     path = ensure_gene_info_path(cache_dir, skip_download=skip_download)
     by_id: Dict[str, Dict[str, Any]] = {}
-    import csv
 
     with _open_text(path) as fh:
-        reader = csv.DictReader(fh, delimiter="\t")
+        reader = _ncbi_tsv_dict_reader(fh)
         for row in reader:
+            tax = (row.get("tax_id") or "").strip()
+            if tax and tax != "9606":
+                continue
             gid = (row.get("GeneID") or "").strip()
             if not gid:
                 continue
@@ -115,17 +132,16 @@ def load_gene_info_by_id(
 
 def load_goslim_ids(path: Path) -> Set[str]:
     names = parse_so_obo(path)  # works for GO ids in OBO format
-    return set(names.keys())
+    return {tid for tid in names if str(tid).startswith("GO:")}
 
 
 def load_gene2go_slim(
     path: Path, *, slim_ids: Set[str], tax_id: str = "9606"
 ) -> Dict[str, Set[str]]:
     by_gene: Dict[str, Set[str]] = {}
-    import csv
 
     with _open_text(path) as fh:
-        reader = csv.DictReader(fh, delimiter="\t")
+        reader = _ncbi_tsv_dict_reader(fh)
         for row in reader:
             if (row.get("tax_id") or "").strip() != tax_id:
                 continue

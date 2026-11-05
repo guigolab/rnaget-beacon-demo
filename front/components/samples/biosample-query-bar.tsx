@@ -19,6 +19,7 @@ type BiosampleQueryBarProps = {
   probe: LensProbe
   scopeIndex?: FilterScopeIndex
   termsPath?: string
+  showExamples?: boolean
 }
 
 export function BiosampleQueryBar({
@@ -27,6 +28,7 @@ export function BiosampleQueryBar({
   probe,
   scopeIndex,
   termsPath = '/filtering_terms',
+  showExamples = true,
 }: BiosampleQueryBarProps) {
   const { terms, resources, error, loading } = useFilteringTerms(termsPath)
   const labelCatalog = useMemo(() => catalogLabelById(terms), [terms])
@@ -39,8 +41,7 @@ export function BiosampleQueryBar({
       terms.filter(
         (term) =>
           term.type === 'alphanumeric' &&
-          (term.scopes?.includes('biosample') ?? false) &&
-          term.id !== 'sex'
+          (term.scopes?.includes('biosample') ?? false)
       ),
     [terms]
   )
@@ -58,12 +59,6 @@ export function BiosampleQueryBar({
       return { ...typed, label: match?.label ?? typed.label }
     }
     if (typed) return typed
-
-    const sexTerm = terms.find((term) => term.id === 'sex')
-    const sex = sexTerm?.values?.find(
-      (value) => value.toLowerCase() === trimmed.toLowerCase()
-    )
-    if (sex) return { kind: 'sex', value: sex }
 
     for (const term of alphanumericTerms) {
       const hit = term.values?.find((value) => value.toLowerCase() === trimmed.toLowerCase())
@@ -87,6 +82,7 @@ export function BiosampleQueryBar({
       onChange={onChange}
       probe={probe}
       examples={examples}
+      showExamples={showExamples}
       labelCatalog={labelCatalog}
       resolveText={resolveText}
       mergeAdded={mergeSampleLensFilters}

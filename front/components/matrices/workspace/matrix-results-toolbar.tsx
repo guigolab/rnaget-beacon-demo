@@ -23,6 +23,8 @@ type MatrixResultsToolbarProps = {
   featureTotal: number
   biosampleShown: number
   biosampleTotal: number
+  /** Ranked expression_values match count when known. */
+  cellTotal?: number
   loading: boolean
   catalogMin?: number
   catalogMax?: number
@@ -38,6 +40,7 @@ export function MatrixResultsToolbar({
   featureTotal,
   biosampleShown,
   biosampleTotal,
+  cellTotal,
   loading,
   catalogMin,
   catalogMax,
@@ -71,13 +74,13 @@ export function MatrixResultsToolbar({
       <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         Sort
         <select
-          aria-label="Sort features"
+          aria-label="Sort expression slice"
           value={sort}
           onChange={(event) => onSortChange(event.target.value as MatrixSortChoice)}
           className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
         >
-          <option value="max">Highest maximum</option>
-          <option value="min">Lowest minimum</option>
+          <option value="max">Highest cells</option>
+          <option value="min">Lowest cells</option>
         </select>
       </label>
       <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -99,6 +102,9 @@ export function MatrixResultsToolbar({
         {featureLabel}
         {' · '}
         {biosampleLabel}
+        {cellTotal != null && cellTotal > 0
+          ? ` · ${cellTotal.toLocaleString()} cells`
+          : ''}
         {percentileMode ? ' · window percentile' : ''}
       </p>
       {loading && (

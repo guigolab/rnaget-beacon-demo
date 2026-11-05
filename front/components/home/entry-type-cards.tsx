@@ -13,14 +13,14 @@ import {
 } from '@/lib/scope-theme'
 
 const ROUTES: Record<string, string> = {
-  feature: '/features/',
-  biosample: '/biosamples/',
+  feature: '/explore/',
+  biosample: '/explore/',
   matrix: '/matrices/',
 }
 
 const BROWSE_LABEL: Record<string, string> = {
-  feature: 'Browse features',
-  biosample: 'Browse biosamples',
+  feature: 'Explore genes × tissues',
+  biosample: 'Explore by sample',
   matrix: 'Browse matrices',
 }
 
@@ -30,11 +30,10 @@ const ENTRY_ORDER: Record<string, number> = {
   biosample: 1,
   matrix: 2,
   expressionValue: 3,
-  expressionSummary: 4,
 }
 
 const ROOT_ENTRY_TYPES = new Set(['biosample', 'feature', 'matrix'])
-const NESTED_MATRIX_TYPES = new Set(['expressionValue', 'expressionSummary'])
+const NESTED_MATRIX_TYPES = new Set(['expressionValue'])
 
 type EntryTypeCardsProps = {
   entryTypes: EntryTypeInfo[]
@@ -43,17 +42,6 @@ type EntryTypeCardsProps = {
 }
 
 function EntryAccent({ entryId }: { entryId: string }) {
-  if (entryId === 'expressionSummary') {
-    const feature = scopeCssVars('genomicFeature')
-    const biosample = scopeCssVars('biosample')
-    return (
-      <div className="absolute inset-y-0 left-0 flex w-1 flex-col" aria-hidden>
-        <span className="flex-1" style={{ backgroundColor: feature.border }} />
-        <span className="flex-1" style={{ backgroundColor: biosample.border }} />
-      </div>
-    )
-  }
-
   const scope = entryTypeScope(entryId)
   const colors = scopeCssVars(scope)
   return (
@@ -176,9 +164,7 @@ export function EntryTypeCards({
 
                 {nested && (
                   <p className="text-[11px] text-muted-foreground">
-                    {id === 'expressionSummary'
-                      ? 'Packaged per-feature/biosample extremes on axis records (info.expressionSummary)'
-                      : 'Filtered via matrix scope · nested matrix endpoints'}
+                    Filtered via matrix scope · nested matrix endpoints
                   </p>
                 )}
 

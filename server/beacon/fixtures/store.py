@@ -76,19 +76,19 @@ _FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
             "type": "SO",
             "id": "SO:0000704",
             "label": "gene",
-            "scopes": ["genomicFeature"],
+            "scopes": ["genomicFeature", "matrix"],
         },
         {
             "type": "SO",
             "id": "SO:0000234",
             "label": "mRNA",
-            "scopes": ["genomicFeature"],
+            "scopes": ["genomicFeature", "matrix"],
         },
         {
             "type": "SO",
             "id": "SO:0001217",
             "label": "protein_coding_gene",
-            "scopes": ["genomicFeature"],
+            "scopes": ["genomicFeature", "matrix"],
         },
         {
             "type": "GO",
@@ -109,17 +109,32 @@ _FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
             "scopes": ["biosample"],
         },
         {
+            "type": "custom",
+            "id": "matrix.profileSource",
+            "label": "Data source",
+            "scopes": ["matrix"],
+            "values": ["encode", "geo", "gtex"],
+        },
+        {
             "type": "alphanumeric",
-            "id": "sex",
-            "label": "Sex",
-            "scopes": ["biosample"],
-            "values": ["female", "male"],
+            "id": "feature.resource",
+            "label": "Annotation resource",
+            "scopes": ["genomicFeature"],
+            "values": ["GenCode", "NCBI Gene"],
         },
         {
             "type": "custom",
-            "id": "resource:ensembl",
-            "label": "Annotation resource ensembl",
+            "id": "feature.biotypeFamily",
+            "label": "Gene type",
             "scopes": ["genomicFeature"],
+            "values": ["protein_coding", "lncRNA", "pseudogene", "sncRNA", "other"],
+        },
+        {
+            "type": "custom",
+            "id": "expression.percentile",
+            "label": "Top expressed",
+            "scopes": ["genomicFeature"],
+            "values": ["90", "95", "99"],
         },
     ],
 }
@@ -144,9 +159,12 @@ class FixtureStore:
     def list_matrices(
         self, filters: Optional[Sequence[Any]] = None
     ) -> List[Dict[str, Any]]:
-        from beacon.matrix_catalog import list_matrices_filtered
+        from beacon.matrix_catalog import list_matrices_filtered, public_matrix_doc
 
-        return list_matrices_filtered(self.matrices, filters)
+        return [
+            public_matrix_doc(m)
+            for m in list_matrices_filtered(self.matrices, filters)
+        ]
 
     def matrix_filtering_terms(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         from beacon.matrix_catalog import build_matrix_filtering_terms
@@ -196,10 +214,12 @@ class FixtureStore:
         )
 
     def get_matrix(self, matrix_id: str) -> Optional[Dict[str, Any]]:
-        return self._matrices_by_id.get(matrix_id)
+        from beacon.matrix_catalog import public_matrix_doc
 
-    def list_features(self) -> List[Dict[str, Any]]:
-        return list(self.features)
+        raw = self._matrices_by_id.get(matrix_id)
+        if raw is None:
+            return None
+        return public_matrix_doc(raw)
 
     def filtering_terms(
         self, *, scopes: Optional[Sequence[str]] = None
@@ -232,26 +252,39 @@ class FixtureStore:
             ]
         return terms, resources
 
-    def _feature_ids_for_symbol_or_xref(self, key: str) -> Set[str]:
+    def _feature_ids_for_symbol_or_xref(
+        self, key: str, *, case_sensitive: bool = False
+    ) -> Set[str]:
         from beacon.filters import gene_public_id_lookup_keys
 
-        candidates = {k.upper() for k in gene_public_id_lookup_keys(key)}
-        candidates.add(key.upper())
+        if case_sensitive:
+            candidates = {key}
+            if not key:
+                return set()
+        else:
+            candidates = {k.upper() for k in gene_public_id_lookup_keys(key)}
+            candidates.add(key.upper())
         hits: Set[str] = set()
         for f in self.features:
             gf = f.get("genomicFeature") or {}
-            aliases = [str(a).upper() for a in (gf.get("aliases") or [])]
+            aliases_raw = [str(a) for a in (gf.get("aliases") or [])]
+            aliases = aliases_raw if case_sensitive else [a.upper() for a in aliases_raw]
             native = str((gf.get("featureIdentifier") or {}).get("id") or "")
             native_u = native.upper()
             native_bare = native_u.rsplit(".", 1)[0] if "." in native_u else native_u
-            xrefs = {str(x).upper() for x in (gf.get("xrefs") or [])}
+            xrefs_raw = {str(x) for x in (gf.get("xrefs") or [])}
+            xrefs = xrefs_raw if case_sensitive else {x.upper() for x in xrefs_raw}
             wid = str(f.get("id") or "")
-            if (
-                candidates & set(aliases)
-                or native_u in candidates
-                or native_bare in candidates
-                or candidates & xrefs
-            ):
+            if case_sensitive:
+                matched = bool(candidates & set(aliases))
+            else:
+                matched = bool(
+                    candidates & set(aliases)
+                    or native_u in candidates
+                    or native_bare in candidates
+                    or candidates & xrefs
+                )
+            if matched:
                 hits.add(wid)
                 if native:
                     hits.add(native)
@@ -263,6 +296,7 @@ class FixtureStore:
         skip: int = 0,
         limit: int = 10,
         filters: Optional[Sequence[Any]] = None,
+        feature_id_list: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         from beacon.filters import (
             feature_doc_matches,
@@ -270,6 +304,19 @@ class FixtureStore:
         )
 
         items = list(self.features)
+        if feature_id_list:
+            allowed = self._resolve_feature_filter_ids(feature_id_list)
+            if not allowed:
+                return [], 0
+            items = [
+                feat
+                for feat in items
+                if feat.get("id") in allowed
+                or (feat.get("genomicFeature") or {})
+                .get("featureIdentifier", {})
+                .get("id")
+                in allowed
+            ]
         if filters:
             # Pre-resolve gene CURIE / symbol to wrapper ids
             allow: Optional[Set[str]] = None
@@ -281,7 +328,8 @@ class FixtureStore:
                     from beacon.filters import symbol_custom_lookup_key
 
                     ids = self._feature_ids_for_symbol_or_xref(
-                        symbol_custom_lookup_key(f)
+                        symbol_custom_lookup_key(f),
+                        case_sensitive=True,
                     )
                     allow = ids if allow is None else (allow & ids)
             if allow is not None:
@@ -303,9 +351,6 @@ class FixtureStore:
     def get_feature(self, feature_id: str) -> Optional[Dict[str, Any]]:
         return self._features_by_id.get(feature_id)
 
-    def list_biosamples(self) -> List[Dict[str, Any]]:
-        return list(self.biosamples)
-
     def list_biosamples_page(
         self,
         *,
@@ -323,13 +368,6 @@ class FixtureStore:
 
     def get_biosample(self, biosample_id: str) -> Optional[Dict[str, Any]]:
         return self._biosamples_by_id.get(biosample_id)
-
-    def matrices_for_feature(self, feature_id: str) -> List[Dict[str, Any]]:
-        feature = self.get_feature(feature_id)
-        if not feature:
-            return []
-        ids = feature.get("matrixIds") or []
-        return [self._matrices_by_id[i] for i in ids if i in self._matrices_by_id]
 
     def matrices_for_biosample(self, biosample_id: str) -> List[Dict[str, Any]]:
         ids = self.biosample_matrices.get(biosample_id) or []
@@ -712,24 +750,6 @@ class FixtureStore:
         )
         return ExpressionValuesPage(page, total, next_page, previous_page)
 
-    def _ordered_feature_ids_for_rank(
-        self, feature_id_list: Optional[str]
-    ) -> List[str]:
-        from beacon.duckdb_store import _csv_tokens
-
-        ordered: List[str] = []
-        seen: Set[str] = set()
-        for token in _csv_tokens(feature_id_list):
-            resolved = self._resolve_feature_filter_ids(token)
-            preferred = [token] if token in resolved else []
-            rest = sorted(fid for fid in resolved if fid not in preferred)
-            for fid in preferred + rest:
-                if fid in seen:
-                    continue
-                seen.add(fid)
-                ordered.append(fid)
-        return ordered
-
     def _resolve_feature_filter_ids(self, feature_id_list: Optional[str]) -> Set[str]:
         """Accept genomic accessions, symbols, and/or feature wrapper ids."""
         tokens = _csv_set(feature_id_list)
@@ -787,10 +807,3 @@ def get_store() -> Any:
             )
             _STORE = FixtureStore()
         return _STORE
-
-
-def reset_store() -> None:
-    """Clear singleton (tests / reload after package swap)."""
-    global _STORE
-    with _STORE_LOCK:
-        _STORE = None

@@ -92,35 +92,13 @@ export function featureScalarFacts(
   ]
 }
 
-/** Clinical / info fields after ontology sections in biosample drawer. */
+/** Scalar fields after ontology sections in biosample drawer. */
 export function biosampleInfoScalarFacts(sample: Biosample): Fact[] {
-  const sex = sample.sex ?? sample.info?.sex
-  const info = sample.info ?? {}
   return [
-    { label: 'Sex', value: sex != null ? String(sex) : undefined },
     { label: 'Individual', value: sample.individualId },
     { label: 'Collection date', value: sample.collectionDate },
     { label: 'Collection', value: sample.collectionMoment },
-    {
-      label: 'Condition',
-      value: info.condition != null ? String(info.condition) : undefined,
-    },
-    {
-      label: 'Timepoint',
-      value: info.timepoint != null ? String(info.timepoint) : undefined,
-    },
-    {
-      label: 'Age bracket',
-      value: info.age_bracket != null ? String(info.age_bracket) : undefined,
-    },
-    { label: 'RIN', value: info.rin != null ? String(info.rin) : undefined },
-    {
-      label: 'Ischemic time (min)',
-      value:
-        info.ischemic_time_min != null ? String(info.ischemic_time_min) : undefined,
-    },
     { label: 'Organism', value: sample.organism?.scientificName },
-    { label: 'Lab', value: info.lab != null ? String(info.lab) : undefined },
     { label: 'Description', value: sample.description ?? sample.summary },
     { label: 'Notes', value: sample.notes },
   ]
@@ -151,9 +129,6 @@ export function biosampleFacts(
   sample: Biosample,
   resources: FilteringResource[] = []
 ): Fact[] {
-  const sex = sample.sex ?? sample.info?.sex
-  const info = sample.info ?? {}
-
   const phenotypeLinks: FactLink[] = []
   for (const pf of sample.phenotypicFeatures ?? []) {
     if (pf.featureType?.id || pf.featureType?.label) {
@@ -211,24 +186,10 @@ export function biosampleFacts(
       label: 'Measurements',
       links: measurementLinks.length ? measurementLinks : undefined,
     },
-    { label: 'Sex', value: sex },
     { label: 'Individual', value: sample.individualId },
     { label: 'Collection date', value: sample.collectionDate },
     { label: 'Collection', value: sample.collectionMoment },
-    { label: 'Condition', value: info.condition != null ? String(info.condition) : undefined },
-    { label: 'Timepoint', value: info.timepoint != null ? String(info.timepoint) : undefined },
-    { label: 'Age bracket', value: info.age_bracket != null ? String(info.age_bracket) : undefined },
-    {
-      label: 'RIN',
-      value: info.rin != null ? String(info.rin) : undefined,
-    },
-    {
-      label: 'Ischemic time (min)',
-      value:
-        info.ischemic_time_min != null ? String(info.ischemic_time_min) : undefined,
-    },
     { label: 'Organism', value: sample.organism?.scientificName },
-    { label: 'Lab', value: info.lab != null ? String(info.lab) : undefined },
     { label: 'Description', value: sample.description ?? sample.summary },
     { label: 'Notes', value: sample.notes },
   ]

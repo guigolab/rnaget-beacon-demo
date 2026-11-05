@@ -1,34 +1,69 @@
-import { dedupeFilters, symbolCustomFilter } from '@/lib/beacon/filters'
+import {
+  dedupeFilters,
+  FEATURE_BIOTYPE_FAMILY_ID,
+  symbolCustomFilter,
+} from '@/lib/beacon/filters'
 import type { Feature, FilteringTerm, UiFilter } from '@/lib/beacon/types'
-import { nativeFeatureId } from '@/lib/heatmap-expression'
-
-/** One-click starter queries on the gene lens (not applied until selected). */
-export const GENE_LENS_QUERY_EXAMPLES: Array<{ label: string; filter: UiFilter }> = [
-  { label: 'TP53', filter: symbolCustomFilter('TP53') },
-  { label: 'ALB', filter: symbolCustomFilter('ALB') },
-  { label: 'TP53 · HGNC:11998', filter: { kind: 'ontology', id: 'HGNC:11998', label: 'TP53' } },
-  { label: 'BRCA1 · HGNC:1100', filter: { kind: 'ontology', id: 'HGNC:1100', label: 'BRCA1' } },
-  { label: 'EGFR · HGNC:3236', filter: { kind: 'ontology', id: 'HGNC:3236', label: 'EGFR' } },
-]
 
 export const GENE_LENS_PAGE_SIZE = 5
 
 export function geneLensQueryExamples(
   terms: FilteringTerm[]
 ): Array<{ label: string; filter: UiFilter }> {
-  const base = [...GENE_LENS_QUERY_EXAMPLES]
-  const featureScope = (term: FilteringTerm) =>
-    term.scopes?.includes('genomicFeature') ?? false
-  const go = terms.find(
-    (t) => featureScope(t) && t.type === 'GO' && t.id.startsWith('GO:')
+  const examples: Array<{ label: string; filter: UiFilter }> = [
+    { label: 'TP53', filter: symbolCustomFilter('TP53') },
+  ]
+
+  const biotype = terms.find(
+    (term) =>
+      term.id === FEATURE_BIOTYPE_FAMILY_ID &&
+      (term.scopes?.includes('genomicFeature') ?? false) &&
+      (term.values?.includes('protein_coding') ?? false)
   )
-  if (go) {
-    base.push({
-      label: go.label ?? go.id,
-      filter: { kind: 'ontology', id: go.id, label: go.label },
+  if (biotype) {
+    examples.push({
+      label: 'Protein-coding',
+      filter: {
+        kind: 'alphanumeric',
+        id: FEATURE_BIOTYPE_FAMILY_ID,
+        value: 'protein_coding',
+        label: 'Gene type = protein_coding',
+      },
     })
   }
-  return base.slice(0, 7)
+
+  const pctTerm = terms.find(
+    (t) =>
+      t.id === 'expression.percentile' &&
+      (t.scopes?.includes('genomicFeature') ?? false)
+  )
+  const pctValues = new Set(pctTerm?.values ?? [])
+  if (pctValues.has('90')) {
+    examples.push({
+      label: 'Top 10% of genes',
+      filter: {
+        kind: 'expression',
+        id: 'expression.percentile',
+        operator: '>=',
+        value: '90',
+        label: 'Top 10% of genes',
+      },
+    })
+  }
+  if (pctValues.has('99')) {
+    examples.push({
+      label: 'Top 1% of genes',
+      filter: {
+        kind: 'expression',
+        id: 'expression.percentile',
+        operator: '>=',
+        value: '99',
+        label: 'Top 1% of genes',
+      },
+    })
+  }
+
+  return examples.slice(0, 6)
 }
 
 export function mergeGeneLensFilters(current: UiFilter[], added: UiFilter): UiFilter[] {
@@ -59,10 +94,6 @@ export function featureDisplayLabel(feature: Feature): string {
     feature.genomicFeature?.featureIdentifier?.id ??
     feature.id
   )
-}
-
-export function featureNativeToken(feature: Feature): string {
-  return nativeFeatureId(feature)
 }
 
 export function featureAnnotationResource(feature: Feature): string | undefined {

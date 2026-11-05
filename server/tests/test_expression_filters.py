@@ -54,12 +54,11 @@ class ExpressionFiltersFixtureTest(unittest.TestCase):
         self.assertEqual(r.status_code, 400, r.text)
         self.assertIn("matrix-only", r.json()["error"]["errorMessage"])
 
-    def test_matrix_only_filter_rejected_on_root_biosamples(self) -> None:
+    def test_removed_detected_genes_filter_rejected_on_root_biosamples(self) -> None:
         r = self.client.get(
             "/biosamples", params={"filters": "expression.detectedGenes:>=:5"}
         )
         self.assertEqual(r.status_code, 400, r.text)
-        self.assertIn("matrix-only", r.json()["error"]["errorMessage"])
 
     def test_matrix_only_filter_rejected_via_post(self) -> None:
         r = self.client.post(
@@ -178,22 +177,53 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         else:
             os.environ.pop("DATA_PACKAGE_PATH", None)
 
-    def test_filtering_terms_include_expression_band(self) -> None:
+    def test_filtering_terms_include_expression_percentile(self) -> None:
         r = self.client.get("/filtering_terms")
         self.assertEqual(r.status_code, 200, r.text)
-        term_ids = {t["id"] for t in r.json()["response"]["filteringTerms"]}
-        self.assertIn("expression.percentile.80-100", term_ids)
-        self.assertIn("expression.detectedGenesPercentile.0-20", term_ids)
-        self.assertTrue(
+        terms = r.json()["response"]["filteringTerms"]
+        term_ids = {t["id"] for t in terms}
+        self.assertIn("expression.percentile", term_ids)
+        pct = next(t for t in terms if t["id"] == "expression.percentile")
+        self.assertEqual(pct.get("type"), "custom")
+        self.assertEqual(set(pct.get("values") or []), {"90", "95", "99"})
+        self.assertNotIn("expression.percentile:>=99%", term_ids)
+        self.assertNotIn("expression.percentile:>=95%", term_ids)
+        self.assertNotIn("expression.percentile:>=90%", term_ids)
+        self.assertNotIn("expression.percentile:>=75%", term_ids)
+        self.assertNotIn("expression.rangeLevel:high", term_ids)
+        self.assertNotIn("expression.medianLevel:high", term_ids)
+        self.assertFalse(
+            any(t.startswith("expression.profile:") for t in term_ids)
+        )
+        self.assertFalse(
+            any(t.startswith("expression.detected") for t in term_ids)
+        )
+        self.assertFalse(
+            any(t.startswith("expression.profileEnrichedIn:") for t in term_ids)
+        )
+        self.assertFalse(
             any(t.startswith("expression.enrichedIn:") for t in term_ids)
         )
+        self.assertIn("feature.biotypeFamily", term_ids)
+        biotype = next(t for t in terms if t["id"] == "feature.biotypeFamily")
+        self.assertEqual(biotype.get("type"), "custom")
+        self.assertIn("feature.resource", term_ids)
+        resource = next(t for t in terms if t["id"] == "feature.resource")
+        self.assertEqual(resource.get("type"), "alphanumeric")
+        self.assertEqual(set(resource.get("values") or []), {"GenCode", "NCBI Gene"})
 
-    def test_post_features_expression_band_high(self) -> None:
+    def test_post_features_expression_percentile_top10(self) -> None:
         r = self.client.post(
             "/features",
             json={
                 "query": {
-                    "filters": [{"id": "expression.percentile.80-100"}],
+                    "filters": [
+                        {
+                            "id": "expression.percentile",
+                            "operator": ">=",
+                            "value": "90",
+                        }
+                    ],
                     "pagination": {"skip": 0, "limit": 5},
                 }
             },
@@ -209,12 +239,24 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         )
         self.assertEqual(rejected.status_code, 400, rejected.text)
 
-    def test_post_feature_matrices_with_band_and_matrix_id_list(self) -> None:
+        # Old custom percentile ids are rejected (no deprecation).
+        old = self.client.get(
+            "/features", params={"filters": "expression.percentile:>=90%"}
+        )
+        self.assertEqual(old.status_code, 400, old.text)
+
+    def test_post_feature_matrices_with_percentile_and_matrix_id_list(self) -> None:
         picked = self.client.post(
             "/features",
             json={
                 "query": {
-                    "filters": [{"id": "expression.percentile.80-100"}],
+                    "filters": [
+                        {
+                            "id": "expression.percentile",
+                            "operator": ">=",
+                            "value": "90",
+                        }
+                    ],
                     "pagination": {"skip": 0, "limit": 1},
                 }
             },
@@ -229,7 +271,13 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
             f"/features/{feature_id}/matrices",
             json={
                 "query": {
-                    "filters": [{"id": "expression.percentile.80-100"}],
+                    "filters": [
+                        {
+                            "id": "expression.percentile",
+                            "operator": ">=",
+                            "value": "90",
+                        }
+                    ],
                     "requestParameters": {"matrixIDList": ",".join(matrix_ids)},
                     "pagination": {"skip": 0, "limit": 20},
                 }
@@ -240,12 +288,24 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         self.assertTrue(results)
         self.assertTrue(set(m["matrixId"] for m in results) <= set(matrix_ids))
 
-    def test_biosample_matrices_with_detected_genes_band(self) -> None:
+    def test_biosample_matrices_with_preset(self) -> None:
+        terms = self.client.get("/filtering_terms")
+        self.assertEqual(terms.status_code, 200, terms.text)
+        preset = next(
+            (
+                t["id"]
+                for t in terms.json()["response"]["filteringTerms"]
+                if str(t.get("id") or "").startswith("biosample.preset:")
+            ),
+            None,
+        )
+        if not preset:
+            self.skipTest("no biosample.preset terms in demo package")
         picked = self.client.post(
             "/biosamples",
             json={
                 "query": {
-                    "filters": [{"id": "expression.detectedGenesPercentile.0-20"}],
+                    "filters": [{"id": preset}],
                     "pagination": {"skip": 0, "limit": 1},
                 }
             },
@@ -256,10 +316,7 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         biosample = picked.json()["response"]["resultSets"][0]["results"][0]
         biosample_id = biosample["id"]
 
-        r = self.client.get(
-            f"/biosamples/{biosample_id}/matrices",
-            params={"filters": "expression.detectedGenesPercentile.0-20"},
-        )
+        r = self.client.get(f"/biosamples/{biosample_id}/matrices")
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue(r.json()["response"]["resultSets"][0]["results"])
 
@@ -321,11 +378,11 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertGreater(r.json()["responseSummary"]["numTotalResults"], 0)
 
-    def test_expression_values_feature_filter_band(self) -> None:
+    def test_expression_values_feature_filter_percentile(self) -> None:
         matrix_id = self._first_matrix_id_with_percentiles()
         r = self.client.get(
             f"/matrices/{matrix_id}/expression_values",
-            params={"filters": "expression.percentile.80-100", "limit": 5},
+            params={"filters": "expression.percentile:>=:90", "limit": 5},
         )
         self.assertEqual(r.status_code, 200, r.text)
         self.assertGreaterEqual(r.json()["responseSummary"]["numTotalResults"], 0)

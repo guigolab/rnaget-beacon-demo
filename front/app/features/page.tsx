@@ -148,7 +148,7 @@ function FeaturesLensContent() {
         description={
           selectedFeature
             ? `${querySummary} · ${featureAnnotationResource(selectedFeature) ?? 'feature'}`
-            : 'Query genomic features, then inspect expression bands across matrices.'
+            : 'Query genomic features, then inspect top-percentile expression across matrices.'
         }
       />
 
@@ -191,8 +191,8 @@ function FeaturesLensContent() {
             querySummary={querySummary}
             previewLimit={matches.length}
             previewCount={matches.length}
-            previewTruncatedSuffix="banded heatmap via POST /matrices/{id}/features"
-            previewWhenShowing="Expression percentile bands from POST /matrices/{id}/features (featureIDList · expression.percentile.*)"
+            previewTruncatedSuffix="top-percentile heatmap via POST /matrices/{id}/features"
+            previewWhenShowing="Top-percentile bands from POST /matrices/{id}/features (featureIDList · expression.percentile:>=:99/95/90)"
             noMatchesMessage="No features match these filters."
             loadErrorTitle="Could not load features"
             searchError={list.error}

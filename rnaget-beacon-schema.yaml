@@ -16,7 +16,7 @@ paths:
       tags:
       - Informational endpoints
       summary: Get Info
-      operationId: get_info_info_get
+      operationId: getBeaconInfoRoot
       responses:
         '200':
           description: Beacon informational response
@@ -29,7 +29,7 @@ paths:
       tags:
       - Informational endpoints
       summary: Get Info
-      operationId: get_info__get
+      operationId: getBeaconRoot
       responses:
         '200':
           description: Beacon informational response
@@ -43,7 +43,7 @@ paths:
       - Informational endpoints
       summary: Get Service Info
       description: GA4GH Service Info (bare object, not a Beacon envelope).
-      operationId: get_service_info_service_info_get
+      operationId: getBeaconServiceInfo
       responses:
         '200':
           description: Successful Response
@@ -55,7 +55,7 @@ paths:
       tags:
       - Informational endpoints
       summary: Get Configuration
-      operationId: get_configuration_configuration_get
+      operationId: getBeaconConfiguration
       responses:
         '200':
           description: Beacon informational response
@@ -68,7 +68,7 @@ paths:
       tags:
       - Informational endpoints
       summary: Get Map
-      operationId: get_map_map_get
+      operationId: getBeaconMap
       responses:
         '200':
           description: Beacon informational response
@@ -81,7 +81,7 @@ paths:
       tags:
       - Informational endpoints
       summary: Get Entry Types
-      operationId: get_entry_types_entry_types_get
+      operationId: getEntryTypes
       responses:
         '200':
           description: Beacon informational response
@@ -94,7 +94,29 @@ paths:
       tags:
       - Informational endpoints
       summary: Filtering Terms
-      operationId: filtering_terms_filtering_terms_get
+      description: Root filtering-term catalog (GET only; matches Beacon root endpoints.json).
+      operationId: getFilteringTerms
+      parameters:
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          description: Number of terms to skip.
+          default: 0
+          title: Skip
+        description: Number of terms to skip.
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          description: Max terms to return; 0 means no server-side limit.
+          default: 0
+          title: Limit
+        description: Max terms to return; 0 means no server-side limit.
       responses:
         '200':
           description: Beacon filtering terms response
@@ -102,24 +124,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BeaconFilteringTermsResponse'
-    post:
-      tags:
-      - Informational endpoints
-      summary: Filtering Terms
-      operationId: filtering_terms_filtering_terms_post
-      responses:
-        '200':
-          description: Beacon filtering terms response
+        '422':
+          description: Validation Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
+                $ref: '#/components/schemas/HTTPValidationError'
   /biosamples:
     get:
       tags:
       - Biosamples
       summary: Get Biosamples
-      operationId: get_biosamples_biosamples_get
+      operationId: getBiosamples
       parameters:
       - name: skip
         in: query
@@ -152,7 +168,11 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array.
           title: Filters
+        description: Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -185,7 +205,7 @@ paths:
       tags:
       - Biosamples
       summary: Post Biosamples
-      operationId: post_biosamples_biosamples_post
+      operationId: postBiosamplesRequest
       requestBody:
         required: true
         content:
@@ -225,7 +245,7 @@ paths:
       tags:
       - Biosamples
       summary: Get Biosample
-      operationId: get_biosample_biosamples__id__get
+      operationId: getOneBiosample
       parameters:
       - name: id
         in: path
@@ -273,7 +293,7 @@ paths:
       tags:
       - Biosamples
       summary: Post Biosample
-      operationId: post_biosample_biosamples__id__post
+      operationId: postOneBiosample
       parameters:
       - name: id
         in: path
@@ -320,7 +340,7 @@ paths:
       tags:
       - Biosamples
       summary: Get Biosample Matrices
-      operationId: get_biosample_matrices_biosamples__id__matrices_get
+      operationId: getOneBiosampleMatrices
       parameters:
       - name: id
         in: path
@@ -359,7 +379,11 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array.
           title: Filters
+        description: Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array.
       - name: matrixIDList
         in: query
         required: false
@@ -367,7 +391,9 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: 'RNAget extension: comma-separated matrix IDs.'
           title: Matrixidlist
+        description: 'RNAget extension: comma-separated matrix IDs.'
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -400,7 +426,7 @@ paths:
       tags:
       - Biosamples
       summary: Post Biosample Matrices
-      operationId: post_biosample_matrices_biosamples__id__matrices_post
+      operationId: postOneBiosampleMatrices
       parameters:
       - name: id
         in: path
@@ -447,7 +473,7 @@ paths:
       tags:
       - Genomic features
       summary: Get Features
-      operationId: get_features_features_get
+      operationId: getFeatures
       parameters:
       - name: skip
         in: query
@@ -480,7 +506,11 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array.
           title: Filters
+        description: Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -513,7 +543,7 @@ paths:
       tags:
       - Genomic features
       summary: Post Features
-      operationId: post_features_features_post
+      operationId: postGenomicFeaturesRequest
       requestBody:
         required: true
         content:
@@ -553,7 +583,7 @@ paths:
       tags:
       - Genomic features
       summary: Get Feature
-      operationId: get_feature_features__id__get
+      operationId: getOneFeature
       parameters:
       - name: id
         in: path
@@ -601,7 +631,7 @@ paths:
       tags:
       - Genomic features
       summary: Post Feature
-      operationId: post_feature_features__id__post
+      operationId: postOneFeature
       parameters:
       - name: id
         in: path
@@ -648,7 +678,7 @@ paths:
       tags:
       - Genomic features
       summary: Get Feature Matrices
-      operationId: get_feature_matrices_features__id__matrices_get
+      operationId: getOneFeatureMatrices
       parameters:
       - name: id
         in: path
@@ -687,7 +717,11 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array.
           title: Filters
+        description: Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array.
       - name: matrixIDList
         in: query
         required: false
@@ -695,7 +729,9 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: 'RNAget extension: comma-separated matrix IDs.'
           title: Matrixidlist
+        description: 'RNAget extension: comma-separated matrix IDs.'
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -728,7 +764,7 @@ paths:
       tags:
       - Genomic features
       summary: Post Feature Matrices
-      operationId: post_feature_matrices_features__id__matrices_post
+      operationId: postOneFeatureMatrices
       parameters:
       - name: id
         in: path
@@ -775,7 +811,7 @@ paths:
       tags:
       - Matrices
       summary: Get Matrices
-      operationId: get_matrices_matrices_get
+      operationId: getMatrices
       parameters:
       - name: skip
         in: query
@@ -808,7 +844,11 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array.
           title: Filters
+        description: Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -841,7 +881,7 @@ paths:
       tags:
       - Matrices
       summary: Post Matrices
-      operationId: post_matrices_matrices_post
+      operationId: postMatricesRequest
       requestBody:
         required: true
         content:
@@ -881,7 +921,7 @@ paths:
       tags:
       - Matrices
       summary: Get Matrix
-      operationId: get_matrix_matrices__id__get
+      operationId: getOneMatrix
       parameters:
       - name: id
         in: path
@@ -929,7 +969,7 @@ paths:
       tags:
       - Matrices
       summary: Post Matrix
-      operationId: post_matrix_matrices__id__post
+      operationId: postOneMatrix
       parameters:
       - name: id
         in: path
@@ -976,7 +1016,7 @@ paths:
       tags:
       - Matrices
       summary: Get Matrix Features
-      operationId: get_matrix_features_matrices__id__features_get
+      operationId: getOneMatrixFeatures
       parameters:
       - name: id
         in: path
@@ -1015,19 +1055,11 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array.
           title: Filters
-      - name: sort
-        in: query
-        required: false
-        schema:
-          $ref: '#/components/schemas/AxisSort'
-          default: id
-      - name: order
-        in: query
-        required: false
-        schema:
-          $ref: '#/components/schemas/AxisOrder'
-          default: asc
+        description: Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array.
       - name: featureIDList
         in: query
         required: false
@@ -1035,31 +1067,9 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated feature IDs.
           title: Featureidlist
-      - name: biosampleIDList
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Biosampleidlist
-      - name: minValue
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: number
-          - type: 'null'
-          title: Minvalue
-      - name: maxValue
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: number
-          - type: 'null'
-          title: Maxvalue
+        description: Comma-separated feature IDs.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1092,7 +1102,7 @@ paths:
       tags:
       - Matrices
       summary: Post Matrix Features
-      operationId: post_matrix_features_matrices__id__features_post
+      operationId: postOneMatrixFeatures
       parameters:
       - name: id
         in: path
@@ -1139,7 +1149,7 @@ paths:
       tags:
       - Matrices
       summary: Matrix Scoped Filtering Terms
-      operationId: matrix_scoped_filtering_terms_matrices__id__filtering_terms_post
+      operationId: postOneMatrixFilteringTerms
       parameters:
       - name: id
         in: path
@@ -1147,6 +1157,26 @@ paths:
         schema:
           type: string
           title: Id
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          description: Number of terms to skip.
+          default: 0
+          title: Skip
+        description: Number of terms to skip.
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          description: Max terms to return; 0 means no server-side limit.
+          default: 0
+          title: Limit
+        description: Max terms to return; 0 means no server-side limit.
       responses:
         '200':
           description: Beacon filtering terms response
@@ -1164,7 +1194,7 @@ paths:
       tags:
       - Matrices
       summary: Matrix Scoped Filtering Terms
-      operationId: matrix_scoped_filtering_terms_matrices__id__filtering_terms_get
+      operationId: getOneMatrixFilteringTerms
       parameters:
       - name: id
         in: path
@@ -1172,6 +1202,26 @@ paths:
         schema:
           type: string
           title: Id
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          description: Number of terms to skip.
+          default: 0
+          title: Skip
+        description: Number of terms to skip.
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          description: Max terms to return; 0 means no server-side limit.
+          default: 0
+          title: Limit
+        description: Max terms to return; 0 means no server-side limit.
       responses:
         '200':
           description: Beacon filtering terms response
@@ -1190,7 +1240,7 @@ paths:
       tags:
       - Matrices
       summary: Get Matrix Biosamples
-      operationId: get_matrix_biosamples_matrices__id__biosamples_get
+      operationId: getOneMatrixBiosamples
       parameters:
       - name: id
         in: path
@@ -1229,27 +1279,11 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array.
           title: Filters
-      - name: sort
-        in: query
-        required: false
-        schema:
-          $ref: '#/components/schemas/AxisSort'
-          default: id
-      - name: order
-        in: query
-        required: false
-        schema:
-          $ref: '#/components/schemas/AxisOrder'
-          default: asc
-      - name: featureIDList
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Featureidlist
+        description: Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array.
       - name: biosampleIDList
         in: query
         required: false
@@ -1257,7 +1291,9 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated biosample IDs.
           title: Biosampleidlist
+        description: Comma-separated biosample IDs.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1290,7 +1326,7 @@ paths:
       tags:
       - Matrices
       summary: Post Matrix Biosamples
-      operationId: post_matrix_biosamples_matrices__id__biosamples_post
+      operationId: postOneMatrixBiosamples
       parameters:
       - name: id
         in: path
@@ -1337,7 +1373,7 @@ paths:
       tags:
       - Matrices
       summary: Get Expression Values
-      operationId: get_expression_values_matrices__id__expression_values_get
+      operationId: getOneMatrixExpressionValues
       parameters:
       - name: id
         in: path
@@ -1376,7 +1412,9 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated feature IDs.
           title: Featureidlist
+        description: Comma-separated feature IDs.
       - name: biosampleIDList
         in: query
         required: false
@@ -1384,7 +1422,9 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated biosample IDs.
           title: Biosampleidlist
+        description: Comma-separated biosample IDs.
       - name: filters
         in: query
         required: false
@@ -1392,7 +1432,11 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array.
           title: Filters
+        description: Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array.
       - name: minValue
         in: query
         required: false
@@ -1400,7 +1444,9 @@ paths:
           anyOf:
           - type: number
           - type: 'null'
+          description: Minimum expression value.
           title: Minvalue
+        description: Minimum expression value.
       - name: maxValue
         in: query
         required: false
@@ -1408,13 +1454,17 @@ paths:
           anyOf:
           - type: number
           - type: 'null'
+          description: Maximum expression value.
           title: Maxvalue
+        description: Maximum expression value.
       - name: order
         in: query
         required: false
         schema:
           $ref: '#/components/schemas/AxisOrder'
+          description: 'Order by value: asc | desc.'
           default: asc
+        description: 'Order by value: asc | desc.'
       - name: pageToken
         in: query
         required: false
@@ -1422,7 +1472,11 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
+          description: 'RNAget extension: opaque keyset page token (prefer over deep
+            skip).'
           title: Pagetoken
+        description: 'RNAget extension: opaque keyset page token (prefer over deep
+          skip).'
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1455,7 +1509,7 @@ paths:
       tags:
       - Matrices
       summary: Post Expression Values
-      operationId: post_expression_values_matrices__id__expression_values_post
+      operationId: postOneMatrixExpressionValues
       parameters:
       - name: id
         in: path
@@ -1531,13 +1585,7 @@ components:
       - asc
       - desc
       title: AxisOrder
-    AxisSort:
-      type: string
-      enum:
-      - id
-      - expression.min
-      - expression.max
-      title: AxisSort
+      description: Order expression_values by cell quantification.
     BeaconErrorBody:
       properties:
         errorCode:
@@ -1611,11 +1659,9 @@ components:
           title: Filters
         requestParameters:
           anyOf:
-          - additionalProperties: true
-            type: object
+          - $ref: '#/components/schemas/BeaconRequestParameters'
           - type: 'null'
           default: null
-          title: Requestparameters
         includeResultsetResponses:
           anyOf:
           - $ref: '#/components/schemas/IncludeResultsetResponses'
@@ -1652,6 +1698,61 @@ components:
           title: Apiversion
       title: BeaconRequestMeta
       type: object
+    BeaconRequestParameters:
+      additionalProperties: false
+      description: 'RNAget requestParameters under query.requestParameters.
+
+
+        Route-specific: nested matrix features → featureIDList only; nested
+
+        biosamples → biosampleIDList only; expression_values → both ID lists,
+
+        minValue/maxValue, and order (by cell value). Cross-links use matrixIDList.'
+      properties:
+        featureIDList:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Comma-separated feature IDs (matrix row accessions).
+          title: Featureidlist
+        biosampleIDList:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Comma-separated biosample IDs.
+          title: Biosampleidlist
+        matrixIDList:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Comma-separated matrix IDs (cross-link listings).
+          title: Matrixidlist
+        minValue:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          description: Minimum expression value (expression_values only).
+          title: Minvalue
+        maxValue:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          description: Maximum expression value (expression_values only).
+          title: Maxvalue
+        order:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: 'Order expression_values by cell value: asc | desc.'
+          title: Order
+      title: BeaconRequestParameters
+      type: object
     CustomFilter:
       properties:
         id:
@@ -1680,7 +1781,14 @@ components:
       additionalProperties: false
       type: object
       title: ExpressionValuesRequestBody
-      description: POST body for matrix expression_values.
+      description: 'POST body for matrix expression_values.
+
+
+        Slice params under ``query.requestParameters``:
+
+        featureIDList, biosampleIDList, minValue, maxValue, order (by value).
+
+        Top-level sibling fields and ``sort`` are not accepted.'
     FilteringTermsPayload:
       properties:
         filteringTerms:
@@ -1734,7 +1842,12 @@ components:
       additionalProperties: false
       type: object
       title: MatrixAxisRequestBody
-      description: POST body for nested matrix features / biosamples listings.
+      description: 'POST body for nested matrix features / biosamples listings.
+
+
+        Under ``query.requestParameters``: features accept ``featureIDList`` only;
+
+        biosamples accept ``biosampleIDList`` only.'
     OntologyFilter:
       properties:
         id:
