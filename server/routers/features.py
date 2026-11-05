@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from beacon.filters import is_matrix_only_expression_filter
 from beacon.fixtures import get_store
+from beacon.http_cache import RequestTimer, json_with_headers, package_etag
 from beacon.responses import error_json
 from beacon.schemas.envelopes import OPENAPI_BEACON_RESPONSES
 from routers.common import (
@@ -40,6 +41,53 @@ def _reject_matrix_only(filt, received):
 
 
 _FEATURES_RP = frozenset({"featureIDList"})
+# Immutable package → safe short cache for GET probes (nginx + browsers).
+_FEATURES_CACHE_CONTROL = "public, max-age=300"
+
+
+def _features_list_response(
+    *,
+    skip_v: int,
+    limit_v: int,
+    gran,
+    received,
+    filt,
+    feature_id_list: Optional[str],
+    method: str,
+) -> Union[Dict[str, Any], JSONResponse]:
+    store = get_store()
+    timer = RequestTimer()
+    timings: Dict[str, float] = {}
+    page_limit = limit_v if gran.value == "record" else 0
+    results, total = store.list_features_page(
+        skip=skip_v,
+        limit=page_limit,
+        filters=filt or None,
+        feature_id_list=feature_id_list,
+        timings=timings,
+    )
+    finished = timer.finish()
+    timings.setdefault("total", finished.get("total", 0.0))
+    body = list_response(
+        results,
+        "feature",
+        "features",
+        skip_v,
+        limit_v,
+        gran,
+        received,
+        total_count=total,
+        results_are_page=True,
+    )
+    # Cache-Control / ETag only on GET (POST probes stay uncached by default).
+    if method == "GET":
+        return json_with_headers(
+            body,
+            etag=package_etag(store.package_fingerprint()),
+            cache_control=_FEATURES_CACHE_CONTROL,
+            timings_ms=timings,
+        )
+    return json_with_headers(body, timings_ms=timings)
 
 
 @router.get("/features", response_model=None, responses=OPENAPI_BEACON_RESPONSES, operation_id="getFeatures")
@@ -90,23 +138,14 @@ def get_features(
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
-    page_limit = limit_v if gran.value == "record" else 0
-    results, total = get_store().list_features_page(
-        skip=skip_v,
-        limit=page_limit,
-        filters=filt or None,
+    return _features_list_response(
+        skip_v=skip_v,
+        limit_v=limit_v,
+        gran=gran,
+        received=received,
+        filt=filt,
         feature_id_list=params.get("featureIDList"),
-    )
-    return list_response(
-        results,
-        "feature",
-        "features",
-        skip_v,
-        limit_v,
-        gran,
-        received,
-        total_count=total,
-        results_are_page=True,
+        method="GET",
     )
 
 
@@ -148,23 +187,14 @@ def post_features(
     if err:
         return err
     skip_v, limit_v, gran, received = resolved
-    page_limit = limit_v if gran.value == "record" else 0
-    results, total = get_store().list_features_page(
-        skip=skip_v,
-        limit=page_limit,
-        filters=filt or None,
+    return _features_list_response(
+        skip_v=skip_v,
+        limit_v=limit_v,
+        gran=gran,
+        received=received,
+        filt=filt,
         feature_id_list=params.get("featureIDList"),
-    )
-    return list_response(
-        results,
-        "feature",
-        "features",
-        skip_v,
-        limit_v,
-        gran,
-        received,
-        total_count=total,
-        results_are_page=True,
+        method="POST",
     )
 
 

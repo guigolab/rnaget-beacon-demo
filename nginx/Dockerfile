@@ -19,6 +19,8 @@ FROM nginx:stable-alpine
 
 ARG BASE_PATH=/rnaget-beacon
 
+RUN mkdir -p /var/cache/nginx/rnaget
+
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=front /app/out /usr/share/nginx/html${BASE_PATH}
 

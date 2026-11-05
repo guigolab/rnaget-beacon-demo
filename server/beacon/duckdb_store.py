@@ -9,6 +9,8 @@ import logging
 import os
 import re
 import threading
+import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
@@ -30,6 +32,9 @@ MAX_SKIP = 100_000
 MAX_ID_LIST_TOKENS = 200
 # Cap intermediate id sets built in Python / DISTINCT before an IN list.
 MAX_INTERMEDIATE_IDS = MAX_PAGE_LIMIT
+# Explore probe caches (package is immutable for the process lifetime).
+_FEATURE_ID_LIST_CACHE_MAX = 256
+_HYDRATED_FEATURE_CACHE_MAX = 4096
 
 BIOSAMPLE_HYDRATE_COLS: Tuple[str, ...] = (
     "biosample_id",
@@ -289,12 +294,44 @@ class DuckDBStore:
         self._global_feature_count: Optional[int] = None
         self._global_biosample_count: Optional[int] = None
         self._feature_counts: Dict[str, int] = {}
+        self._feature_id_list_cache: "OrderedDict[str, Tuple[str, ...]]" = OrderedDict()
+        self._hydrated_feature_cache: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        self._package_fingerprint: Optional[str] = None
 
         self._biosample_matrices: Dict[str, List[str]] = {}
         self._filtering_terms_doc: Optional[Dict[str, Any]] = None
         self._register_views()
         self._load_indexes()
         self._load_filtering_terms()
+
+    def package_fingerprint(self) -> str:
+        """Stable hash of package identity for ETag / Cache-Control."""
+        if self._package_fingerprint:
+            return self._package_fingerprint
+        parts = [
+            str(self.package_path),
+            str(self.manifest.get("builtAt") or ""),
+            str(self.manifest.get("version") or ""),
+            str((self.manifest.get("tissueFeatureSummary") or {}).get("rowCount") or ""),
+            str(len(self.matrices)),
+        ]
+        digest = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:24]
+        self._package_fingerprint = digest
+        return digest
+
+    @staticmethod
+    def _lru_get(cache: "OrderedDict[str, Any]", key: str) -> Any:
+        if key not in cache:
+            return None
+        cache.move_to_end(key)
+        return cache[key]
+
+    @staticmethod
+    def _lru_put(cache: "OrderedDict[str, Any]", key: str, value: Any, max_size: int) -> None:
+        cache[key] = value
+        cache.move_to_end(key)
+        while len(cache) > max_size:
+            cache.popitem(last=False)
 
     def _execute(self, sql: str, params: Optional[List[Any]] = None):
         """Run SQL under the connection lock; caller must finish fetch before unlock.
@@ -380,8 +417,20 @@ class DuckDBStore:
         tissue_summary = self.package_path / tissue_summary_name
         tissue_labels = self.package_path / tissue_labels_name
         if tissue_summary.is_file():
+            # In-memory table sorted for Explore probes (ontology then wrapper).
             self._execute(
-                f"CREATE VIEW tissue_summary AS SELECT * FROM read_parquet('{_sql_path(tissue_summary)}')"
+                f"""
+                CREATE TABLE tissue_summary AS
+                SELECT
+                  CAST(wrapper_id AS VARCHAR) AS wrapper_id,
+                  CAST(ontology_id AS VARCHAR) AS ontology_id,
+                  percentile,
+                  n_biosamples,
+                  n_matrices,
+                  level
+                FROM read_parquet('{_sql_path(tissue_summary)}')
+                ORDER BY ontology_id, wrapper_id
+                """
             )
             self._tissue_summary_view = "tissue_summary"
         if tissue_labels.is_file():
@@ -1847,24 +1896,24 @@ class DuckDBStore:
         if self._tissue_summary_view:
             if kind == "top":
                 return (
-                    f"SELECT CAST(wrapper_id AS VARCHAR) AS wrapper_id "
+                    f"SELECT wrapper_id "
                     f"FROM {self._tissue_summary_view} "
-                    f"WHERE CAST(ontology_id AS VARCHAR) = ? "
+                    f"WHERE ontology_id = ? "
                     f"AND percentile IS NOT NULL AND percentile >= ?",
                     [oid, float(TISSUE_EXPLORE_BAND_PERCENTILE)],
                 )
             if kind == "present":
                 return (
-                    f"SELECT CAST(wrapper_id AS VARCHAR) AS wrapper_id "
+                    f"SELECT wrapper_id "
                     f"FROM {self._tissue_summary_view} "
-                    f"WHERE CAST(ontology_id AS VARCHAR) = ?",
+                    f"WHERE ontology_id = ?",
                     [oid],
                 )
             level_pred = "level >= 1" if kind == "high" else "level = 2"
             return (
-                f"SELECT CAST(wrapper_id AS VARCHAR) AS wrapper_id "
+                f"SELECT wrapper_id "
                 f"FROM {self._tissue_summary_view} "
-                f"WHERE CAST(ontology_id AS VARCHAR) = ? AND {level_pred}",
+                f"WHERE ontology_id = ? AND {level_pred}",
                 [oid],
             )
         if not self._tissue_stats_views or not self._feat_views:
@@ -2117,7 +2166,8 @@ class DuckDBStore:
             return None, []
         kind, oid = parsed
         prefix = f"{alias}." if alias else ""
-        ontology = f"CAST({prefix}ontology_id AS VARCHAR) = ?"
+        # tissue_summary columns are VARCHAR (loaded as table at startup).
+        ontology = f"{prefix}ontology_id = ?"
         if kind == "top":
             return (
                 f"{ontology} AND {prefix}percentile IS NOT NULL "
@@ -2154,7 +2204,7 @@ class DuckDBStore:
             return None, []
         ids = list(wrapper_ids)
         ph = ", ".join(["?"] * len(ids))
-        parts = [pred, f"CAST(s.wrapper_id AS VARCHAR) IN ({ph})"]
+        parts = [pred, f"s.wrapper_id IN ({ph})"]
         out_params: List[Any] = list(params) + ids
         view = self._tissue_summary_view
         for filt in tissue_filters[1:]:
@@ -2162,9 +2212,9 @@ class DuckDBStore:
             if not extra:
                 return None, []
             parts.append(
-                "CAST(s.wrapper_id AS VARCHAR) IN ("
-                f"SELECT CAST(wrapper_id AS VARCHAR) FROM {view} "
-                f"WHERE {extra} AND CAST(wrapper_id AS VARCHAR) IN ({ph}))"
+                "s.wrapper_id IN ("
+                f"SELECT wrapper_id FROM {view} "
+                f"WHERE {extra} AND wrapper_id IN ({ph}))"
             )
             out_params.extend(extra_params)
             out_params.extend(ids)
@@ -2219,15 +2269,29 @@ class DuckDBStore:
 
     def _wrapper_ids_for_feature_id_list(self, feature_id_list: str) -> List[str]:
         """Map a root ``featureIDList`` to wrapper ids without a catalog-wide join."""
+        cache_key = feature_id_list.strip()
+        cached = self._lru_get(self._feature_id_list_cache, cache_key)
+        if cached is not None:
+            return list(cached)
         if self._feature_index_view:
             resolved = self._resolve_feature_filter_ids(
                 feature_id_list, matrix_id=None
             )
             if not resolved:
+                self._lru_put(
+                    self._feature_id_list_cache, cache_key, (), _FEATURE_ID_LIST_CACHE_MAX
+                )
                 return []
-            return self._wrapper_ids_in_feature_source(
+            out = self._wrapper_ids_in_feature_source(
                 self._feature_index_view, sorted(resolved)
             )
+            self._lru_put(
+                self._feature_id_list_cache,
+                cache_key,
+                tuple(out),
+                _FEATURE_ID_LIST_CACHE_MAX,
+            )
+            return out
         tokens = list(_csv_set(feature_id_list))
         if not tokens:
             return []
@@ -2249,62 +2313,87 @@ class DuckDBStore:
         ids = [str(wid) for wid in wrapper_ids if wid]
         if not ids:
             return []
-        ph = ", ".join(["?"] * len(ids))
         by_id: Dict[str, Dict[str, Any]] = {}
-        if self._feature_index_view:
-            rows, cols = self._fetchall(
-                f"""
-                SELECT
-                  wrapper_id,
-                  feature_id,
-                  symbol,
-                  resource,
-                  feature_type_id,
-                  feature_type_label,
-                  aliases,
-                  xrefs,
-                  ontology_terms,
-                  chrom,
-                  "start" AS start,
-                  "end" AS end,
-                  strand
-                FROM {self._feature_index_view}
-                WHERE CAST(wrapper_id AS VARCHAR) IN ({ph})
-                """,
-                ids,
-            )
-            out_rows = [dict(zip(cols, tup)) for tup in rows]
-            self._attach_feature_matrix_ids(out_rows)
-            for row in out_rows:
-                doc = self._hydrate_feature_row(row)
-                by_id[str(row.get("wrapper_id") or "")] = doc
-        elif self._all_features_view:
-            rows, cols = self._fetchall(
-                f"""
-                SELECT
-                  wrapper_id,
-                  arbitrary(feature_id) AS feature_id,
-                  arbitrary(symbol) AS symbol,
-                  arbitrary(resource) AS resource,
-                  arbitrary(feature_type_id) AS feature_type_id,
-                  arbitrary(feature_type_label) AS feature_type_label,
-                  arbitrary(aliases) AS aliases,
-                  arbitrary(xrefs) AS xrefs,
-                  arbitrary(ontology_terms) AS ontology_terms,
-                  arbitrary(chrom) AS chrom,
-                  arbitrary("start") AS start,
-                  arbitrary("end") AS end,
-                  arbitrary(strand) AS strand,
-                  list(DISTINCT matrix_id) AS matrix_ids
-                FROM {self._all_features_view}
-                WHERE CAST(wrapper_id AS VARCHAR) IN ({ph})
-                GROUP BY wrapper_id
-                """,
-                ids,
-            )
-            for tup in rows:
-                row = dict(zip(cols, tup))
-                by_id[str(row.get("wrapper_id") or "")] = self._hydrate_feature_row(row)
+        missing: List[str] = []
+        for wid in ids:
+            cached = self._lru_get(self._hydrated_feature_cache, wid)
+            if cached is not None:
+                by_id[wid] = cached
+            else:
+                missing.append(wid)
+        if missing:
+            ph = ", ".join(["?"] * len(missing))
+            if self._feature_index_view:
+                rows, cols = self._fetchall(
+                    f"""
+                    SELECT
+                      wrapper_id,
+                      feature_id,
+                      symbol,
+                      resource,
+                      feature_type_id,
+                      feature_type_label,
+                      aliases,
+                      xrefs,
+                      ontology_terms,
+                      chrom,
+                      "start" AS start,
+                      "end" AS end,
+                      strand
+                    FROM {self._feature_index_view}
+                    WHERE CAST(wrapper_id AS VARCHAR) IN ({ph})
+                    """,
+                    missing,
+                )
+                out_rows = [dict(zip(cols, tup)) for tup in rows]
+                self._attach_feature_matrix_ids(out_rows)
+                for row in out_rows:
+                    doc = self._hydrate_feature_row(row)
+                    wid = str(row.get("wrapper_id") or "")
+                    by_id[wid] = doc
+                    if wid:
+                        self._lru_put(
+                            self._hydrated_feature_cache,
+                            wid,
+                            doc,
+                            _HYDRATED_FEATURE_CACHE_MAX,
+                        )
+            elif self._all_features_view:
+                rows, cols = self._fetchall(
+                    f"""
+                    SELECT
+                      wrapper_id,
+                      arbitrary(feature_id) AS feature_id,
+                      arbitrary(symbol) AS symbol,
+                      arbitrary(resource) AS resource,
+                      arbitrary(feature_type_id) AS feature_type_id,
+                      arbitrary(feature_type_label) AS feature_type_label,
+                      arbitrary(aliases) AS aliases,
+                      arbitrary(xrefs) AS xrefs,
+                      arbitrary(ontology_terms) AS ontology_terms,
+                      arbitrary(chrom) AS chrom,
+                      arbitrary("start") AS start,
+                      arbitrary("end") AS end,
+                      arbitrary(strand) AS strand,
+                      list(DISTINCT matrix_id) AS matrix_ids
+                    FROM {self._all_features_view}
+                    WHERE CAST(wrapper_id AS VARCHAR) IN ({ph})
+                    GROUP BY wrapper_id
+                    """,
+                    missing,
+                )
+                for tup in rows:
+                    row = dict(zip(cols, tup))
+                    doc = self._hydrate_feature_row(row)
+                    wid = str(row.get("wrapper_id") or "")
+                    by_id[wid] = doc
+                    if wid:
+                        self._lru_put(
+                            self._hydrated_feature_cache,
+                            wid,
+                            doc,
+                            _HYDRATED_FEATURE_CACHE_MAX,
+                        )
         return [by_id[wid] for wid in ids if wid in by_id]
 
     def _list_features_page_via_tissue_summary(
@@ -2316,6 +2405,7 @@ class DuckDBStore:
         expr_filters: Optional[Sequence[Any]],
         tissue_filters: Sequence[Any],
         feature_id_list: Optional[str],
+        timings: Optional[Dict[str, float]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Page features from ``tissue_summary`` instead of sorting ``feature_index``.
 
@@ -2328,6 +2418,7 @@ class DuckDBStore:
             return [], 0
         limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
         skip = max(0, int(skip))
+        t0 = time.perf_counter()
         use_index = bool(self._feature_index_view)
         constraint, cparams, empty = self._non_tissue_feature_constraint(
             filters,
@@ -2339,6 +2430,8 @@ class DuckDBStore:
 
         if feature_id_list:
             wrapper_ids = self._wrapper_ids_for_feature_id_list(feature_id_list)
+            if timings is not None:
+                timings["resolve"] = (time.perf_counter() - t0) * 1000.0
             if not wrapper_ids:
                 return [], 0
             where, params = self._tissue_summary_id_membership_sql(
@@ -2359,48 +2452,84 @@ class DuckDBStore:
                 if not extra:
                     return [], 0
                 parts.append(
-                    "CAST(s.wrapper_id AS VARCHAR) IN ("
-                    f"SELECT CAST(wrapper_id AS VARCHAR) FROM {view} WHERE {extra})"
+                    "s.wrapper_id IN ("
+                    f"SELECT wrapper_id FROM {view} WHERE {extra})"
                 )
                 params.extend(extra_params)
             where = " AND ".join(parts)
             from_sql = (
                 f"FROM {view} s "
                 f"JOIN {self._feature_index_view} v "
-                "ON CAST(v.wrapper_id AS VARCHAR) = CAST(s.wrapper_id AS VARCHAR)"
+                "ON CAST(v.wrapper_id AS VARCHAR) = s.wrapper_id"
             )
+            if timings is not None:
+                timings["resolve"] = (time.perf_counter() - t0) * 1000.0
 
         if constraint:
             source = self._feature_index_view or self._all_features_view
             if not source:
                 return [], 0
             where = (
-                f"{where} AND CAST(s.wrapper_id AS VARCHAR) IN ("
+                f"{where} AND s.wrapper_id IN ("
                 f"SELECT CAST(wrapper_id AS VARCHAR) FROM {source} WHERE {constraint})"
             )
             params.extend(cparams)
 
-        total_row = self._fetchone(
-            f"SELECT COUNT(DISTINCT CAST(s.wrapper_id AS VARCHAR)) {from_sql} WHERE {where}",
-            params,
-        )
-        total = int(total_row[0]) if total_row else 0
-        if limit <= 0 or total <= 0:
-            return [], total
+        # Probe shortcut: when featureIDList is bound and skip=0, select first;
+        # if the page is short, total equals the page length (skip COUNT).
+        t_count = time.perf_counter()
+        skip_count = bool(feature_id_list) and skip == 0 and limit > 0
+        total: Optional[int] = None
+        if not skip_count:
+            total_row = self._fetchone(
+                f"SELECT COUNT(DISTINCT s.wrapper_id) {from_sql} WHERE {where}",
+                params,
+            )
+            total = int(total_row[0]) if total_row else 0
+            if timings is not None:
+                timings["count"] = (time.perf_counter() - t_count) * 1000.0
+            if limit <= 0 or total <= 0:
+                return [], total
+
+        t_select = time.perf_counter()
         rows, _cols = self._fetchall(
             f"""
-            SELECT CAST(s.wrapper_id AS VARCHAR) AS wrapper_id
+            SELECT s.wrapper_id AS wrapper_id
             {from_sql}
             WHERE {where}
-            GROUP BY CAST(s.wrapper_id AS VARCHAR)
+            GROUP BY s.wrapper_id
             ORDER BY MAX(s.percentile) DESC NULLS LAST,
-                     CAST(s.wrapper_id AS VARCHAR) ASC
+                     s.wrapper_id ASC
             LIMIT ? OFFSET ?
             """,
             list(params) + [limit, skip],
         )
         ordered = [str(row[0]) for row in rows if row and row[0]]
-        return self._hydrate_wrappers_in_order(ordered), total
+        if timings is not None:
+            timings["select"] = (time.perf_counter() - t_select) * 1000.0
+
+        if skip_count:
+            if len(ordered) < limit:
+                total = len(ordered)
+            else:
+                # Page filled; fall back to exact distinct count.
+                t_count2 = time.perf_counter()
+                total_row = self._fetchone(
+                    f"SELECT COUNT(DISTINCT s.wrapper_id) {from_sql} WHERE {where}",
+                    params,
+                )
+                total = int(total_row[0]) if total_row else len(ordered)
+                if timings is not None:
+                    timings["count"] = (time.perf_counter() - t_count2) * 1000.0
+            if total <= 0:
+                return [], 0
+
+        assert total is not None
+        t_hydrate = time.perf_counter()
+        docs = self._hydrate_wrappers_in_order(ordered)
+        if timings is not None:
+            timings["hydrate"] = (time.perf_counter() - t_hydrate) * 1000.0
+        return docs, total
 
     def list_features_page(
         self,
@@ -2409,6 +2538,7 @@ class DuckDBStore:
         limit: int = 10,
         filters: Optional[Sequence[Any]] = None,
         feature_id_list: Optional[str] = None,
+        timings: Optional[Dict[str, float]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         self._reject_matrix_only_expression_filters(filters)
         other_filters, expr_filters, tissue_filters = (
@@ -2426,6 +2556,7 @@ class DuckDBStore:
                 expr_filters=expr_filters,
                 tissue_filters=tissue_filters,
                 feature_id_list=feature_id_list,
+                timings=timings,
             )
         if self._has_feature_indexes and self._feature_index_view:
             return self._list_features_page_indexed(

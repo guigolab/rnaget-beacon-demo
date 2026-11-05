@@ -11,7 +11,8 @@ import { isTissueOrCellOntologyId } from '@/lib/biosample-ontology-grid'
 import { mergeGeneLensFilters } from '@/lib/gene-lens'
 import { mergeSampleLensFilters } from '@/lib/sample-lens'
 
-export const EXPLORE_LENS_PAGE_SIZE = 5
+/** Larger page: probe cost scales with columns, not genes. */
+export const EXPLORE_LENS_PAGE_SIZE = 30
 /** @deprecated Explore biosample seed uses tissuePresent; kept for API callers. */
 export const TISSUE_TOP_PREFIX = 'tissueTop:'
 export const TISSUE_PRESENT_PREFIX = 'tissuePresent:'
@@ -76,6 +77,31 @@ export function exploreHeatmapFeatureFilters(
     (oid) => tissuePresentFilter(oid)
   )
   return dedupeFilters([...featureFilters, ...derived])
+}
+
+/**
+ * Tissue-first seed mode: a single tissue ontology and no gene filters.
+ * Fetch ``tissueTop`` first (every row is ≥99 for that column), then continue
+ * with ``tissuePresent`` past the top total.
+ */
+export function isExploreTissueTopFirstSeed(
+  featureFilters: UiFilter[],
+  biosampleFilters: UiFilter[]
+): boolean {
+  if (featureFilters.length > 0) return false
+  return tissueOntologyIdsFromBiosampleFilters(biosampleFilters).length === 1
+}
+
+/** Filters for the tissueTop-first phase (single seeded tissue). */
+export function exploreHeatmapTopFirstFilters(
+  featureFilters: UiFilter[],
+  biosampleFilters: UiFilter[]
+): UiFilter[] {
+  const oids = tissueOntologyIdsFromBiosampleFilters(biosampleFilters)
+  if (oids.length !== 1) {
+    return exploreHeatmapFeatureFilters(featureFilters, biosampleFilters)
+  }
+  return dedupeFilters([...featureFilters, tissueTopFilter(oids[0])])
 }
 
 export function parseExploreLensSearch(

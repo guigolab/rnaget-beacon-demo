@@ -1,6 +1,9 @@
 # Per-client rate / connection zones (http context via nginx templates).
 limit_req_zone $binary_remote_addr zone=rnaget_api_req:10m rate=30r/s;
 limit_conn_zone $binary_remote_addr zone=rnaget_api_conn:10m;
+# GET probe cache (package is immutable between rebuilds).
+proxy_cache_path /var/cache/nginx/rnaget levels=1:2 keys_zone=rnaget_api:10m
+                 max_size=64m inactive=1h use_temp_path=off;
 
 upstream beacon_api {
     server ${API_HOST}:${API_PORT};
@@ -30,6 +33,15 @@ server {
         limit_conn_status 429;
 
         error_page 429 = @beacon_too_many;
+
+        # Cache GETs that the upstream marks Cache-Control: public.
+        proxy_cache rnaget_api;
+        proxy_cache_methods GET HEAD;
+        proxy_cache_valid 200 5m;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        proxy_cache_background_update on;
+        proxy_ignore_headers Set-Cookie;
+        add_header X-Cache-Status $upstream_cache_status always;
 
         proxy_pass http://beacon_api;
         proxy_http_version 1.1;

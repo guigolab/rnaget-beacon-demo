@@ -3,8 +3,9 @@
  * biosample constraint probes via nested `/matrices/{id}/biosamples` counts.
  */
 
-import { mapPool } from '@/lib/async-pool'
+import { exploreMapPool } from '@/lib/async-pool'
 import {
+  filterKey,
   isAbortError,
   probeMatrixBiosamples,
   type FilteringTerm,
@@ -14,16 +15,17 @@ import {
   isTissueOrCellOntologyId,
   probeFiltersForOntology,
 } from '@/lib/biosample-ontology-grid'
-import { listAllMatrixIds } from '@/lib/explore-tissue-matrices'
+import {
+  getOntologyMatrixIndex,
+  listAllMatrixIds,
+  matrixIdsForOntology,
+} from '@/lib/explore-tissue-matrices'
 import {
   exploreTissueColumnUniverse,
   isMatrixPseudoOntologyId,
   matrixIdFromPseudoOntology,
   type TissueColumn,
 } from '@/lib/tissue-levels'
-
-const COLUMN_PROBE_CONCURRENCY = 4
-const MATRIX_PROBE_CONCURRENCY = 6
 
 /** UBERON/EFO ontology filters seed columns / tissuePresent. */
 export function isExploreTissueSelectorFilter(filter: UiFilter): boolean {
@@ -59,12 +61,27 @@ export function probeFiltersForTissueColumn(
   )
 }
 
+/** Module-level column-count memo. */
+const columnCountCache = new Map<string, number>()
+
+function constraintCacheKey(filters: UiFilter[]): string {
+  return filters.map((f) => filterKey(f)).sort().join('|')
+}
+
+export function resetExploreTissueColumnCaches() {
+  columnCountCache.clear()
+}
+
 async function sumBiosampleCountForColumn(
   column: TissueColumn,
   constraintFilters: UiFilter[],
   matrixIds: string[],
   signal?: AbortSignal
 ): Promise<number> {
+  const cacheKey = `${constraintCacheKey(constraintFilters)}\0${column.ontologyId}`
+  const cached = columnCountCache.get(cacheKey)
+  if (cached != null) return cached
+
   if (isMatrixPseudoOntologyId(column.ontologyId)) {
     const mid = matrixIdFromPseudoOntology(column.ontologyId)
     if (!mid) return 0
@@ -74,7 +91,9 @@ async function sumBiosampleCountForColumn(
         granularity: 'count',
         signal,
       })
-      return page.total ?? 0
+      const total = page.total ?? 0
+      columnCountCache.set(cacheKey, total)
+      return total
     } catch (err) {
       if (isAbortError(err)) return 0
       throw err
@@ -82,9 +101,8 @@ async function sumBiosampleCountForColumn(
   }
 
   const filters = probeFiltersForTissueColumn(column, constraintFilters)
-  const counts = await mapPool(
+  const counts = await exploreMapPool(
     matrixIds,
-    MATRIX_PROBE_CONCURRENCY,
     async (matrixId) => {
       if (signal?.aborted) return 0
       try {
@@ -98,9 +116,12 @@ async function sumBiosampleCountForColumn(
         if (isAbortError(err)) return 0
         return 0
       }
-    }
+    },
+    signal
   )
-  return counts.reduce((sum, n) => sum + n, 0)
+  const total = counts.reduce((sum, n) => sum + n, 0)
+  columnCountCache.set(cacheKey, total)
+  return total
 }
 
 /** Keep columns with positive probed totals; set ``nBiosamples`` from the sum. */
@@ -120,6 +141,8 @@ export function columnsWithProbedCounts(
 /**
  * Resolve Explore heatmap columns. When non-tissue constraints are set, probe
  * nested biosample counts and keep columns with sum &gt; 0 (n from probes).
+ * Count probes are restricted to matrices that list the tissue in their
+ * filtering_terms catalog (via ontology→matrix index).
  */
 export async function resolveExploreTissueColumns(opts: {
   terms: FilteringTerm[]
@@ -133,6 +156,7 @@ export async function resolveExploreTissueColumns(opts: {
     signal?: AbortSignal
   ) => Promise<number>
   listMatrixIds?: (signal?: AbortSignal) => Promise<string[]>
+  ontologyMatrixIndex?: Map<string, string[]>
 }): Promise<TissueColumn[]> {
   const { constraintFilters } = partitionExploreBiosampleFilters(
     opts.biosampleFilters
@@ -143,18 +167,28 @@ export async function resolveExploreTissueColumns(opts: {
   if (opts.signal?.aborted) return columns
   if (!columns.length) return []
 
-  const listIds = opts.listMatrixIds ?? listAllMatrixIds
-  const matrixIds = await listIds(opts.signal)
+  const index =
+    opts.ontologyMatrixIndex ?? (await getOntologyMatrixIndex(opts.signal))
   if (opts.signal?.aborted) return columns
-  if (!matrixIds.length) return []
+
+  const listIds = opts.listMatrixIds ?? listAllMatrixIds
+  const allMatrixIds = await listIds(opts.signal)
+  if (opts.signal?.aborted) return columns
+  if (!allMatrixIds.length) return []
 
   const probe = opts.probeColumnCount ?? sumBiosampleCountForColumn
-  const probed = await mapPool(
+  const probed = await exploreMapPool(
     columns,
-    COLUMN_PROBE_CONCURRENCY,
     async (column): Promise<TissueColumn | null> => {
       if (opts.signal?.aborted) return null
       try {
+        let matrixIds = allMatrixIds
+        if (!isMatrixPseudoOntologyId(column.ontologyId)) {
+          const scoped = matrixIdsForOntology(index, column.ontologyId)
+          // Empty catalog membership → skip (absent from all matrices).
+          if (!scoped.length) return null
+          matrixIds = scoped
+        }
         const total = await probe(
           column,
           constraintFilters,
@@ -168,7 +202,8 @@ export async function resolveExploreTissueColumns(opts: {
         if (isAbortError(err) || opts.signal?.aborted) return null
         throw err
       }
-    }
+    },
+    opts.signal
   )
 
   if (opts.signal?.aborted) return columns

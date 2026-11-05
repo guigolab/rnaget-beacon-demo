@@ -310,9 +310,15 @@ def build_package(package: Path) -> None:
                 f"tissue_feature_summary has {orphan} rows without membership"
             )
 
+        # Sort for Explore probe locality (ontology_id, wrapper_id).
         con.execute(
-            f"COPY summary TO '{_sql_path(out)}' "
-            f"(FORMAT PARQUET, COMPRESSION ZSTD)"
+            f"""
+            COPY (
+              SELECT * FROM summary
+              ORDER BY ontology_id, wrapper_id
+            ) TO '{_sql_path(out)}'
+            (FORMAT PARQUET, COMPRESSION ZSTD)
+            """
         )
         con.execute(
             f"""

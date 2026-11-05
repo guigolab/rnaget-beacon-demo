@@ -129,9 +129,17 @@ def filtering_terms(
 ):
     """Root filtering-term catalog (GET only; matches Beacon root endpoints.json)."""
     from beacon.fixtures import get_store
+    from beacon.http_cache import json_with_headers, package_etag
 
-    terms, resources = get_store().filtering_terms()
-    return build_filtering_terms_response(
+    store = get_store()
+    terms, resources = store.filtering_terms()
+    body = build_filtering_terms_response(
         page_filtering_terms(terms, skip=skip, limit=limit),
         resources,
+    )
+    # Immutable package catalog — safe to cache; no filter-conditioned semantics.
+    return json_with_headers(
+        body,
+        etag=package_etag(store.package_fingerprint()),
+        cache_control="public, max-age=300",
     )

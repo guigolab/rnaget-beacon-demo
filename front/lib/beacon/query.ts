@@ -80,6 +80,9 @@ export function withQuery(
   return qs ? `${base}?${qs}` : base
 }
 
+/** Prefer GET when the query string stays under this length (nginx/proxy safe). */
+const GET_URL_BUDGET = 1800
+
 export function collectionQuery(path: string, opts: QueryOptions): {
   method: 'GET' | 'POST'
   path: string
@@ -91,6 +94,39 @@ export function collectionQuery(path: string, opts: QueryOptions): {
   const pathname = path.split('?')[0] || path
   const requestParameters = cleanRequestParameters(opts.requestParameters)
   const pageToken = opts.pageToken?.trim()
+  const filterIds = (opts.filters ?? [])
+    .map(toBeaconFilter)
+    .map((filter) => filter.id)
+    .filter(Boolean)
+
+  // Explore probes: custom/ontology filters + featureIDList fit on GET when short.
+  const featureIDList =
+    typeof requestParameters?.featureIDList === 'string'
+      ? requestParameters.featureIDList
+      : undefined
+  const onlyFeatureIdList =
+    Boolean(featureIDList) &&
+    requestParameters != null &&
+    Object.keys(requestParameters).length === 1
+  const canGetWithIdList =
+    onlyFeatureIdList &&
+    !needsPost(opts.filters) &&
+    !pageToken
+
+  if (canGetWithIdList && featureIDList) {
+    const getPath = withQuery(pathname, {
+      ...opts.search,
+      skip,
+      limit,
+      requestedGranularity: granularity,
+      filters: filterIds.length ? filterIds.join(',') : undefined,
+      featureIDList,
+    })
+    if (getPath.length <= GET_URL_BUDGET) {
+      return { method: 'GET', path: getPath }
+    }
+  }
+
   const usePost =
     needsPost(opts.filters) || Boolean(requestParameters) || Boolean(pageToken)
   if (usePost) {
@@ -107,10 +143,6 @@ export function collectionQuery(path: string, opts: QueryOptions): {
       }),
     }
   }
-  const ids = (opts.filters ?? [])
-    .map(toBeaconFilter)
-    .map((filter) => filter.id)
-    .filter(Boolean)
   return {
     method: 'GET',
     path: withQuery(pathname, {
@@ -118,7 +150,7 @@ export function collectionQuery(path: string, opts: QueryOptions): {
       skip,
       limit,
       requestedGranularity: granularity,
-      filters: ids.length ? ids.join(',') : undefined,
+      filters: filterIds.length ? filterIds.join(',') : undefined,
     }),
   }
 }

@@ -374,6 +374,53 @@ class TissueFiltersDuckDBTest(unittest.TestCase):
             self.assertIn("id", row)
             self.assertIn("genomicFeature", row)
 
+    def test_get_feature_id_list_probe_headers_and_count_skip(self) -> None:
+        """GET probe with featureIDList returns Server-Timing; no info bags."""
+        liver = "UBERON:0002107"
+        seed = self.client.get(
+            "/features",
+            params={
+                "filters": tissue_present_filter_id(liver),
+                "skip": 0,
+                "limit": 4,
+                "requestedGranularity": "record",
+            },
+        )
+        self.assertEqual(seed.status_code, 200, seed.text)
+        seed_rows = (
+            seed.json()
+            .get("response", {})
+            .get("resultSets", [{}])[0]
+            .get("results")
+            or []
+        )
+        if len(seed_rows) < 2:
+            self.skipTest("need ≥2 liver-present features in package")
+        ids = [str(row["id"]) for row in seed_rows]
+        probe = self.client.get(
+            "/features",
+            params={
+                "filters": tissue_top_filter_id(liver),
+                "featureIDList": ",".join(ids),
+                "skip": 0,
+                "limit": len(ids),
+                "requestedGranularity": "record",
+            },
+        )
+        self.assertEqual(probe.status_code, 200, probe.text)
+        self.assertIn("server-timing", {k.lower() for k in probe.headers.keys()})
+        self.assertIn("etag", {k.lower() for k in probe.headers.keys()})
+        body = probe.json()
+        total = body["responseSummary"]["numTotalResults"]
+        rows = (
+            body.get("response", {}).get("resultSets", [{}])[0].get("results") or []
+        )
+        self.assertLessEqual(total, len(ids))
+        self.assertEqual(total, len(rows))
+        for row in rows:
+            self.assertNotIn("info", row)
+            self.assertIn("id", row)
+
 
 @unittest.skipUnless(
     HAS_DEMO_PACKAGE and HAS_TISSUE_STATS,

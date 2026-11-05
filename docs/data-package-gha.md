@@ -2,6 +2,8 @@
 
 This document explains what the **Build Parquet data package** workflow does, in plain language: why it exists, what you choose when you run it, and what comes out the other end.
 
+For a shorter overview (catalog, pipeline steps, fetch handoff), see [data-package.md](data-package.md).
+
 The workflow file lives at `.github/workflows/build-data-package.yml`. It is started **manually** (Actions → this workflow → “Run workflow”). It does not run on every push.
 
 ---
@@ -20,9 +22,9 @@ Example matrices are listed in `scripts/profiles/datasets.yaml`. Each record has
 
 | Source | Roughly what it is (current catalog) |
 |--------|--------------------------------------|
-| **encode** | Guigo lab BLaER1 (1 biosample) and Gingeras lab GM12878 (2 biosamples); both GENCODE V24 |
-| **geo** | GSE164073 (~18 samples) and GSE152418 (~34 samples); both NCBI TPM on Annotation Release 109.20190905 |
-| **gtex** | GTEx v8 gene TPM for six tissues (Adipose, Liver, Whole Blood, Lung, Brain Cortex, Skeletal Muscle); GENCODE v26 |
+| **encode** | Guigo lab BLaER1 (`ENCSR622FSM`, 1 biosample) and Gingeras lab GM12878 (`ENCSR000AED`, 2 biosamples); both GENCODE V24 TPM |
+| **geo** | `GSE164073`, `GSE152418` (TPM), `GSE107011` (raw counts), `GSE120795` (FPKM); NCBI Annotation Release 109.20190905 |
+| **gtex** | GTEx v8 gene TPM for six tissues (Adipose Subcutaneous, Liver, Whole Blood, Lung, Brain Cortex, Skeletal Muscle); GENCODE v26 |
 
 Each record points at a public download URL and records which **genome annotation** (GTF/GFF) was used to define the gene IDs. That annotation link is used later to attach gene names and coordinates.
 
@@ -50,8 +52,9 @@ A full GTEx-inclusive build can take a long time (the job is allowed up to six h
 
 ```text
 Checkout → Disk check → Python + caches → Build matrices
-       → Hydrate genes → Enrich gene xrefs/GO → Feature/biosample indexes
-       → Expression stats → Filtering terms catalog → Verify → Pack archive
+       → Hydrate genes → Sync matrix featureTypes → Enrich gene xrefs/GO
+       → Feature/biosample indexes → Expression stats → Tissue stats/summary
+       → Filtering terms catalog → Verify → Pack archive
        → Upload artifact → (optional) GitHub Release
 ```
 
@@ -98,15 +101,15 @@ For each matrix the log prints how many unique feature IDs matched the annotatio
 
 `scripts/enrich_gene_annotations.py` adds **NCBI Gene / HGNC** cross-references via `gene2ensembl` + `gene_info`, and attaches **GO generic slim** terms to `ontology_terms` (alongside existing SO biotype terms).
 
-### 6. Build feature/biosample indexes and filtering terms
+### 6. Sync matrix feature types and build indexes
+
+`scripts/sync_matrix_feature_types.py` replaces the profile seed (usually gene-only) with the distinct SO classes present in each matrix’s `features.parquet` after hydrate.
 
 `scripts/build_feature_indexes.py` writes package-root indexes for fast global `/features` and `/biosamples` queries.
 
-`scripts/build_filtering_terms.py` emits Beacon-shaped `filtering_terms.json` (SO/GO/UBERON/EFO/MONDO/HP/NCIT facets, alphanumeric fields, matrix assay facets).
-
 Biosample rows are enriched during export with `biosampleStatus`, `phenotypicFeatures`, `sampleProcessing`, `collectionDate`, and GTEx **measurements** (RIN as `NCIT:C63637`) using curated maps under `scripts/data/`.
 
-### 7. Build expression stats (shipped in the release)
+### 7. Build expression and tissue stats (shipped in the release)
 
 `scripts/build_expression_stats.py` scans each matrix’s expression Parquet (shards are fine) and writes:
 
@@ -117,13 +120,19 @@ Biosample rows are enriched during export with `biosampleStatus`, `phenotypicFea
 
 It also sets `expressionValueRange` on each matrix in `matrices.json`. These stats are **included in the release tarball**. `fetch_data_package.py` reuses them by default (pass `--force-stats` to rebuild).
 
+`scripts/build_tissue_expression_stats.py` and `scripts/build_tissue_feature_summary.py` add per-matrix tissue ranks and a package-level gene×tissue summary used by Explore and tissue-scoped customs.
+
 **Percentiles (fetch-time only):** omitted from CI because they roughly double package size (2 GiB Release limit). After extract/merge, fetch runs `build_expression_percentiles.py`, then rebuilds filtering_terms so `expression.percentileIn*` terms appear.
 
-### 8. Disk usage log
+### 8. Build filtering terms catalogs
+
+`scripts/build_matrix_filtering_terms.py --with-root` emits Beacon-shaped `filtering_terms.json` and per-matrix catalogs under `filtering_terms/by_matrix/` (SO/GO/UBERON/EFO facets, `expression.percentile`, matrix assay facets, and related customs). See [filtering-terms.md](filtering-terms.md).
+
+### 9. Disk usage log
 
 After stats, the log prints how large the cache and package folders are, so oversized runs are easy to spot.
 
-### 9. Verify
+### 10. Verify
 
 An automatic check confirms, among other things:
 
@@ -132,7 +141,7 @@ An automatic check confirms, among other things:
 - `genes.parquet` and `gene_lookup.parquet` exist, are non-empty, and agree with the manifest counts;
 - lookup entries point at genes that actually exist in the gene catalog.
 
-### 10. Pack and publish
+### 11. Pack and publish
 
 Everything under `dist/data-package` is packed as `data-package.tar.zst` (zstd; the Parquet files are already compressed). `.tar.xz` releases can still be extracted by `scripts/fetch_data_package.py`.
 

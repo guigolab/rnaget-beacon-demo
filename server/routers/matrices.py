@@ -389,15 +389,22 @@ def matrix_scoped_filtering_terms(
         description="Max terms to return; 0 means the server maximum (1000).",
     ),
 ):
+    from beacon.http_cache import json_with_headers, package_etag
+
     store = get_store()
     if not store.get_matrix(id):
         return build_filtering_terms_response([])
     getter = getattr(store, "matrix_scoped_filtering_terms", None)
     if callable(getter):
         terms, resources = getter(id)
-        return build_filtering_terms_response(
+        body = build_filtering_terms_response(
             page_filtering_terms(terms, skip=skip, limit=limit),
             resources,
+        )
+        return json_with_headers(
+            body,
+            etag=package_etag(f"{store.package_fingerprint()}:{id}"),
+            cache_control="public, max-age=300",
         )
     return build_filtering_terms_response([])
 

@@ -41,7 +41,7 @@ services:
       - DUCKDB_MEMORY_LIMIT=1GB
       - DUCKDB_THREADS=2
       - API_MAX_INFLIGHT=8
-      - UVICORN_LIMIT_CONCURRENCY=64
+      - UVICORN_LIMIT_CONCURRENCY=16
     mem_limit: 3g
     cpus: "1.5"
     ports:

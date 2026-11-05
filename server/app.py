@@ -170,4 +170,6 @@ app.add_middleware(
     allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Cache preflight so Explore probe storms do not pay OPTIONS per request.
+    max_age=86400,
 )

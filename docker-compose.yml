@@ -1,7 +1,12 @@
+# Production stack: build images from this tree on the host.
+# Data on NFS (prepare once):
+#   python3 scripts/fetch_data_package.py --out /data/rnaget-demo --force
+# Then:
+#   docker compose up --build -d
+
 services:
 
   rnaget-nginx:
-    image: gitlab.hpc.crg.es:5005/monstre/rnaget-beacon-demo/rnaget-nginx
     build:
       context: .
       dockerfile: nginx/Dockerfile
@@ -29,7 +34,7 @@ services:
       - rnaget-server
 
   rnaget-server:
-    image: gitlab.hpc.crg.es:5005/monstre/rnaget-beacon-demo/rnaget-server
+    build: ./server
     container_name: rnaget-server
     restart: always
     volumes:
@@ -42,7 +47,7 @@ services:
       - DUCKDB_MEMORY_LIMIT=1GB
       - DUCKDB_THREADS=2
       - API_MAX_INFLIGHT=8
-      - UVICORN_LIMIT_CONCURRENCY=64
+      - UVICORN_LIMIT_CONCURRENCY=16
     mem_limit: 3g
     cpus: "1.5"
     networks:

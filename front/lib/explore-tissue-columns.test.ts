@@ -136,8 +136,19 @@ async function runAsync() {
     terms: [liver, lung, matrixPseudo],
     biosampleFilters: obiConstraint,
     listMatrixIds: async () => ['M_A', 'M_B'],
-    probeColumnCount: async (column) => {
-      if (column.ontologyId === 'UBERON:0002107') return 7
+    ontologyMatrixIndex: new Map([
+      ['uberon:0002107', ['M_A']],
+      ['uberon:0002048', ['M_B']],
+    ]),
+    probeColumnCount: async (column, _constraints, matrixIds) => {
+      // Narrowed probes should only see matrices for that tissue.
+      if (column.ontologyId === 'UBERON:0002107') {
+        console.assert(
+          matrixIds.length === 1 && matrixIds[0] === 'M_A',
+          `liver matrices: ${matrixIds.join(',')}`
+        )
+        return 7
+      }
       if (column.ontologyId === 'matrix:M1') return 2
       return 0
     },
@@ -150,6 +161,18 @@ async function runAsync() {
     probed.some((c) => c.ontologyId === 'matrix:M1' && c.nBiosamples === 2)
   )
   console.assert(!probed.some((c) => c.ontologyId === 'UBERON:0002048'))
+
+  const absentIndex = await resolveExploreTissueColumns({
+    terms: [liver, lung],
+    biosampleFilters: obiConstraint,
+    ontologyMatrixIndex: new Map(),
+    listMatrixIds: async () => ['M_A'],
+    probeColumnCount: async () => 9,
+  })
+  console.assert(
+    absentIndex.length === 0,
+    'empty ontology index skips all tissue columns'
+  )
 
   console.log('explore-tissue-columns.test.ts: ok')
 }

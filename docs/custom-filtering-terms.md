@@ -6,6 +6,7 @@ the friendlier **display labels** shipped in catalogs / UI chrome.
 
 Related:
 
+- Overview of advertised terms and catalog build: [filtering-terms.md](filtering-terms.md)
 - Request shapes and catalogs: [api.md](api.md) (§ Filtering terms and `query.filters`)
 - Stats parquet build: `scripts/build_expression_stats.py`
 - Catalog emit: `scripts/build_filtering_terms.py`, `scripts/build_matrix_filtering_terms.py`

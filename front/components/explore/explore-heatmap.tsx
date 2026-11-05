@@ -50,6 +50,16 @@ type ExploreHeatmapProps = {
   selectedFeatureId: string | null
   /** When set (e.g. single biosample tissue), sort/focus that column. */
   seedFocusOntologyId?: string | null
+  /** Ontology (lower) → matrixId[] for local tissuePresent. */
+  ontologyMatrixIndex?: Map<string, string[]> | null
+  /**
+   * False while the ontology→matrix index is still loading. Band probes wait
+   * so absent cells are not painted as &lt;99 before presence is known.
+   */
+  ontologyIndexReady?: boolean
+  /** Seed-column bands already known from tissueTop-first gene fetch. */
+  prefilledBands?: FeatureTissueBandMap | null
+  prefilledProbedPairs?: Set<string> | null
   onAddFeatureFilter: (filter: UiFilter) => void
 }
 
@@ -131,6 +141,10 @@ export function ExploreHeatmap({
   featureFilters,
   selectedFeatureId,
   seedFocusOntologyId = null,
+  ontologyMatrixIndex = null,
+  ontologyIndexReady = true,
+  prefilledBands = null,
+  prefilledProbedPairs = null,
   onAddFeatureFilter,
 }: ExploreHeatmapProps) {
   const popoverHandle = useMemo(() => Popover.createHandle(), [])
@@ -156,6 +170,27 @@ export function ExploreHeatmap({
   const [probedPairs, setProbedPairs] = useState<Set<string>>(() => new Set())
   const [bandsLoading, setBandsLoading] = useState(false)
   const [bandsError, setBandsError] = useState('')
+
+  // Merge tissueTop-first prefilled seed-column bands.
+  useEffect(() => {
+    if (!prefilledBands?.size && !prefilledProbedPairs?.size) return
+    if (prefilledBands?.size) {
+      setBandMap((prev) => mergeTissueBandMaps(prev, prefilledBands))
+    }
+    if (prefilledProbedPairs?.size) {
+      setProbedPairs((prev) => {
+        let changed = false
+        const next = new Set(prev)
+        for (const key of prefilledProbedPairs) {
+          if (!next.has(key)) {
+            next.add(key)
+            changed = true
+          }
+        }
+        return changed ? next : prev
+      })
+    }
+  }, [prefilledBands, prefilledProbedPairs])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -306,6 +341,13 @@ export function ExploreHeatmap({
       return () => controller.abort()
     }
 
+    // Wait for ontology→matrix index so local presence can distinguish
+    // absent (none) from present-but-not-top (<99).
+    if (!ontologyIndexReady) {
+      setBandsLoading(true)
+      return () => controller.abort()
+    }
+
     setBandsLoading(true)
     setBandsError('')
     probeExploreTissueBands({
@@ -313,6 +355,7 @@ export function ExploreHeatmap({
       columns: visibleColumns,
       skipPairs: activePairs,
       assumePresentOntologyIds,
+      ontologyMatrixIndex,
       signal: controller.signal,
     })
       .then((result) => {
@@ -339,7 +382,14 @@ export function ExploreHeatmap({
     // probe inputs. probedPairs is read from this render and must not
     // re-trigger the effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional keys
-  }, [featureIdsKey, columnsKey, visibleKey, assumePresentKey])
+  }, [
+    featureIdsKey,
+    columnsKey,
+    visibleKey,
+    assumePresentKey,
+    ontologyMatrixIndex,
+    ontologyIndexReady,
+  ])
 
   useEffect(() => {
     const el = scrollRef.current

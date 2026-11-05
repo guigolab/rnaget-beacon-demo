@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ExploreHeatmap } from '@/components/explore/explore-heatmap'
 import { BiosampleQueryBar } from '@/components/samples/biosample-query-bar'
@@ -24,13 +24,21 @@ import {
 import {
   EXPLORE_LENS_PAGE_SIZE,
   exploreHeatmapFeatureFilters,
+  exploreHeatmapTopFirstFilters,
   exploreLensSearchParams,
+  isExploreTissueTopFirstSeed,
   mergeExploreBiosampleFilters,
   mergeExploreFeatureFilters,
   parseExploreLensSearch,
   tissueOntologyIdsFromBiosampleFilters,
+  tissuePresentFilter,
 } from '@/lib/explore-lens'
+import {
+  tissueBandPairKey,
+  type FeatureTissueBandMap,
+} from '@/lib/explore-tissue-bands'
 import { partitionExploreBiosampleFilters } from '@/lib/explore-tissue-columns'
+import { getOntologyMatrixIndex } from '@/lib/explore-tissue-matrices'
 import type { LensProbe } from '@/lib/lens-preview-note'
 
 const idleProbe: LensProbe = {
@@ -56,22 +64,67 @@ function ExploreLensContent() {
     () => tissueOntologyIdsFromBiosampleFilters(biosampleFilters),
     [biosampleFilters]
   )
-  const heatmapFilters = useMemo(
-    () => exploreHeatmapFeatureFilters(featureFilters, biosampleFilters),
+  const topFirst = useMemo(
+    () => isExploreTissueTopFirstSeed(featureFilters, biosampleFilters),
     [featureFilters, biosampleFilters]
   )
+  const heatmapFilters = useMemo(
+    () =>
+      topFirst
+        ? exploreHeatmapTopFirstFilters(featureFilters, biosampleFilters)
+        : exploreHeatmapFeatureFilters(featureFilters, biosampleFilters),
+    [featureFilters, biosampleFilters, topFirst]
+  )
   const heatmapKeyLine = useMemo(
-    () => heatmapFilters.map((filter) => filterKey(filter)).join('|'),
-    [heatmapFilters]
+    () =>
+      `${topFirst ? 'top1' : 'std'}|${heatmapFilters.map((filter) => filterKey(filter)).join('|')}`,
+    [heatmapFilters, topFirst]
   )
   const heatmapFiltersRef = useRef(heatmapFilters)
   heatmapFiltersRef.current = heatmapFilters
+  const topFirstRef = useRef(topFirst)
+  topFirstRef.current = topFirst
+  const seedOidRef = useRef(tissueSeedIds[0] ?? null)
+  seedOidRef.current = tissueSeedIds[0] ?? null
+
+  const topTotalRef = useRef<number | null>(null)
+  const presentTotalRef = useRef<number | null>(null)
+  const [topPhaseIds, setTopPhaseIds] = useState<Set<string>>(() => new Set())
+
+  useEffect(() => {
+    topTotalRef.current = null
+    presentTotalRef.current = null
+    setTopPhaseIds(new Set())
+  }, [heatmapKeyLine])
+
+  const [ontologyMatrixIndex, setOntologyMatrixIndex] = useState<Map<
+    string,
+    string[]
+  > | null>(null)
+  const [ontologyIndexReady, setOntologyIndexReady] = useState(false)
+  useEffect(() => {
+    const controller = new AbortController()
+    getOntologyMatrixIndex(controller.signal)
+      .then((index) => {
+        if (controller.signal.aborted) return
+        setOntologyMatrixIndex(index)
+        setOntologyIndexReady(true)
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return
+        // Empty map: treat unknown tissues as absent rather than painting
+        // false &lt;99 bands before presence is known.
+        setOntologyMatrixIndex(new Map())
+        setOntologyIndexReady(true)
+      })
+    return () => controller.abort()
+  }, [])
 
   const { constraintFilters } = useMemo(
     () => partitionExploreBiosampleFilters(biosampleFilters),
     [biosampleFilters]
   )
-  /** Gene list needs feature filters or tissuePresent seeds. */
+  /** Gene list needs feature filters or tissuePresent/Top seeds. */
   const canFetch = heatmapFilters.length > 0
   /**
    * Mount heatmap (and Option A column probes) whenever genes can load or
@@ -83,12 +136,58 @@ function ExploreLensContent() {
     pageSize: EXPLORE_LENS_PAGE_SIZE,
     enabled: canFetch,
     itemKey: (item) => item.id,
-    fetchPage: (skip, limit, signal) =>
-      listFeatures(skip, limit, {
+    fetchPage: async (skip, limit, signal) => {
+      const oid = seedOidRef.current
+      if (topFirstRef.current && oid) {
+        const topTotal = topTotalRef.current
+        const useTop = topTotal == null || skip < topTotal
+        if (useTop) {
+          const page = await listFeatures(skip, limit, {
+            filters: heatmapFiltersRef.current,
+            granularity: 'record',
+            signal,
+          })
+          if (page.total != null) topTotalRef.current = page.total
+          const ids = page.results.map((f) => f.id).filter(Boolean)
+          if (ids.length) {
+            setTopPhaseIds((prev) => {
+              const next = new Set(prev)
+              for (const id of ids) next.add(id)
+              return next
+            })
+          }
+          if (presentTotalRef.current == null) {
+            try {
+              const countPage = await listFeatures(0, 0, {
+                filters: [tissuePresentFilter(oid)],
+                granularity: 'count',
+                signal,
+              })
+              presentTotalRef.current =
+                countPage.total ?? page.total ?? ids.length
+            } catch {
+              presentTotalRef.current = page.total ?? ids.length
+            }
+          }
+          return {
+            ...page,
+            total: presentTotalRef.current ?? page.total,
+          }
+        }
+        const page = await listFeatures(skip, limit, {
+          filters: [tissuePresentFilter(oid)],
+          granularity: 'record',
+          signal,
+        })
+        if (page.total != null) presentTotalRef.current = page.total
+        return page
+      }
+      return listFeatures(skip, limit, {
         filters: heatmapFiltersRef.current,
         granularity: 'record',
         signal,
-      }),
+      })
+    },
   })
 
   const writeState = useCallback(
@@ -122,6 +221,19 @@ function ExploreLensContent() {
 
   const seedFocusOntologyId =
     tissueSeedIds.length === 1 ? tissueSeedIds[0] : null
+
+  const prefilledBands = useMemo(() => {
+    if (!topFirst || !seedFocusOntologyId) return null
+    const bands: FeatureTissueBandMap = new Map()
+    const probed = new Set<string>()
+    for (const feature of list.items) {
+      if (!feature.id) continue
+      const band: 99 | 0 = topPhaseIds.has(feature.id) ? 99 : 0
+      bands.set(feature.id, { [seedFocusOntologyId]: band })
+      probed.add(tissueBandPairKey(feature.id, seedFocusOntologyId))
+    }
+    return { bands, probed }
+  }, [topFirst, seedFocusOntologyId, list.items, topPhaseIds])
 
   const featureProbe: LensProbe = {
     exists: canFetch ? list.exists : undefined,
@@ -214,7 +326,7 @@ function ExploreLensContent() {
             <div className="mt-1">
               <LensMutedEndpoints
                 lines={[
-                  'GET or POST /features · tissuePresent:',
+                  'GET or POST /features · tissuePresent: / tissueTop:',
                   'POST /matrices/{id}/biosamples · count (column refine)',
                 ]}
               />
@@ -281,6 +393,10 @@ function ExploreLensContent() {
                 featureFilters={featureFilters}
                 selectedFeatureId={null}
                 seedFocusOntologyId={seedFocusOntologyId}
+                ontologyMatrixIndex={ontologyMatrixIndex}
+                ontologyIndexReady={ontologyIndexReady}
+                prefilledBands={prefilledBands?.bands}
+                prefilledProbedPairs={prefilledBands?.probed}
                 onAddFeatureFilter={(added) =>
                   writeFeatureFilters(
                     mergeExploreFeatureFilters(featureFilters, added)

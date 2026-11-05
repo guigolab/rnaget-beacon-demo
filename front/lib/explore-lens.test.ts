@@ -1,6 +1,9 @@
 import {
+  EXPLORE_LENS_PAGE_SIZE,
   exploreHeatmapFeatureFilters,
+  exploreHeatmapTopFirstFilters,
   exploreLensSearchParams,
+  isExploreTissueTopFirstSeed,
   parseExploreLensSearch,
   tissueOntologyIdsFromBiosampleFilters,
 } from './explore-lens'
@@ -80,6 +83,29 @@ const bioOnly = exploreHeatmapFeatureFilters(
 console.assert(bioOnly.length === 1)
 console.assert(
   bioOnly[0].kind === 'custom' && bioOnly[0].id === 'tissuePresent:UBERON:0002107'
+)
+
+console.assert(EXPLORE_LENS_PAGE_SIZE >= 30)
+console.assert(
+  isExploreTissueTopFirstSeed(
+    [],
+    [{ kind: 'ontology', id: 'UBERON:0002107', label: 'liver' }]
+  )
+)
+console.assert(
+  !isExploreTissueTopFirstSeed(
+    [{ kind: 'custom', id: 'symbol:TP53' }],
+    [{ kind: 'ontology', id: 'UBERON:0002107', label: 'liver' }]
+  )
+)
+const topFirst = exploreHeatmapTopFirstFilters(
+  [],
+  [{ kind: 'ontology', id: 'UBERON:0002107', label: 'liver' }]
+)
+console.assert(
+  topFirst.length === 1 &&
+    topFirst[0].kind === 'custom' &&
+    topFirst[0].id === 'tissueTop:UBERON:0002107'
 )
 
 console.log('explore-lens.test.ts: ok')

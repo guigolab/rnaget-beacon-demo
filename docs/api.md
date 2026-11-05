@@ -1,6 +1,35 @@
 # Beacon API contract
 
-The RNA-Get demo exposes a **Beacon v2–style** HTTP API (resultSets envelopes, informational endpoints, RNA entry types).
+The RNA-Get demo exposes a **Beacon v2–style** HTTP API (resultSets envelopes, informational endpoints, RNA entry types) for the **matrix**, **genomic feature**, and **expression value** models in this Beacon v2 tree, with **biosamples** as the sample axis.
+
+Schemas live under [`beacon-v2/models/src/beacon-v2-default-model/`](../../beacon-v2/models/src/beacon-v2-default-model/) (`matrices/`, `genomicFeatures/`, `expressionValues/`, `biosamples/`). Filtering catalogs: [filtering-terms.md](filtering-terms.md). Data backend: [data-package.md](data-package.md).
+
+## Entry types and relationships
+
+```text
+biosample ──matrices──▶ matrix
+feature   ──matrices──▶ matrix
+matrix    ──biosamples──▶ biosample
+matrix    ──features──▶ feature
+matrix    ──expression_values──▶ expressionValue   (not a root collection)
+matrix    ──filtering_terms──▶ filtering terms (matrix-scoped)
+ROOT      ──filtering_terms──▶ filtering terms (all scopes)
+```
+
+| Entry type id | Schema id | Collection |
+|---|---|---|
+| `biosample` | `ga4gh-beacon-biosample-v2.0.0` | `/biosamples` |
+| `feature` | `ga4gh-beacon-feature-v2.1.2` | `/features` |
+| `matrix` | `ga4gh-beacon-matrix-v2.1.2` | `/matrices` |
+| `expressionValue` | `ga4gh-beacon-expressionValues-v2.0.0` | nested under `/matrices/{id}/expression_values` only |
+
+`expressionValue` is **not** a root entry-type collection. Units and scale come from the parent matrix `expressionUnitAndScale`.
+
+### ID rules
+
+- Beacon feature record `id` is not necessarily the matrix row accession.
+- `expressionValue.featureId` must equal `genomicFeature.featureIdentifier.id` (native accession, e.g. `ENSG…`), not a CURIE and not necessarily `features.id`.
+- Biosample cross-links in this RNAget flavour are only to matrices (`/biosamples/{id}/matrices`).
 
 ## Live docs (running API)
 
@@ -38,7 +67,7 @@ Entity payload shapes are mirrored from [`beacon-schemas/`](../beacon-schemas/) 
 ## Data backend
 
 - Default: small JSON fixtures under `server/beacon/fixtures/data/`
-- Production-style: set `DATA_PACKAGE_PATH` to a merged Parquet package (see [data-package-gha.md](data-package-gha.md))
+- Production-style: set `DATA_PACKAGE_PATH` to a merged Parquet package (see [data-package.md](data-package.md))
 
 ## Entity field coverage (package-backed)
 
@@ -52,9 +81,10 @@ Filled from export/hydrate when data exists; clinical biosample fields and gene 
 
 ## Filtering terms and `query.filters`
 
-Catalog of **custom** filter ids (expression customs, biotype families, sex×tissue
-presets), how stats bands/profiles are computed, and friendlier labels:
-[custom-filtering-terms.md](custom-filtering-terms.md).
+Overview of advertised terms and how catalogs are built:
+[filtering-terms.md](filtering-terms.md). Catalog of **custom** filter ids
+(expression customs, biotype families), how stats bands are computed, and
+friendlier labels: [custom-filtering-terms.md](custom-filtering-terms.md).
 
 Informational catalogs:
 
