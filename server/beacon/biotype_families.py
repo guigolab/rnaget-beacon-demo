@@ -10,7 +10,7 @@ BIOTYPE_FAMILY_SO: Dict[str, FrozenSet[str]] = {
         {
             # Do not include SO:0000704 (generic "gene"): hydrate puts that on
             # feature_type_id for nearly all gene rows; real biotype lives in
-            # ontology_terms (e.g. SO:0001217 protein_coding_gene).
+            # biotype_id (e.g. SO:0001217 protein_coding_gene).
             "SO:0001217",  # protein_coding_gene
             "SO:0002123",
             "SO:0002124",

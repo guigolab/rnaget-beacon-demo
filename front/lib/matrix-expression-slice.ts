@@ -60,7 +60,7 @@ export function deriveSliceHeatmapAxes(
 export function stubFeaturesFromIds(ids: readonly string[]): Feature[] {
   return ids.map((id) => ({
     id,
-    genomicFeature: { featureIdentifier: { id } },
+    featureIdentifier: { id },
   }))
 }
 
@@ -87,11 +87,11 @@ export function mergeRecordsById<T extends { id: string }>(
 }
 
 /**
- * Overlay enriched genomicFeature records onto expression-axis stubs.
+ * Overlay enriched feature records onto expression-axis stubs.
  *
  * Slice stubs use ``expressionValue.featureId`` (native accession) as ``id``.
  * Beacon feature records use wrapper ``id`` and put the accession on
- * ``genomicFeature.featureIdentifier.id``. Match on the native id so labels
+ * ``featureIdentifier.id``. Match on the native id so labels
  * and the feature popover resolve after enrichment.
  */
 export function mergeFeatureRecordsByNativeId(

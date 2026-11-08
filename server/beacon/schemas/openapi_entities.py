@@ -31,7 +31,6 @@ _ENTITY_FILES = {
     "Matrix": "matrix.json",
     "Biosample": "biosample.json",
     "GenomicFeature": "genomicFeature.json",
-    "GenomicFeatureWrapper": "genomicFeatureWrapper.json",
     "ExpressionValue": "expressionValue.json",
 }
 
@@ -49,24 +48,6 @@ _ENVELOPE_MODELS: List[Type[BaseModel]] = [
 ]
 
 
-def _rewrite_local_refs(node: Any) -> Any:
-    """Rewrite ./file.json refs to OpenAPI component refs."""
-    if isinstance(node, dict):
-        out: Dict[str, Any] = {}
-        for key, value in node.items():
-            if key == "$ref" and isinstance(value, str):
-                if value in ("./genomicFeature.json", "genomicFeature.json"):
-                    out[key] = "#/components/schemas/GenomicFeature"
-                else:
-                    out[key] = value
-            else:
-                out[key] = _rewrite_local_refs(value)
-        return out
-    if isinstance(node, list):
-        return [_rewrite_local_refs(item) for item in node]
-    return node
-
-
 def load_entity_schemas() -> Dict[str, Any]:
     """Return OpenAPI components.schemas entries for Beacon entity types."""
     schemas: Dict[str, Any] = {}
@@ -78,7 +59,6 @@ def load_entity_schemas() -> Dict[str, Any]:
         schema = copy.deepcopy(raw)
         schema.pop("$schema", None)
         schema.pop("$comment", None)
-        schema = _rewrite_local_refs(schema)
         schemas[name] = schema
     return schemas
 
@@ -150,13 +130,13 @@ def patch_openapi_schema(openapi_schema: Dict[str, Any]) -> Dict[str, Any]:
             "nullable": True,
             "description": (
                 "Page of entity records. Item schema depends on setType: "
-                "matrix → Matrix, feature → GenomicFeatureWrapper, "
+                "matrix → Matrix, feature → GenomicFeature, "
                 "biosample → Biosample, expressionValue → ExpressionValue."
             ),
             "items": {
                 "oneOf": [
                     {"$ref": "#/components/schemas/Matrix"},
-                    {"$ref": "#/components/schemas/GenomicFeatureWrapper"},
+                    {"$ref": "#/components/schemas/GenomicFeature"},
                     {"$ref": "#/components/schemas/Biosample"},
                     {"$ref": "#/components/schemas/ExpressionValue"},
                 ]

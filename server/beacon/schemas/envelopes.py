@@ -118,7 +118,7 @@ class ResultsetInstance(BaseModel):
     setType: str
     exists: bool
     resultsCount: Optional[int] = None
-    # Entity items: Matrix | GenomicFeatureWrapper | Biosample | ExpressionValue
+    # Entity items: Matrix | GenomicFeature | Biosample | ExpressionValue
     # (wired to beacon-schemas via custom OpenAPI).
     results: Optional[List[Dict[str, Any]]] = None
 

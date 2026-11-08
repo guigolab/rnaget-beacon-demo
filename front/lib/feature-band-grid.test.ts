@@ -6,20 +6,17 @@ import {
   matrixIdsForFeatures,
   seedAbsentCells,
   windowForFeature,
-  type FeatureBandCell,
-} from './feature-band-grid'
+  type FeatureBandCell} from './feature-band-grid'
 import { bandCellKey } from './expression-band'
 
 const f1: Feature = {
   id: 'feat-a',
-  genomicFeature: { featureIdentifier: { id: 'ENSG0001' } },
-  matrixIds: ['m1', 'm2', 'm3'],
-}
+  featureIdentifier: { id: 'ENSG0001' },
+  matrixIds: ['m1', 'm2', 'm3']}
 const f2: Feature = {
   id: 'feat-b',
-  genomicFeature: { featureIdentifier: { id: 'ENSG0002' } },
-  matrixIds: ['m2'],
-}
+  featureIdentifier: { id: 'ENSG0002' },
+  matrixIds: ['m2']}
 
 console.assert(matrixIdsForFeatures([f1, f2]).join(',') === 'm1,m2,m3')
 console.assert(windowForFeature(f2, ['m1', 'm2', 'm3']).join(',') === 'm2')
@@ -41,7 +38,7 @@ applyColumnBandHits(
   cells,
   'm2',
   99,
-  [{ id: 'feat-b', genomicFeature: { featureIdentifier: { id: 'ENSG0002' } } }],
+  [{ id: 'feat-b', featureIdentifier: { id: 'ENSG0002' } }],
   byToken,
   claimed
 )

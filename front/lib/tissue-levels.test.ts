@@ -9,8 +9,7 @@ import {
   tissueColumnsFromBiosampleOntologyTerms,
   tissueColumnsFromTerms,
   tissueHighFilterId,
-  tissueOntologyFromHighId,
-} from './tissue-levels'
+  tissueOntologyFromHighId} from './tissue-levels'
 
 const parsed = parseTissueTermLabel('High in liver (n=235)')
 console.assert(parsed.name === 'High in liver')
@@ -22,20 +21,17 @@ const terms: FilteringTerm[] = [
     id: tissueHighFilterId('UBERON:0002107'),
     type: 'custom',
     label: 'High in liver (n=235)',
-    scopes: ['genomicFeature'],
-  },
+    scopes: ['genomicFeature']},
   {
     id: 'tissueSpecific:UBERON:0002107',
     type: 'custom',
     label: 'Specific to liver (n=235)',
-    scopes: ['genomicFeature'],
-  },
+    scopes: ['genomicFeature']},
   {
     id: tissueHighFilterId('matrix:GSE107011'),
     type: 'custom',
     label: 'High in Unannotated (GSE107011) (n=114)',
-    scopes: ['genomicFeature'],
-  },
+    scopes: ['genomicFeature']},
 ]
 
 const cols = tissueColumnsFromTerms(terms)
@@ -71,12 +67,11 @@ console.assert(tissueBandSortRank(0) < tissueBandSortRank('none'))
 const bandById: Record<string, Record<string, number>> = {
   a: { 'UBERON:0002107': 0 },
   b: { 'UBERON:0002107': 99 },
-  c: {},
-}
+  c: {}}
 const features: Feature[] = [
-  { id: 'a', genomicFeature: { aliases: ['ZZZ'] } },
-  { id: 'b', genomicFeature: { aliases: ['AAA'] } },
-  { id: 'c', genomicFeature: { aliases: ['MMM'] } },
+  { id: 'a', aliases: ['ZZZ'] },
+  { id: 'b', aliases: ['AAA'] },
+  { id: 'c', aliases: ['MMM'] },
 ]
 const sorted = sortFeaturesByTissueBand(
   features,
@@ -98,20 +93,17 @@ const biosampleTerms: FilteringTerm[] = [
     id: 'UBERON:0000178',
     type: 'UBERON',
     label: 'blood',
-    scopes: ['biosample'],
-  },
+    scopes: ['biosample']},
   {
     id: 'UBERON:0002107',
     type: 'UBERON',
     label: 'liver',
-    scopes: ['biosample'],
-  },
+    scopes: ['biosample']},
   {
     id: 'EFO:0009654',
     type: 'EFO',
     label: 'reference sample',
-    scopes: ['biosample'],
-  },
+    scopes: ['biosample']},
 ]
 const fromBio = tissueColumnsFromBiosampleOntologyTerms(biosampleTerms)
 console.assert(fromBio.length === 2, 'status EFO excluded; blood+liver kept')

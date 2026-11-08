@@ -30,7 +30,7 @@ export function FeatureRowPopoverContent({
   footer,
 }: FeatureRowPopoverContentProps) {
   const { openRecordSheet } = useEntityRecordSheet()
-  const gf = feature.genomicFeature
+  const gf = feature
   const typeLabel = gf?.featureType?.label ?? gf?.featureType?.id
   const meta = [
     featureAnnotationResource(feature) ?? '—',

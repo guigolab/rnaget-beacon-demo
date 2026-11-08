@@ -28,7 +28,7 @@ ROOT      ──filtering_terms──▶ filtering terms (all scopes)
 ### ID rules
 
 - Beacon feature record `id` is not necessarily the matrix row accession.
-- `expressionValue.featureId` must equal `genomicFeature.featureIdentifier.id` (native accession, e.g. `ENSG…`), not a CURIE and not necessarily `features.id`.
+- `expressionValue.featureId` must equal `featureIdentifier.id` (native accession, e.g. `ENSG…`), not a CURIE and not necessarily `features.id`.
 - Biosample cross-links in this RNAget flavour are only to matrices (`/biosamples/{id}/matrices`).
 
 ## Live docs (running API)
@@ -62,7 +62,7 @@ pip install -r server/requirements.txt
 python3 scripts/export_openapi.py
 ```
 
-Entity payload shapes are mirrored from [`beacon-schemas/`](../beacon-schemas/) into OpenAPI `components.schemas` (`Matrix`, `GenomicFeatureWrapper`, `Biosample`, `ExpressionValue`, …).
+Entity payload shapes are mirrored from [`beacon-schemas/`](../beacon-schemas/) into OpenAPI `components.schemas` (`Matrix`, `GenomicFeature`, `Biosample`, `ExpressionValue`, …).
 
 ## Data backend
 

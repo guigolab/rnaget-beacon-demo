@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict'
 import {
   matrixHeatmapBiosampleExamples,
-  matrixHeatmapFeatureExamples,
-} from '@/lib/matrix-workspace'
+  matrixHeatmapFeatureExamples} from '@/lib/matrix-workspace'
 import type { Feature, FilteringTerm, UiFilter } from '@/lib/beacon/types'
 
 function ontologyId(filter: UiFilter): string | undefined {
@@ -23,14 +22,12 @@ const gtexFeatureTerms: FilteringTerm[] = [
     type: 'custom',
     label: 'Gene type',
     scopes: ['genomicFeature'],
-    values: ['protein_coding', 'lncRNA'],
-  },
+    values: ['protein_coding', 'lncRNA']},
   {
     id: 'expression.percentile',
     type: 'custom',
     scopes: ['genomicFeature'],
-    values: ['90', '95', '99'],
-  },
+    values: ['90', '95', '99']},
 ]
 
 const gtexBiosampleTerms: FilteringTerm[] = [
@@ -43,32 +40,20 @@ const gtexBiosampleTerms: FilteringTerm[] = [
 const preview: Feature[] = [
   {
     id: 'feature-ENSG00000198886.2',
-    genomicFeature: {
-      aliases: ['ENSG00000198886', 'MT-ND4'],
-      featureIdentifier: { id: 'ENSG00000198886.2' },
-    },
-  },
+    aliases: ['ENSG00000198886', 'MT-ND4'],
+      featureIdentifier: { id: 'ENSG00000198886.2' }},
   {
     id: 'feature-ENSG00000198938.2',
-    genomicFeature: {
-      aliases: ['ENSG00000198938', 'MT-CO3'],
-      featureIdentifier: { id: 'ENSG00000198938.2' },
-    },
-  },
+    aliases: ['ENSG00000198938', 'MT-CO3'],
+      featureIdentifier: { id: 'ENSG00000198938.2' }},
   {
     id: 'feature-ENSG00000198763.3',
-    genomicFeature: {
-      aliases: ['ENSG00000198763', 'MT-ND2'],
-      featureIdentifier: { id: 'ENSG00000198763.3' },
-    },
-  },
+    aliases: ['ENSG00000198763', 'MT-ND2'],
+      featureIdentifier: { id: 'ENSG00000198763.3' }},
   {
     id: 'feature-ENSG00000198804.2',
-    genomicFeature: {
-      aliases: ['ENSG00000198804', 'MT-CO1'],
-      featureIdentifier: { id: 'ENSG00000198804.2' },
-    },
-  },
+    aliases: ['ENSG00000198804', 'MT-CO1'],
+      featureIdentifier: { id: 'ENSG00000198804.2' }},
 ]
 
 const gtexFeatures = matrixHeatmapFeatureExamples(gtexFeatureTerms, preview)
@@ -144,15 +129,13 @@ const geoTerms: FilteringTerm[] = [
     type: 'alphanumeric',
     label: 'Condition',
     scopes: ['biosample'],
-    values: ['Healthy', 'ICU'],
-  },
+    values: ['Healthy', 'ICU']},
   { id: 'MONDO:0100096', type: 'MONDO', label: 'COVID-19', scopes: ['biosample'] },
   {
     id: 'EFO:0004167',
     type: 'EFO',
     label: 'peripheral blood mononuclear cell',
-    scopes: ['biosample'],
-  },
+    scopes: ['biosample']},
   { id: 'UBERON:0000178', type: 'UBERON', label: 'blood', scopes: ['biosample'] },
   { id: 'EFO:0009655', type: 'EFO', label: 'abnormal sample', scopes: ['biosample'] },
 ]

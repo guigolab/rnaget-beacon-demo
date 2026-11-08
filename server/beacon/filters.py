@@ -861,7 +861,7 @@ def biosample_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) 
 
 def feature_doc_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]) -> bool:
     """In-memory match for fixture features (gene CURIE filters pre-resolved to ids)."""
-    gf = doc.get("genomicFeature") or {}
+    gf = doc
     for f in filters:
         if is_feature_resource_filter(f):
             want = feature_resource_stored_from_filter(f)
@@ -892,11 +892,14 @@ def feature_doc_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]
             if not fam:
                 return False
             ft = (gf.get("featureType") or {}).get("id")
+            biotype = gf.get("biotype") if isinstance(gf.get("biotype"), dict) else {}
             ont_ids = [
                 str(t.get("id"))
                 for t in (gf.get("ontologyTerms") or [])
                 if isinstance(t, dict) and t.get("id")
             ]
+            if biotype.get("id"):
+                ont_ids = [str(biotype["id"])] + ont_ids
             if not feature_matches_biotype_family(
                 fam, feature_type_id=str(ft) if ft else None, ontology_term_ids=ont_ids
             ):
@@ -991,11 +994,14 @@ def feature_doc_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]
             continue
         if is_feature_ontology_filter(f):
             ft = (gf.get("featureType") or {}).get("id")
+            biotype = gf.get("biotype") if isinstance(gf.get("biotype"), dict) else {}
             ont_ids = {
                 str(t.get("id"))
                 for t in (gf.get("ontologyTerms") or [])
                 if isinstance(t, dict) and t.get("id")
             }
+            if biotype.get("id"):
+                ont_ids.add(str(biotype["id"]))
             if f.id != str(ft) and f.id not in ont_ids:
                 return False
             continue
@@ -1021,9 +1027,9 @@ def matrix_matches(
 ) -> bool:
     """Match matrix metadata filters.
 
-    Ontology ids are taken from ``assayType``, ``featureTypes``, and optional
-    ``extra_ontology_ids`` (e.g. SO ids present on the matrix's feature rows /
-    ontologyTerms so biotype SO filters work on ``GET /matrices``).
+    Ontology ids are taken from ``assayType``, ``featureTypes``, ``biotypes``,
+    and optional ``extra_ontology_ids`` (e.g. SO ids present on the matrix's
+    feature rows so biotype SO filters work on ``GET /matrices``).
     """
     for f in filters:
         if f.kind == "ontology":
@@ -1038,6 +1044,9 @@ def matrix_matches(
                 for item in ft:
                     if isinstance(item, dict) and item.get("id"):
                         ids.add(str(item["id"]))
+            for item in doc.get("biotypes") or []:
+                if isinstance(item, dict) and item.get("id"):
+                    ids.add(str(item["id"]))
             if extra_ontology_ids:
                 ids.update(extra_ontology_ids)
             if f.id not in ids:

@@ -169,15 +169,12 @@ def parse_gtex_gct(
                     "id": wrapper_id,
                     "nativeId": native_id,
                     "resource": resource,
+                    "featureIdentifier": {
+                        "id": native_id,
+                        "resource": resource,
+                    },
                     "featureType": feature_type,
                     "aliases": aliases,
-                    "genomicFeature": {
-                        "featureIdentifier": {
-                            "id": native_id,
-                            "resource": resource,
-                        },
-                        "featureType": feature_type,
-                    },
                     "matrixIds": [matrix_id],
                 }
             )

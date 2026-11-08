@@ -63,7 +63,7 @@ function join(values: Array<string | undefined>): string | undefined {
 }
 
 function formatInterval(feature: Feature): string | undefined {
-  const interval = feature.genomicFeature?.genomicInterval
+  const interval = feature.genomicInterval
   const location = interval?.location
   if (!location?.sequence_id) return undefined
   const start = location.interval?.start?.value
@@ -77,7 +77,7 @@ export function featureScalarFacts(
   feature: Feature,
   resources: FilteringResource[] = []
 ): Fact[] {
-  const genomic = feature.genomicFeature
+  const genomic = feature
   const type = genomic?.featureType
   const typeLinks = type?.id ? linkedTerms(resources, [type]) : []
   return [
@@ -105,7 +105,7 @@ export function biosampleInfoScalarFacts(sample: Biosample): Fact[] {
 }
 
 export function featureFacts(feature: Feature, resources: FilteringResource[] = []): Fact[] {
-  const genomic = feature.genomicFeature
+  const genomic = feature
   const type = genomic?.featureType
   const ontology = linkedTerms(resources, genomic?.ontologyTerms ?? [])
   const xrefs = linkedTerms(resources, genomic?.xrefs ?? [])

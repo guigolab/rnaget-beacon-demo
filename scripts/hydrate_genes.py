@@ -226,14 +226,10 @@ def _biotype_from_attrs(attrs: Dict[str, List[str]]) -> Optional[str]:
 def _ontology_terms_from_attrs(
     attrs: Dict[str, List[str]],
     *,
-    biotype: Optional[str],
     obo_names: Dict[str, str],
 ) -> List[Dict[str, Any]]:
+    """GFF Ontology_term attributes only — biotype uses biotype_id/label."""
     terms: List[Dict[str, Any]] = []
-    if biotype:
-        resolved = resolve_biotype_ontology(biotype, obo_names=obo_names)
-        if resolved:
-            terms.append(ontology_term_dict(resolved[0], resolved[1]))
     for key in ("Ontology_term", "ontology_term"):
         for raw in attrs.get(key) or []:
             for part in re.split(r"[,]", raw):
@@ -243,6 +239,19 @@ def _ontology_terms_from_attrs(
                 label = label_for_so_id(tid, obo_names=obo_names) if tid.startswith("SO:") else None
                 terms.append(ontology_term_dict(tid, label))
     return _merge_ontology_terms([], terms)
+
+
+def _resolve_biotype_fields(
+    biotype_raw: Optional[str],
+    *,
+    obo_names: Dict[str, str],
+) -> Tuple[Optional[str], Optional[str]]:
+    if not biotype_raw:
+        return None, None
+    resolved = resolve_biotype_ontology(biotype_raw, obo_names=obo_names)
+    if not resolved:
+        return None, None
+    return resolved[0], resolved[1]
 
 
 def iter_gene_records(
@@ -286,10 +295,11 @@ def iter_gene_records(
                 if ncbi not in xrefs:
                     xrefs.insert(0, ncbi)
             ft_id, ft_label = resolve_feature_type(ftype_l, obo_names=obo_names)
-            biotype = _biotype_from_attrs(attrs)
-            ontology_terms = _ontology_terms_from_attrs(
-                attrs, biotype=biotype, obo_names=obo_names
+            biotype_raw = _biotype_from_attrs(attrs)
+            biotype_id, biotype_label = _resolve_biotype_fields(
+                biotype_raw, obo_names=obo_names
             )
+            ontology_terms = _ontology_terms_from_attrs(attrs, obo_names=obo_names)
             yield {
                 "gene_id": gene_id,
                 "symbol": symbol,
@@ -302,7 +312,8 @@ def iter_gene_records(
                 "feature_type": ftype_l,
                 "feature_type_id": ft_id,
                 "feature_type_label": ft_label,
-                "biotype": biotype,
+                "biotype_id": biotype_id,
+                "biotype_label": biotype_label,
                 "ontology_terms": ontology_terms,
             }
 
@@ -366,7 +377,7 @@ def _project_gene_info(
     miss = 0
     xrefs_added = 0
     aliases_added = 0
-    ontology_terms_added = 0
+    biotypes_set = 0
 
     for g in gencode_rows:
         symbol = g.get("symbol")
@@ -410,23 +421,21 @@ def _project_gene_info(
             aliases_added += 1
         g["aliases"] = existing_aliases
 
-        if rec.type_of_gene:
-            resolved = resolve_biotype_ontology(rec.type_of_gene, obo_names=obo_names)
-            if resolved:
-                before = {t.get("id") for t in (g.get("ontology_terms") or [])}
-                if resolved[0] not in before:
-                    g["ontology_terms"] = _merge_ontology_terms(
-                        list(g.get("ontology_terms") or []),
-                        [ontology_term_dict(resolved[0], resolved[1])],
-                    )
-                    ontology_terms_added += 1
+        if rec.type_of_gene and not g.get("biotype_id"):
+            bid, blabel = _resolve_biotype_fields(
+                rec.type_of_gene, obo_names=obo_names
+            )
+            if bid:
+                g["biotype_id"] = bid
+                g["biotype_label"] = blabel
+                biotypes_set += 1
 
     print(
         "gene_info projection: "
         f"gencode_rows={len(gencode_rows)} hits={hits} miss={miss} "
         f"no_symbol={no_symbol} ambiguous_skips={ambiguous_skips} "
         f"xrefs_added={xrefs_added} aliases_added={aliases_added} "
-        f"ontology_terms_added={ontology_terms_added}"
+        f"biotypes_set={biotypes_set}"
     )
 
 
@@ -547,6 +556,8 @@ def hydrate_package(
                         "xrefs": list(rec["xrefs"]),
                         "feature_type_id": rec["feature_type_id"],
                         "feature_type_label": rec["feature_type_label"],
+                        "biotype_id": rec.get("biotype_id"),
+                        "biotype_label": rec.get("biotype_label"),
                         "ontology_terms": list(rec.get("ontology_terms") or []),
                         "chrom": rec["chrom"],
                         "start": rec["start"],
@@ -565,6 +576,9 @@ def hydrate_package(
                     existing["xrefs"] = list(
                         dict.fromkeys((existing.get("xrefs") or []) + list(rec["xrefs"]))
                     )
+                    if not existing.get("biotype_id") and rec.get("biotype_id"):
+                        existing["biotype_id"] = rec["biotype_id"]
+                        existing["biotype_label"] = rec.get("biotype_label")
                     existing["ontology_terms"] = _merge_ontology_terms(
                         list(existing.get("ontology_terms") or []),
                         list(rec.get("ontology_terms") or []),
@@ -659,6 +673,8 @@ def hydrate_package(
             ("xrefs", list_str),
             ("feature_type_id", pa.string()),
             ("feature_type_label", pa.string()),
+            ("biotype_id", pa.string()),
+            ("biotype_label", pa.string()),
             ("ontology_terms", pa.list_(ontology_struct)),
             ("chrom", pa.string()),
             ("start", pa.int64()),
@@ -744,6 +760,10 @@ def hydrate_package(
                 row["feature_type_id"] = g["feature_type_id"]
             if g.get("feature_type_label"):
                 row["feature_type_label"] = g["feature_type_label"]
+            if g.get("biotype_id"):
+                row["biotype_id"] = g["biotype_id"]
+            if g.get("biotype_label"):
+                row["biotype_label"] = g["biotype_label"]
             row["ontology_terms"] = [
                 {"id": t.get("id"), "label": t.get("label")}
                 for t in (g.get("ontology_terms") or [])

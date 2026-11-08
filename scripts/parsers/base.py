@@ -71,7 +71,7 @@ def profile_feature_types(profile: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def profile_primary_feature_type(profile: Dict[str, Any]) -> Dict[str, Any]:
-    """Default genomicFeature.featureType seed (first profile feature_types entry)."""
+    """Default featureType seed (first profile feature_types entry)."""
     types = profile_feature_types(profile)
     return dict(types[0]) if types else dict(_DEFAULT_FEATURE_TYPE)
 
@@ -468,11 +468,8 @@ def parse_wide_matrix(
                     "id": wrapper_id,
                     "nativeId": native_id,
                     "resource": resource,
+                    "featureIdentifier": {"id": native_id, "resource": resource},
                     "featureType": feature_type,
-                    "genomicFeature": {
-                        "featureIdentifier": {"id": native_id, "resource": resource},
-                        "featureType": feature_type,
-                    },
                     "matrixIds": [matrix_id],
                 }
             )

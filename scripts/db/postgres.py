@@ -45,8 +45,7 @@ def ensure_schema(conn) -> None:
 def _feature_native_id(feat: Dict[str, Any]) -> str:
     if feat.get("nativeId"):
         return str(feat["nativeId"])
-    gf = feat.get("genomicFeature") or {}
-    ident = gf.get("featureIdentifier") or {}
+    ident = feat.get("featureIdentifier") or {}
     if ident.get("id"):
         return str(ident["id"])
     return str(feat.get("id", ""))

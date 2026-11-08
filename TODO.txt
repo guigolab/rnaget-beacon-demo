@@ -1,0 +1,42 @@
+DEMO
+
+add sort expression values in matrices/id 
+rewire top 1% genes 
+improve ui of api-drawer
+remove gene expression input from matrices
+double check home examples, some are off.
+remove featureIDs param from get /features
+filtering_terms are not consistent between home and other pages
+fix queries in /explore, for instance we can directly do SO:XXX and tissueTop in the same query of /features
+the explore heatmap is off
+some redirects of matrices (when clicking on a matrix id link) are off.
+remove featureIDs param from get /features
+
+
+
+BEACON-v2
+add biotypes to genomicFeature
+add biotypes and biosample ontologies to matrices (add more ontologies in matrices)
+matrices add profileSource
+refer to skip and limit from common in proposed models
+
+move e_value to common and add scoped id??
+
+EX: {
+        "id":string,
+        "ref_objects":[{id, scope(biosample,matrix,feature)}]
+        "value":number
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+

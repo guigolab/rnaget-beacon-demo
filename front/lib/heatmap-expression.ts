@@ -10,7 +10,7 @@ import {
 import type { Biosample, ExpressionValue, Feature } from '@/lib/beacon/types'
 
 export function nativeFeatureId(feature: Feature) {
-  return feature.genomicFeature?.featureIdentifier?.id ?? feature.id
+  return feature.featureIdentifier?.id ?? feature.id
 }
 
 export function featureTokens(feature: Feature): string[] {
@@ -18,8 +18,8 @@ export function featureTokens(feature: Feature): string[] {
   const push = (value?: string) => {
     if (value && !tokens.includes(value)) tokens.push(value)
   }
-  push(feature.genomicFeature?.featureIdentifier?.id)
-  for (const alias of feature.genomicFeature?.aliases ?? []) push(alias)
+  push(feature.featureIdentifier?.id)
+  for (const alias of feature.aliases ?? []) push(alias)
   push(feature.id)
   return tokens
 }

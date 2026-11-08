@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     comps = (schema.get("components") or {}).get("schemas") or {}
     for name in (
         "Matrix",
-        "GenomicFeatureWrapper",
+        "GenomicFeature",
         "Biosample",
         "ExpressionValue",
         "BeaconResultsetsResponse",

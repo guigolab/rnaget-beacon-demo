@@ -16,8 +16,7 @@ import type {
   Granularity,
   Matrix,
   ServiceInfo,
-  UiFilter,
-} from './types'
+  UiFilter} from './types'
 import { recordBeaconCall } from './recorder'
 import { MAX_COHORT } from './types'
 
@@ -63,9 +62,7 @@ async function beaconFetch(path: string, init?: RequestInit): Promise<unknown> {
     headers: {
       Accept: 'application/json',
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      ...init?.headers,
-    },
-  })
+      ...init?.headers}})
   const text = await response.text()
   let data: unknown = null
   if (text) {
@@ -93,8 +90,7 @@ async function beaconFetch(path: string, init?: RequestInit): Promise<unknown> {
     method: init?.method ?? 'GET',
     path,
     body: bodyForRecord,
-    response: data,
-  })
+    response: data})
   return data
 }
 
@@ -129,8 +125,7 @@ function parseResultset<T>(data: unknown): BeaconResult<T> {
     results,
     meta,
     returnedGranularity: meta.returnedGranularity,
-    nextPage: extractNextPage(data, meta),
-  }
+    nextPage: extractNextPage(data, meta)}
 }
 
 export async function queryCollection<T>(
@@ -141,8 +136,7 @@ export async function queryCollection<T>(
   const data = await beaconFetch(request.path, {
     method: request.method,
     body: request.body ? JSON.stringify(request.body) : undefined,
-    signal: opts.signal,
-  })
+    signal: opts.signal})
   return parseResultset<T>(data)
 }
 
@@ -201,8 +195,7 @@ export async function getFilteringTerms(path = '/filtering_terms'): Promise<Filt
     .then((body) => {
       const result = {
         terms: body.filteringTerms ?? [],
-        resources: body.resources ?? [],
-      }
+        resources: body.resources ?? []}
       filteringTermsCache.set(path, result)
       filteringTermsPending.delete(path)
       return result
@@ -225,8 +218,7 @@ export function listMatrices(
     limit,
     filters: opts?.filters,
     granularity: opts?.granularity ?? 'record',
-    signal: opts?.signal,
-  })
+    signal: opts?.signal})
 }
 
 export async function getMatrix(id: string, signal?: AbortSignal): Promise<Matrix | null> {
@@ -254,8 +246,7 @@ export function listFeatures(
     filters: opts?.filters,
     granularity: opts?.granularity ?? 'record',
     signal: opts?.signal,
-    ...(featureIDList ? { requestParameters: { featureIDList } } : {}),
-  })
+    ...(featureIDList ? { requestParameters: { featureIDList } } : {})})
 }
 
 export async function getFeature(
@@ -279,8 +270,7 @@ export function listBiosamples(
     limit,
     filters: opts?.filters,
     granularity: opts?.granularity ?? 'record',
-    signal: opts?.signal,
-  })
+    signal: opts?.signal})
 }
 
 export async function getBiosample(
@@ -343,11 +333,8 @@ function listMatrixAxis<T>(
     ...(post
       ? {
           requestParameters: {
-            [idListKey]: idList,
-          },
-        }
-      : {}),
-  })
+            [idListKey]: idList}}
+      : {})})
 }
 
 export function listMatrixFeatures(
@@ -394,8 +381,7 @@ export function probeMatrixBiosamples(
   return listMatrixBiosamples(matrixId, 0, 0, {
     filters: opts.filters,
     granularity: opts.granularity,
-    signal: opts.signal,
-  })
+    signal: opts.signal})
 }
 
 export type ExpressionValueOrder = 'asc' | 'desc'
@@ -423,11 +409,8 @@ export function listFeatureMatrices(featureId: string, opts: RelatedMatricesOpts
       ...(post
         ? {
             requestParameters: {
-              matrixIDList: opts.matrixIDList,
-            },
-          }
-        : {}),
-    }
+              matrixIDList: opts.matrixIDList}}
+        : {})}
   )
 }
 
@@ -445,11 +428,8 @@ export function listBiosampleMatrices(biosampleId: string, opts: RelatedMatrices
       ...(post
         ? {
             requestParameters: {
-              matrixIDList: opts.matrixIDList,
-            },
-          }
-        : {}),
-    }
+              matrixIDList: opts.matrixIDList}}
+        : {})}
   )
 }
 
@@ -503,15 +483,10 @@ export function listExpressionValues(
               biosampleIDList: params.biosampleIDList,
               minValue: params.minValue,
               maxValue: params.maxValue,
-              order: params.order,
-            },
-          }
+              order: params.order}}
         : {
             search: {
-              order: params.order,
-            },
-          }),
-    }
+              order: params.order}})}
   )
 }
 
@@ -542,8 +517,7 @@ export async function* iterateExpressionValues(
       ...params,
       limit,
       skip: pageToken ? 0 : skip,
-      pageToken,
-    })
+      pageToken})
     if (!page.results.length) return
     yield page.results
     if (page.nextPage) {
@@ -576,7 +550,7 @@ export type ResolvedCohort<T> = {
 
 function remember(seen: Set<string>, feature: Feature) {
   seen.add(feature.id)
-  const native = feature.genomicFeature?.featureIdentifier?.id
+  const native = feature.featureIdentifier?.id
   if (native) seen.add(native)
 }
 
@@ -587,7 +561,8 @@ function hasFeature(seen: Set<string>, token: string) {
 function stubFeature(token: string): Feature {
   return {
     id: token,
-    genomicFeature: { featureIdentifier: { id: token }, aliases: [token] },
+    featureIdentifier: { id: token },
+    aliases: [token],
   }
 }
 
@@ -599,8 +574,7 @@ async function resolveToken(token: string, signal?: AbortSignal): Promise<Featur
       granularity: 'record',
       skip: 0,
       limit: 5,
-      signal,
-    })
+      signal})
     if (page.results.length) return page.results
   }
   const direct = await getFeature(token, signal)
@@ -626,8 +600,7 @@ export async function resolveFeatureCohort(
       granularity: 'record',
       skip: 0,
       limit: MAX_COHORT,
-      signal,
-    })
+      signal})
     total = Math.max(total, page.total ?? page.results.length)
     for (const feature of page.results) {
       if (items.length >= MAX_COHORT) break
@@ -690,8 +663,7 @@ async function matrixBiosampleCatalog(
     granularity: 'record',
     skip: 0,
     limit: MAX_COHORT,
-    signal,
-  })
+    signal})
   return new Map(page.results.map((sample) => [sample.id, sample]))
 }
 
@@ -714,8 +686,7 @@ export async function resolveMatrixBiosampleCohort(
       granularity: 'record',
       skip: 0,
       limit: MAX_COHORT,
-      signal,
-    })
+      signal})
     total = page.total ?? page.results.length
     for (const sample of page.results) {
       if (items.length >= MAX_COHORT) break
@@ -776,8 +747,7 @@ export async function resolveBiosampleCohort(
       granularity: 'record',
       skip: 0,
       limit: MAX_COHORT,
-      signal,
-    })
+      signal})
     total = page.total ?? page.results.length
     for (const sample of page.results) {
       if (items.length >= MAX_COHORT) break

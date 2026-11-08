@@ -1,58 +1,76 @@
 [
   {
     "id": "feature-tp53-gene",
-    "genomicFeature": {
-      "featureIdentifier": {
-        "id": "ENSG00000141510.18",
-        "resource": "ensembl"
-      },
-      "featureType": {
-        "id": "SO:0000704",
-        "label": "gene"
-      },
-      "ontologyTerms": [
-        {
-          "id": "SO:0001217",
-          "label": "protein_coding_gene"
-        },
-        {
-          "id": "GO:0008150",
-          "label": "biological_process"
-        }
-      ],
-      "aliases": ["TP53"],
-      "xrefs": ["HGNC:11998", "NCBIGene:7157"],
-      "genomicInterval": {
-        "location": {
-          "type": "SequenceLocation",
-          "sequence_id": "refseq:NC_000017.11",
-          "interval": {
-            "type": "SequenceInterval",
-            "start": {"type": "Number", "value": 7661778},
-            "end": {"type": "Number", "value": 7687538}
-          }
-        },
-        "strand": "negative"
-      }
+    "featureIdentifier": {
+      "id": "ENSG00000141510.18",
+      "resource": "ensembl"
     },
-    "matrixIds": ["matrix-gene-expression-001", "GSE88557"]
+    "featureType": {
+      "id": "SO:0000704",
+      "label": "gene"
+    },
+    "biotype": {
+      "id": "SO:0001217",
+      "label": "protein_coding_gene"
+    },
+    "ontologyTerms": [
+      {
+        "id": "GO:0008150",
+        "label": "biological_process"
+      }
+    ],
+    "aliases": [
+      "TP53"
+    ],
+    "xrefs": [
+      "HGNC:11998",
+      "NCBIGene:7157"
+    ],
+    "genomicInterval": {
+      "location": {
+        "type": "SequenceLocation",
+        "sequence_id": "refseq:NC_000017.11",
+        "interval": {
+          "type": "SequenceInterval",
+          "start": {
+            "type": "Number",
+            "value": 7661778
+          },
+          "end": {
+            "type": "Number",
+            "value": 7687538
+          }
+        }
+      },
+      "strand": "negative"
+    },
+    "matrixIds": [
+      "matrix-gene-expression-001",
+      "GSE88557"
+    ]
   },
   {
     "id": "feature-tp53-transcript",
-    "genomicFeature": {
-      "featureIdentifier": {
-        "id": "ENST00000269305.9",
-        "resource": "ensembl"
-      },
-      "featureType": {
-        "id": "SO:0000234",
-        "label": "mRNA"
-      },
-      "xrefs": ["ENSEMBL:ENST00000269305"],
-      "relationship": {
-        "parent": "ENSG00000141510.18"
-      }
+    "featureIdentifier": {
+      "id": "ENST00000269305.9",
+      "resource": "ensembl"
     },
-    "matrixIds": ["matrix-gene-expression-001"]
+    "featureType": {
+      "id": "SO:0000234",
+      "label": "mRNA"
+    },
+    "biotype": {
+      "id": "SO:0001217",
+      "label": "protein_coding_gene"
+    },
+    "xrefs": [
+      "ENSEMBL:ENST00000269305"
+    ],
+    "relationship": {
+      "parent": "ENSG00000141510.18"
+    },
+    "matrixIds": [
+      "matrix-gene-expression-001"
+    ]
   }
 ]

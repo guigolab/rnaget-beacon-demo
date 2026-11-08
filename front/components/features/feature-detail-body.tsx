@@ -69,7 +69,7 @@ export function FeatureDetailBody({
     }
   }, [feature.id])
 
-  const gf = feature.genomicFeature
+  const gf = feature
   const typeLabel = gf?.featureType?.label ?? gf?.featureType?.id
   const meta = [
     featureAnnotationResource(feature) ?? '—',

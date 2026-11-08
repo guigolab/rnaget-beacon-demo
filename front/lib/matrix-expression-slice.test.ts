@@ -8,8 +8,7 @@ import {
   sliceAxesCanExtend,
   sliceAxesGrew,
   stubBiosamplesFromIds,
-  stubFeaturesFromIds,
-} from '@/lib/matrix-expression-slice'
+  stubFeaturesFromIds} from '@/lib/matrix-expression-slice'
 
 function cell(
   featureId: string,
@@ -21,8 +20,7 @@ function cell(
     matrixId: 'M',
     featureId,
     biosampleId,
-    value,
-  }
+    value}
 }
 
 const ranked = [
@@ -62,35 +60,29 @@ assert.equal(sliceAxesGrew(beforeGrow, afterGrow), true)
 assert.equal(sliceAxesGrew(beforeGrow, beforeGrow), false)
 
 const features = stubFeaturesFromIds(['F1', 'F2'])
-assert.equal(features[0].genomicFeature?.featureIdentifier?.id, 'F1')
+assert.equal(features[0].featureIdentifier?.id, 'F1')
 const biosamples = stubBiosamplesFromIds(['B1'])
 assert.equal(biosamples[0].id, 'B1')
 
 const merged = mergeRecordsById(features, [
   {
     id: 'F2',
-    genomicFeature: {
-      featureIdentifier: { id: 'ENSG2' },
-      aliases: ['GENE2'],
-    },
-  },
+    featureIdentifier: { id: 'ENSG2' },
+      aliases: ['GENE2']},
 ])
 assert.equal(merged[0].id, 'F1')
-assert.equal(merged[1].genomicFeature?.aliases?.[0], 'GENE2')
+assert.equal(merged[1].aliases?.[0], 'GENE2')
 
 // Expression stubs use native accession as id; Beacon rows use wrapper id.
 const nativeMerged = mergeFeatureRecordsByNativeId(stubFeaturesFromIds(['ENSG1', 'ENSG2']), [
   {
     id: 'wrapper-2',
-    genomicFeature: {
-      featureIdentifier: { id: 'ENSG2' },
+    featureIdentifier: { id: 'ENSG2' },
       aliases: ['TP53'],
-    },
-    matrixIds: ['M'],
-  },
+    matrixIds: ['M']},
 ])
 assert.equal(nativeMerged[0].id, 'ENSG1')
 assert.equal(nativeMerged[1].id, 'wrapper-2')
-assert.equal(nativeMerged[1].genomicFeature?.aliases?.[0], 'TP53')
+assert.equal(nativeMerged[1].aliases?.[0], 'TP53')
 
 console.log('matrix-expression-slice.test.ts: ok')

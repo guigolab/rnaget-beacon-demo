@@ -3,11 +3,8 @@ import type { ExpressionValue, Feature } from '@/lib/beacon/types'
 
 const feature: Feature = {
   id: 'wrap:TP53',
-  genomicFeature: {
-    featureIdentifier: { id: 'TP53', resource: 'gencode' },
-    aliases: ['TP53'],
-  },
-}
+  featureIdentifier: { id: 'TP53', resource: 'gencode' },
+    aliases: ['TP53']}
 
 const rows: ExpressionValue[] = [
   {
@@ -15,8 +12,7 @@ const rows: ExpressionValue[] = [
     matrixId: 'm1',
     featureId: 'TP53',
     biosampleId: 's1',
-    value: 12.5,
-  },
+    value: 12.5},
 ]
 
 const { values, unmatched } = indexExpression([feature], rows)

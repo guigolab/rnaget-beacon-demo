@@ -81,7 +81,7 @@ export function isAccessionAlias(value: string): boolean {
 
 /** First human-readable alias, skipping accessions that are stored ahead of the symbol. */
 export function featureSymbol(feature: Feature): string | undefined {
-  for (const alias of feature.genomicFeature?.aliases ?? []) {
+  for (const alias of feature.aliases ?? []) {
     const text = alias.trim()
     if (text && !isAccessionAlias(text)) return text
   }
@@ -91,13 +91,13 @@ export function featureSymbol(feature: Feature): string | undefined {
 export function featureDisplayLabel(feature: Feature): string {
   return (
     featureSymbol(feature) ??
-    feature.genomicFeature?.featureIdentifier?.id ??
+    feature.featureIdentifier?.id ??
     feature.id
   )
 }
 
 export function featureAnnotationResource(feature: Feature): string | undefined {
-  return feature.genomicFeature?.featureIdentifier?.resource
+  return feature.featureIdentifier?.resource
 }
 
 export function matrixCountForFeature(feature: Feature): number {
@@ -110,7 +110,7 @@ export function matrixViewHref(matrixId: string, feature?: Feature | null): stri
   if (feature) {
     // Prefer native accession — matches expressionValue.featureId / slice stubs.
     const native =
-      feature.genomicFeature?.featureIdentifier?.id?.trim() || feature.id
+      feature.featureIdentifier?.id?.trim() || feature.id
     params.set('featureIds', native)
     const gene = featureSymbol(feature)
     if (gene) params.set('genes', gene)

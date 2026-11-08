@@ -246,6 +246,7 @@ def main(argv: List[str] | None = None) -> int:
 
             # features.parquet genomic coords (after hydrate)
             feat_path = matrix_dir / "features.parquet"
+            bio_path = matrix_dir / "biosamples.parquet"
             if feat_path.is_file():
                 import pyarrow.parquet as pq
 
@@ -273,10 +274,65 @@ def main(argv: List[str] | None = None) -> int:
                             f"{mid}: featureTypes missing SO ids present in "
                             f"features.parquet: {missing}"
                         )
+                if "biotype_id" in feat_cols and feat.num_rows > 0:
+                    present_bt = {
+                        str(x)
+                        for x in feat.column("biotype_id").to_pylist()
+                        if x
+                    }
+                    if present_bt:
+                        btypes = doc.get("biotypes")
+                        if not isinstance(btypes, list) or not btypes:
+                            errors.append(
+                                f"{mid}: matrices.json missing biotypes while "
+                                "features.parquet has biotype_id values"
+                            )
+                        else:
+                            declared_bt = {
+                                str(t.get("id"))
+                                for t in btypes
+                                if isinstance(t, dict) and t.get("id")
+                            }
+                            missing_bt = sorted(present_bt - declared_bt)
+                            if missing_bt:
+                                errors.append(
+                                    f"{mid}: biotypes missing SO ids present in "
+                                    f"features.parquet: {missing_bt}"
+                                )
                 for col in ("chrom", "start", "end", "strand"):
                     if col not in feat_cols:
                         errors.append(f"{mid}: features.parquet missing {col}")
                         break
+            if bio_path.is_file():
+                import pyarrow.parquet as pq
+
+                bio = pq.read_table(bio_path)
+                bio_cols = set(bio.column_names)
+                if "ontology_id" in bio_cols and bio.num_rows > 0:
+                    present_bs = {
+                        str(x)
+                        for x in bio.column("ontology_id").to_pylist()
+                        if x
+                    }
+                    if present_bs:
+                        bstypes = doc.get("biosampleTypes")
+                        if not isinstance(bstypes, list) or not bstypes:
+                            errors.append(
+                                f"{mid}: matrices.json missing biosampleTypes while "
+                                "biosamples.parquet has ontology_id values"
+                            )
+                        else:
+                            declared_bs = {
+                                str(t.get("id"))
+                                for t in bstypes
+                                if isinstance(t, dict) and t.get("id")
+                            }
+                            missing_bs = sorted(present_bs - declared_bs)
+                            if missing_bs:
+                                errors.append(
+                                    f"{mid}: biosampleTypes missing ontology ids "
+                                    f"present in biosamples.parquet: {missing_bs}"
+                                )
                 else:
                     n = feat.num_rows
                     if n > 0:
@@ -397,11 +453,23 @@ def main(argv: List[str] | None = None) -> int:
         ):
             if required not in gene_cols:
                 errors.append(f"genes.parquet missing column {required}")
+        # biotype_* are required once hydrate has run on a non-trivial package.
+        if genes_table.num_rows > 100:
+            for required in ("biotype_id", "biotype_label"):
+                if required not in gene_cols:
+                    errors.append(f"genes.parquet missing column {required}")
 
         if "annotation_source" in gene_cols and "xrefs" in gene_cols:
-            rows = genes_table.select(
-                ["annotation_source", "symbol", "xrefs", "ontology_terms", "feature_type_id"]
-            ).to_pylist()
+            select_cols = [
+                "annotation_source",
+                "symbol",
+                "xrefs",
+                "ontology_terms",
+                "feature_type_id",
+            ]
+            if "biotype_id" in gene_cols:
+                select_cols.append("biotype_id")
+            rows = genes_table.select(select_cols).to_pylist()
 
             def _xref_has_gene_or_hgnc(xrefs: object) -> bool:
                 if not xrefs:
@@ -443,21 +511,24 @@ def main(argv: List[str] | None = None) -> int:
                         f"(e.g. feature_id={missing_ncbi[0].get('feature_id')})"
                     )
 
-            # Ontology terms should diversify when biotypes vary across the package.
-            ont_ids = set()
-            nonempty_ont = 0
-            for r in rows:
-                terms = r.get("ontology_terms") or []
-                if terms:
-                    nonempty_ont += 1
-                    for t in terms:
-                        if isinstance(t, dict) and t.get("id"):
-                            ont_ids.add(str(t["id"]))
-            if nonempty_ont > 0 and len(ont_ids) < 2 and genes_table.num_rows > 100:
-                errors.append(
-                    f"ontology_terms has only {len(ont_ids)} distinct SO id(s) "
-                    f"across {nonempty_ont} annotated gene(s); expected biotype diversity"
-                )
+            # Biotypes should diversify across a non-trivial package.
+            if "biotype_id" in gene_cols:
+                bt_ids = {
+                    str(r.get("biotype_id"))
+                    for r in rows
+                    if r.get("biotype_id")
+                }
+                bt_n = sum(1 for r in rows if r.get("biotype_id"))
+                if bt_n == 0 and genes_table.num_rows > 100:
+                    errors.append("genes.parquet has no biotype_id values after hydrate")
+                elif bt_n > 0 and len(bt_ids) < 2 and genes_table.num_rows > 100:
+                    errors.append(
+                        f"biotype_id has only {len(bt_ids)} distinct SO id(s) "
+                        f"across {bt_n} annotated gene(s); expected biotype diversity"
+                    )
+                elif any(not s.startswith("SO:") for s in bt_ids):
+                    bad = sorted(s for s in bt_ids if not s.startswith("SO:"))[:5]
+                    errors.append(f"non-SO biotype_id values: {bad}")
 
             ft_ids = {
                 str(r.get("feature_type_id"))

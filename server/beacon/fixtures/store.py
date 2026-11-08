@@ -266,13 +266,12 @@ class FixtureStore:
             candidates.add(key.upper())
         hits: Set[str] = set()
         for f in self.features:
-            gf = f.get("genomicFeature") or {}
-            aliases_raw = [str(a) for a in (gf.get("aliases") or [])]
+            aliases_raw = [str(a) for a in (f.get("aliases") or [])]
             aliases = aliases_raw if case_sensitive else [a.upper() for a in aliases_raw]
-            native = str((gf.get("featureIdentifier") or {}).get("id") or "")
+            native = str((f.get("featureIdentifier") or {}).get("id") or "")
             native_u = native.upper()
             native_bare = native_u.rsplit(".", 1)[0] if "." in native_u else native_u
-            xrefs_raw = {str(x) for x in (gf.get("xrefs") or [])}
+            xrefs_raw = {str(x) for x in (f.get("xrefs") or [])}
             xrefs = xrefs_raw if case_sensitive else {x.upper() for x in xrefs_raw}
             wid = str(f.get("id") or "")
             if case_sensitive:
@@ -312,9 +311,7 @@ class FixtureStore:
                 feat
                 for feat in items
                 if feat.get("id") in allowed
-                or (feat.get("genomicFeature") or {})
-                .get("featureIdentifier", {})
-                .get("id")
+                or (feat.get("featureIdentifier") or {}).get("id")
                 in allowed
             ]
         if filters:
@@ -339,9 +336,7 @@ class FixtureStore:
                     feat
                     for feat in items
                     if feat.get("id") in allow
-                    or (feat.get("genomicFeature") or {})
-                    .get("featureIdentifier", {})
-                    .get("id")
+                    or (feat.get("featureIdentifier") or {}).get("id")
                     in allow
                 ]
             items = [feat for feat in items if feature_doc_matches(feat, filters)]
@@ -476,9 +471,7 @@ class FixtureStore:
 
             def _feature_hit(feat: Dict[str, Any]) -> bool:
                 native = (
-                    (feat.get("genomicFeature") or {})
-                    .get("featureIdentifier", {})
-                    .get("id")
+                    (feat.get("featureIdentifier") or {}).get("id")
                 )
                 return feat.get("id") in allowed or (
                     native is not None and native in allowed
@@ -531,9 +524,7 @@ class FixtureStore:
             kept: List[Dict[str, Any]] = []
             for feat in all_feats:
                 native = (
-                    (feat.get("genomicFeature") or {})
-                    .get("featureIdentifier", {})
-                    .get("id")
+                    (feat.get("featureIdentifier") or {}).get("id")
                 )
                 if feat.get("id") in expressed or (
                     native is not None and str(native) in expressed
@@ -643,9 +634,7 @@ class FixtureStore:
                     continue
                 matched.add(fid)
                 native = (
-                    (feat.get("genomicFeature") or {})
-                    .get("featureIdentifier", {})
-                    .get("id")
+                    (feat.get("featureIdentifier") or {}).get("id")
                 )
                 if native:
                     matched.add(str(native))
@@ -762,9 +751,7 @@ class FixtureStore:
             feature = self._features_by_id.get(token)
             if feature:
                 genomic = (
-                    (feature.get("genomicFeature") or {})
-                    .get("featureIdentifier", {})
-                    .get("id")
+                    (feature.get("featureIdentifier") or {}).get("id")
                 )
                 if genomic:
                     resolved.add(genomic)

@@ -64,7 +64,7 @@ class TissueFilterParseTest(unittest.TestCase):
     def test_fixture_doc_match_via_tissue_levels(self) -> None:
         doc = {
             "id": "f1",
-            "genomicFeature": {"featureIdentifier": {"id": "ENSG1", "resource": "gencode"}},
+            "featureIdentifier": {"id": "ENSG1", "resource": "gencode"},
             "info": {"tissueLevels": {"UBERON:0002107": 2}},
         }
         high = normalize_filters([{"id": tissue_high_filter_id("UBERON:0002107")}])
@@ -131,7 +131,7 @@ class TissueFilterParseTest(unittest.TestCase):
     def test_fixture_doc_match_via_legacy_high_ids(self) -> None:
         doc = {
             "id": "f1",
-            "genomicFeature": {"featureIdentifier": {"id": "ENSG1", "resource": "gencode"}},
+            "featureIdentifier": {"id": "ENSG1", "resource": "gencode"},
             "info": {"tissueHighOntologyIds": ["UBERON:0002107"]},
         }
         high = normalize_filters([{"id": tissue_high_filter_id("UBERON:0002107")}])
@@ -274,7 +274,7 @@ class TissueFiltersDuckDBTest(unittest.TestCase):
         for feat in results:
             self.assertNotIn("info", feat)
             self.assertIn("id", feat)
-            self.assertIn("genomicFeature", feat)
+            self.assertIn("featureIdentifier", feat)
 
     def test_feature_id_list_tissue_top_present_probe(self) -> None:
         """Explore-style probe: featureIDList ∩ tissueTop / tissuePresent, no info."""
@@ -389,7 +389,7 @@ class TissueFiltersDuckDBTest(unittest.TestCase):
         for row in rows1:
             self.assertNotIn("info", row)
             self.assertIn("id", row)
-            self.assertIn("genomicFeature", row)
+            self.assertIn("featureIdentifier", row)
 
     def test_get_feature_id_list_probe_headers_and_count_skip(self) -> None:
         """GET probe with featureIDList returns Server-Timing; no info bags."""

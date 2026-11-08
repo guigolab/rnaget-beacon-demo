@@ -333,6 +333,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     print("Merging expression shards…")
     merge_package(out, keep_shards=args.keep_shards)
 
+    # Older releases may lack matrix biotypes / biosampleTypes; backfill from parquet.
+    from sync_matrix_feature_types import (
+        matrices_need_catalog_sync,
+        sync_package as sync_matrix_catalogs,
+    )
+
+    if matrices_need_catalog_sync(out):
+        print("Syncing matrix featureTypes / biotypes / biosampleTypes…")
+        sync_matrix_catalogs(out)
+    else:
+        print("Reusing shipped matrix catalogs (biotypes / biosampleTypes)")
+
     # GHA ships expression stats; reuse them unless missing or --force-stats.
     if args.force_stats or not package_has_expression_stats(out):
         if args.force_stats:

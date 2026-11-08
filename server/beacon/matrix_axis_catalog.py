@@ -9,20 +9,19 @@ AxisKind = Literal["features", "biosamples"]
 
 def _ids_from_feature_row(row: Dict[str, Any]) -> Set[str]:
     ids: Set[str] = set()
-    gf = row.get("genomicFeature") or {}
-    fi = gf.get("featureIdentifier") or {}
+    fi = row.get("featureIdentifier") or {}
     if fi.get("id"):
         ids.add(str(fi["id"]))
-    ft = gf.get("featureType") or {}
+    ft = row.get("featureType") or {}
     if isinstance(ft, dict) and ft.get("id"):
         ids.add(str(ft["id"]))
-    for ot in gf.get("ontologyTerms") or []:
+    for ot in row.get("ontologyTerms") or []:
         if isinstance(ot, dict) and ot.get("id"):
             ids.add(str(ot["id"]))
-    for xref in gf.get("xrefs") or []:
+    for xref in row.get("xrefs") or []:
         if xref:
             ids.add(str(xref))
-    for alias in gf.get("aliases") or []:
+    for alias in row.get("aliases") or []:
         if alias:
             ids.add(str(alias).upper())
     return ids
@@ -70,41 +69,54 @@ def _biosample_alphanumeric(row: Dict[str, Any]) -> Dict[str, Set[str]]:
     return out
 
 
-def _matrix_feature_type_ids(matrix: Optional[Dict[str, Any]]) -> Set[str]:
+def _matrix_catalog_term_ids(
+    matrix: Optional[Dict[str, Any]], key: str, *, legacy_key: Optional[str] = None
+) -> Set[str]:
     ids: Set[str] = set()
     if not matrix:
         return ids
-    raw = matrix.get("featureTypes")
-    if raw is None:
-        raw = matrix.get("featureType") or []
+    raw = matrix.get(key)
+    if raw is None and legacy_key:
+        raw = matrix.get(legacy_key) or []
     for ft in raw or []:
         if isinstance(ft, dict) and ft.get("id"):
             ids.add(str(ft["id"]))
     return ids
 
 
-def _matrix_feature_type_terms(matrix: Optional[Dict[str, Any]]) -> List[Dict[str, str]]:
-    """Ontology terms from matrix.featureTypes (post sync_matrix_feature_types)."""
+def _matrix_feature_type_ids(matrix: Optional[Dict[str, Any]]) -> Set[str]:
+    return _matrix_catalog_term_ids(matrix, "featureTypes", legacy_key="featureType")
+
+
+def _matrix_catalog_terms(
+    matrix: Optional[Dict[str, Any]], key: str, *, legacy_key: Optional[str] = None
+) -> List[Dict[str, str]]:
+    """Ontology terms from a matrix catalog list (featureTypes / biotypes / …)."""
     out: List[Dict[str, str]] = []
     if not matrix:
         return out
-    raw = matrix.get("featureTypes")
-    if raw is None:
-        raw = matrix.get("featureType") or []
+    raw = matrix.get(key)
+    if raw is None and legacy_key:
+        raw = matrix.get(legacy_key) or []
     seen: Set[str] = set()
     for ft in raw or []:
         if not isinstance(ft, dict) or not ft.get("id"):
             continue
         tid = str(ft["id"])
-        key = tid.lower()
-        if key in seen:
+        k = tid.lower()
+        if k in seen:
             continue
-        seen.add(key)
+        seen.add(k)
         term: Dict[str, str] = {"id": tid}
         if ft.get("label"):
             term["label"] = str(ft["label"])
         out.append(term)
     return out
+
+
+def _matrix_feature_type_terms(matrix: Optional[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Ontology terms from matrix.featureTypes (post sync_matrix_feature_types)."""
+    return _matrix_catalog_terms(matrix, "featureTypes", legacy_key="featureType")
 
 
 def ensure_matrix_feature_so_terms(
@@ -117,8 +129,9 @@ def ensure_matrix_feature_so_terms(
     """Guarantee Sequence Ontology classes for this matrix appear under genomicFeature.
 
     Sources (union):
-    - ``matrix.featureTypes`` (package sync from hydrated feature rows)
-    - ``SO:*`` ids already observed in ``present_ids`` (row feature_type_id / ontologyTerms)
+    - ``matrix.featureTypes`` / ``matrix.biotypes`` (package sync from hydrated rows)
+    - ``SO:*`` ids already observed in ``present_ids``
+      (row feature_type_id / biotype_id / ontologyTerms)
 
     Synthesizes catalog entries when the global filtering_terms subset omitted them.
     """
@@ -131,6 +144,11 @@ def ensure_matrix_feature_so_terms(
         if not tid.upper().startswith("SO:"):
             continue
         candidates[tid] = ft.get("label")
+    for ft in _matrix_catalog_terms(matrix, "biotypes"):
+        tid = ft["id"]
+        if not tid.upper().startswith("SO:"):
+            continue
+        candidates.setdefault(tid, ft.get("label"))
     for pid in present_ids or ():
         s = str(pid)
         if not s.upper().startswith("SO:"):

@@ -155,7 +155,7 @@ Manifest stamps `feature*Path` / `biosamplesPath` / `biosampleMatrixPath` and `f
 
 Runs **after** `build_feature_indexes`. Writes a small Beacon-shaped `filtering_terms.json`:
 
-- **Facets:** DISTINCT SO (`feature_type` + biotype `ontology_terms`), UBERON/EFO biosample ontology ids, alphanumeric `feature.resource` (GenCode / NCBI Gene) and `feature.biotypeFamily`
+- **Facets:** DISTINCT SO (`feature_type_id` + `biotype_id`), UBERON/EFO biosample ontology ids, alphanumeric `feature.resource` (GenCode / NCBI Gene) and `feature.biotypeFamily`
 - **Fields:** alphanumeric `sex` (not every symbol value)
 - **Resources:** `so`, `uberon`, `efo`, plus `hgnc` / `ncbigene` / `ensembl` namespaces — **never** one filteringTerm per HGNC/NCBIGene
 
@@ -167,10 +167,11 @@ Curated biosample maps: `scripts/data/geo_biosample_status.json`, `scripts/data/
 
 Runs after export. Streams each matrix’s annotation GTF/GFF and keeps **only genes that appear in that matrix’s `features.parquet`**.
 
-- **`featureType`** (per genomic feature): Sequence Ontology term for GFF/GTF **column 3** (`gene` → `SO:0000704`, `pseudogene` → `SO:0000336`, …) via [`scripts/data/gff_type_to_so.json`](data/gff_type_to_so.json) + cached `so.obo`.
-- **`featureTypes`** (per matrix): distinct SO classes present among that matrix's features (seeded from profile `feature_types`, then synced after hydrate by `sync_matrix_feature_types.py`).
-- **`ontologyTerms`**: SO terms for `gene_type` / `gene_biotype` ([`scripts/data/biotype_to_so.json`](data/biotype_to_so.json)) plus any GFF `Ontology_term` attributes — never written into `featureType`.
-- **`xrefs`**: normalized `Dbxref` CURIEs (`NCBIGene`, `HGNC`, `MIM`, …). GENCODE rows are further enriched from `Homo_sapiens.gene_info.gz` when the gene **symbol uniquely** matches a primary NCBI Symbol (ambiguous symbols are skipped).
+- **`featureType`** (per genomic feature): Sequence Ontology term for GFF/GTF **column 3** (`gene` → `SO:0000704`, `pseudogene` → `SO:0000336`, …) via [`scripts/data/gff_type_to_so.json`](data/gff_type_to_so.json) + cached `so.obo`. Stored as `feature_type_id` / `feature_type_label` on parquet.
+- **`biotype`** (per genomic feature): SO term for `gene_type` / `gene_biotype` ([`scripts/data/biotype_to_so.json`](data/biotype_to_so.json)), e.g. `protein_coding` → `SO:0001217`. Stored as `biotype_id` / `biotype_label`. Not the same as `featureType`.
+- **`ontologyTerms`**: GFF `Ontology_term` attributes and later GO enrichment — never used for biotype or `featureType`.
+- **`featureTypes` / `biotypes` / `biosampleTypes`** (per matrix): distinct catalogs synced after hydrate by `sync_matrix_feature_types.py` from features (`feature_type_*`, `biotype_*`) and biosamples (`ontology_id` / `ontology_label` from `sampleOriginDetail`).
+- **`xrefs`**: normalized `Dbxref` CURIEs (`NCBIGene`, `HGNC`, `MIM`, …). GENCODE rows are further enriched from `Homo_sapiens.gene_info.gz` when the gene **symbol uniquely** matches a primary NCBI Symbol (ambiguous symbols are skipped); missing biotypes may also be filled from gene_info `type_of_gene`.
 - **`genomicInterval` coords**: copies `chrom` / `start` / `end` / `strand` onto `features.parquet`. The API maps primary GRCh38 contigs to `refseq:NC_…` ([`server/beacon/data/grch38_contig_to_refseq.json`](../server/beacon/data/grch38_contig_to_refseq.json)) and emits VRS `SequenceLocation` (GFF 1-based inclusive → 0-based interbase). Unmapped contigs omit the interval. Gene `relationship` is not populated.
 - **`annotation.md5Checksum`**: MD5 of the cached annotation file stamped onto each matching `matrices.json` entry.
 - Maps are validated against downloaded SO OBO at hydrate time (`scripts/so_map.py`).

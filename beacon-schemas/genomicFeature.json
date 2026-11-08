@@ -1,7 +1,16 @@
 {
+    "$comment": "Synced from beacon-v2/models/json/.../genomicFeatures/defaultSchema.json (source YAML: models/src/.../genomicFeatures/defaultSchema.yml); ontologyTerm $refs inlined for offline use",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": true,
     "description": "A genomic feature (gene, transcript, exon, or genomic interval) used as a quantified row in RNA-seq expression matrices and/or as an annotated feature related to a genomic variant.",
     "properties": {
+        "id": {
+            "description": "Internal feature ID.",
+            "examples": [
+                "Feature12345"
+            ],
+            "type": "string"
+        },
         "featureIdentifier": {
             "description": "Identifier of the genomic feature as it appears in the expression matrix (native accession), plus the identifier namespace. Gene symbols MUST NOT be stored here; use aliases instead. Annotation release (e.g. Ensembl 109) belongs on the matrix annotation, not on this object.",
             "type": "object",
@@ -165,13 +174,25 @@
                     }
                 }
             }
+        },
+        "info": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Optional free-form metadata bag."
+        },
+        "matrixIds": {
+            "items": {
+                "type": "string"
+            },
+            "type": "array",
+            "description": "list of matrix ids"
         }
     },
     "required": [
+        "id",
         "featureIdentifier",
         "featureType"
     ],
     "title": "GenomicFeature",
-    "type": "object",
-    "$comment": "Synced from beacon-v2/models/json/.../common/genomicFeature.json (source YAML: models/src/.../common/genomicFeature.yaml); ontologyTerm $refs inlined for offline use"
+    "type": "object"
 }

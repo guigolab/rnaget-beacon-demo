@@ -30,6 +30,8 @@ _INDEX_SCALARS = (
     "symbol",
     "feature_type_id",
     "feature_type_label",
+    "biotype_id",
+    "biotype_label",
     "chrom",
     "start",
     "end",
@@ -152,6 +154,8 @@ def build_indexes(package: Path) -> Dict[str, int]:
         "xrefs",
         "feature_type_id",
         "feature_type_label",
+        "biotype_id",
+        "biotype_label",
         "ontology_terms",
         "chrom",
         "start",
@@ -195,6 +199,8 @@ def build_indexes(package: Path) -> Dict[str, int]:
                     "xrefs": list(_as_list(row.get("xrefs"))),
                     "feature_type_id": row.get("feature_type_id"),
                     "feature_type_label": row.get("feature_type_label"),
+                    "biotype_id": row.get("biotype_id"),
+                    "biotype_label": row.get("biotype_label"),
                     "ontology_terms": [
                         {"id": t.get("id"), "label": t.get("label")}
                         for t in _as_list(row.get("ontology_terms"))
@@ -230,11 +236,29 @@ def build_indexes(package: Path) -> Dict[str, int]:
                                 "role": "feature_type",
                             }
                         )
+                bt_id = row.get("biotype_id")
+                if bt_id:
+                    okey = (fid, str(bt_id), "biotype")
+                    if okey not in ontology_seen:
+                        ontology_seen.add(okey)
+                        ontology_rows.append(
+                            {
+                                "feature_id": fid,
+                                "wrapper_id": wid,
+                                "ontology_id": str(bt_id),
+                                "ontology_label": (
+                                    str(row["biotype_label"])
+                                    if row.get("biotype_label") is not None
+                                    else None
+                                ),
+                                "role": "biotype",
+                            }
+                        )
                 for term in _as_list(row.get("ontology_terms")):
                     if not isinstance(term, dict) or not term.get("id"):
                         continue
                     tid = str(term["id"])
-                    okey = (fid, tid, "biotype")
+                    okey = (fid, tid, "ontology")
                     if okey in ontology_seen:
                         continue
                     ontology_seen.add(okey)
@@ -246,7 +270,7 @@ def build_indexes(package: Path) -> Dict[str, int]:
                             "ontology_label": (
                                 str(term["label"]) if term.get("label") else None
                             ),
-                            "role": "biotype",
+                            "role": "ontology",
                         }
                     )
             del table

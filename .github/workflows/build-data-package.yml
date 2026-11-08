@@ -114,9 +114,10 @@ jobs:
       - name: Hydrate genes from GTF/GFF
         run: python scripts/hydrate_genes.py --package dist/data-package
 
-      - name: Sync matrix featureTypes from hydrated features
-        # Replace profile seed (usually gene-only) with distinct SO classes present
-        # in each matrix's features.parquet after hydrate.
+      - name: Sync matrix featureTypes / biotypes / biosampleTypes
+        # Replace profile seeds with distinct catalogs from each matrix's
+        # features.parquet (featureTypes, biotypes) and biosamples.parquet
+        # (biosampleTypes) after hydrate.
         run: python scripts/sync_matrix_feature_types.py --package dist/data-package
 
       - name: Enrich gene xrefs and GO slim

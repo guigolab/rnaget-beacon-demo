@@ -113,10 +113,10 @@ paths:
         schema:
           type: integer
           minimum: 0
-          description: Max terms to return; 0 means no server-side limit.
+          description: Max terms to return; 0 means the server maximum (1000).
           default: 0
           title: Limit
-        description: Max terms to return; 0 means no server-side limit.
+        description: Max terms to return; 0 means the server maximum (1000).
       responses:
         '200':
           description: Beacon filtering terms response
@@ -168,11 +168,13 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array.
+          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array. symbol: filters match aliases/symbols
+            with exact case (Alb ≠ ALB).'
           title: Filters
-        description: Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array.
+        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array. symbol: filters match aliases/symbols
+          with exact case (Alb ≠ ALB).'
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -379,11 +381,13 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array.
+          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array. symbol: filters match aliases/symbols
+            with exact case (Alb ≠ ALB).'
           title: Filters
-        description: Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array.
+        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array. symbol: filters match aliases/symbols
+          with exact case (Alb ≠ ALB).'
       - name: matrixIDList
         in: query
         required: false
@@ -506,11 +510,23 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array.
+          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array. symbol: filters match aliases/symbols
+            with exact case (Alb ≠ ALB).'
           title: Filters
-        description: Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array.
+        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array. symbol: filters match aliases/symbols
+          with exact case (Alb ≠ ALB).'
+      - name: featureIDList
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Comma-separated feature IDs.
+          title: Featureidlist
+        description: Comma-separated feature IDs.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -717,11 +733,13 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array.
+          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array. symbol: filters match aliases/symbols
+            with exact case (Alb ≠ ALB).'
           title: Filters
-        description: Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array.
+        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array. symbol: filters match aliases/symbols
+          with exact case (Alb ≠ ALB).'
       - name: matrixIDList
         in: query
         required: false
@@ -844,11 +862,13 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array.
+          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array. symbol: filters match aliases/symbols
+            with exact case (Alb ≠ ALB).'
           title: Filters
-        description: Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array.
+        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array. symbol: filters match aliases/symbols
+          with exact case (Alb ≠ ALB).'
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1055,11 +1075,13 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array.
+          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array. symbol: filters match aliases/symbols
+            with exact case (Alb ≠ ALB).'
           title: Filters
-        description: Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array.
+        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array. symbol: filters match aliases/symbols
+          with exact case (Alb ≠ ALB).'
       - name: featureIDList
         in: query
         required: false
@@ -1173,10 +1195,10 @@ paths:
         schema:
           type: integer
           minimum: 0
-          description: Max terms to return; 0 means no server-side limit.
+          description: Max terms to return; 0 means the server maximum (1000).
           default: 0
           title: Limit
-        description: Max terms to return; 0 means no server-side limit.
+        description: Max terms to return; 0 means the server maximum (1000).
       responses:
         '200':
           description: Beacon filtering terms response
@@ -1218,10 +1240,10 @@ paths:
         schema:
           type: integer
           minimum: 0
-          description: Max terms to return; 0 means no server-side limit.
+          description: Max terms to return; 0 means the server maximum (1000).
           default: 0
           title: Limit
-        description: Max terms to return; 0 means no server-side limit.
+        description: Max terms to return; 0 means the server maximum (1000).
       responses:
         '200':
           description: Beacon filtering terms response
@@ -1279,11 +1301,13 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array.
+          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array. symbol: filters match aliases/symbols
+            with exact case (Alb ≠ ALB).'
           title: Filters
-        description: Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array.
+        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array. symbol: filters match aliases/symbols
+          with exact case (Alb ≠ ALB).'
       - name: biosampleIDList
         in: query
         required: false
@@ -1432,11 +1456,13 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array.
+          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+            uses query.filters as a JSON array. symbol: filters match aliases/symbols
+            with exact case (Alb ≠ ALB).'
           title: Filters
-        description: Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array.
+        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
+          uses query.filters as a JSON array. symbol: filters match aliases/symbols
+          with exact case (Alb ≠ ALB).'
       - name: minValue
         in: query
         required: false
@@ -1626,7 +1652,6 @@ components:
         meta:
           $ref: '#/components/schemas/ResponseMeta'
         response:
-          additionalProperties: true
           title: Response
           type: object
       required:
@@ -1793,13 +1818,11 @@ components:
       properties:
         filteringTerms:
           items:
-            additionalProperties: true
             type: object
           title: Filteringterms
           type: array
         resources:
           items:
-            additionalProperties: true
             type: object
           title: Resources
           type: array
@@ -1933,8 +1956,7 @@ components:
           type: array
         receivedRequestSummary:
           anyOf:
-          - additionalProperties: true
-            type: object
+          - type: object
           - type: 'null'
           default: null
           title: Receivedrequestsummary
@@ -2036,12 +2058,12 @@ components:
           type: array
           nullable: true
           description: 'Page of entity records. Item schema depends on setType: matrix
-            → Matrix, feature → GenomicFeatureWrapper, biosample → Biosample, expressionValue
+            → Matrix, feature → GenomicFeature, biosample → Biosample, expressionValue
             → ExpressionValue.'
           items:
             oneOf:
             - $ref: '#/components/schemas/Matrix'
-            - $ref: '#/components/schemas/GenomicFeatureWrapper'
+            - $ref: '#/components/schemas/GenomicFeature'
             - $ref: '#/components/schemas/Biosample'
             - $ref: '#/components/schemas/ExpressionValue'
       required:
@@ -2143,8 +2165,8 @@ components:
             rows in this matrix. Homogeneous matrices list one term (e.g. gene or
             mRNA). Matrices that mix genes and transcripts (or other feature classes)
             MUST list every class present. Each feature in the matrix MUST have a
-            genomicFeature.featureType that appears in this array. Values from SO
-            (Sequence Ontology) are recommended.
+            featureType that appears in this array. Values from SO (Sequence Ontology)
+            are recommended.
           type: array
           minItems: 1
           items:
@@ -2211,9 +2233,9 @@ components:
         annotation:
           description: Annotation catalog used to define feature identifiers in this
             matrix. source SHOULD use the same identifiers.org-style prefix vocabulary
-            as genomicFeature.featureIdentifier.resource (e.g. ensembl, gencode).
-            version is the annotation release; it is not the same as an Ensembl object
-            version suffix (e.g. .18).
+            as featureIdentifier.resource (e.g. ensembl, gencode). version is the
+            annotation release; it is not the same as an Ensembl object version suffix
+            (e.g. .18).
           type: object
           properties:
             source:
@@ -2441,10 +2463,16 @@ components:
       title: biosample
       type: object
     GenomicFeature:
+      additionalProperties: true
       description: A genomic feature (gene, transcript, exon, or genomic interval)
         used as a quantified row in RNA-seq expression matrices and/or as an annotated
         feature related to a genomic variant.
       properties:
+        id:
+          description: Internal feature ID.
+          examples:
+          - Feature12345
+          type: string
         featureIdentifier:
           description: Identifier of the genomic feature as it appears in the expression
             matrix (native accession), plus the identifier namespace. Gene symbols
@@ -2573,24 +2601,6 @@ components:
                 examples:
                 - ENST00000269305.9
                 - EXON:00004567
-      required:
-      - featureIdentifier
-      - featureType
-      title: GenomicFeature
-      type: object
-    GenomicFeatureWrapper:
-      additionalProperties: true
-      description: Schema for the genomic feature (e.g. gene, transcript or genomic
-        interval...)
-      properties:
-        id:
-          description: Internal feature ID.
-          examples:
-          - Feature12345
-          type: string
-        genomicFeature:
-          type: object
-          $ref: '#/components/schemas/GenomicFeature'
         info:
           type: object
           additionalProperties: true
@@ -2602,7 +2612,9 @@ components:
           description: list of matrix ids
       required:
       - id
-      title: Genomic feature
+      - featureIdentifier
+      - featureType
+      title: GenomicFeature
       type: object
     ExpressionValue:
       additionalProperties: true
@@ -2628,8 +2640,8 @@ components:
           type: number
         featureId:
           description: Native accession of the quantified genomic feature as it appears
-            in the matrix row. MUST equal genomicFeature.featureIdentifier.id of the
-            matching feature. Not a CURIE and not genomicFeatures.id.
+            in the matrix row. MUST equal featureIdentifier.id of the matching feature.
+            Not a CURIE and not genomicFeatures.id.
           examples:
           - ENSG00000141510.18
           - ENST00000269305.9

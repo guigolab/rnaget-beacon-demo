@@ -23,7 +23,7 @@ function pushChip(
 }
 
 export function featureQueryChips(feature: Feature): FeatureQueryChip[] {
-  const gf = feature.genomicFeature
+  const gf = feature
   if (!gf) return []
 
   const chips: FeatureQueryChip[] = []

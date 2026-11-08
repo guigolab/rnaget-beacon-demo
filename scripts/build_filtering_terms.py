@@ -486,6 +486,8 @@ def build_catalog(package: Path) -> Dict[str, Any]:
             for c in (
                 "feature_type_id",
                 "feature_type_label",
+                "biotype_id",
+                "biotype_label",
                 "ontology_terms",
                 "resource",
                 "annotation_source",
@@ -514,7 +516,26 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                                 str(ft_label) if ft_label else None,
                                 fallback_id=ft_s,
                             ),
-                            # Dual-scope: feature lens + matrices listing (featureTypes / biotypes).
+                            # Dual-scope: feature lens + matrices listing (featureTypes).
+                            scopes=["genomicFeature", "matrix"],
+                        )
+                bt_id = g.get("biotype_id")
+                if bt_id:
+                    bt_s = str(bt_id)
+                    if _prefix_of(bt_s) == "SO":
+                        from beacon.filter_display import so_display_label
+
+                        _register_ontology_term(
+                            terms,
+                            needed_resources,
+                            oid=bt_s,
+                            label=so_display_label(
+                                str(g["biotype_label"])
+                                if g.get("biotype_label")
+                                else None,
+                                fallback_id=bt_s,
+                            ),
+                            # Dual-scope: feature lens + matrices listing (biotypes).
                             scopes=["genomicFeature", "matrix"],
                         )
                 for term in g.get("ontology_terms") or []:
@@ -526,6 +547,10 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                     tid_s = str(tid)
                     pref = _prefix_of(tid_s)
                     if pref == "SO":
+                        # Transitional: older packages may still keep biotype SO
+                        # in ontology_terms. Prefer biotype_id when present.
+                        if g.get("biotype_id"):
+                            continue
                         _register_ontology_term(
                             terms,
                             needed_resources,
@@ -566,7 +591,13 @@ def build_catalog(package: Path) -> Dict[str, Any]:
             feat_names = set(pq.read_schema(feat_path).names)
             want_feat = [
                 c
-                for c in ("feature_type_id", "feature_type_label", "resource")
+                for c in (
+                    "feature_type_id",
+                    "feature_type_label",
+                    "biotype_id",
+                    "biotype_label",
+                    "resource",
+                )
                 if c in feat_names
             ]
             if not want_feat:
@@ -591,6 +622,23 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                             type_="SO",
                             id_=ft_s,
                             label=so_display_label(raw_label, fallback_id=ft_s),
+                            scopes=["genomicFeature", "matrix"],
+                        )
+                    bt_id = row.get("biotype_id")
+                    if bt_id and _prefix_of(str(bt_id)) == "SO":
+                        from beacon.filter_display import so_display_label
+
+                        bt_s = str(bt_id)
+                        _register_ontology_term(
+                            terms,
+                            needed_resources,
+                            oid=bt_s,
+                            label=so_display_label(
+                                str(row["biotype_label"])
+                                if row.get("biotype_label")
+                                else None,
+                                fallback_id=bt_s,
+                            ),
                             scopes=["genomicFeature", "matrix"],
                         )
                     _emit_resource_term(

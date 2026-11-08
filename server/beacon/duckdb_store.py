@@ -575,6 +575,8 @@ class DuckDBStore:
                     "resource",
                     "feature_type_id",
                     "feature_type_label",
+                    "biotype_id",
+                    "biotype_label",
                 ):
                     if name in cols:
                         core.append(name)
@@ -760,25 +762,29 @@ class DuckDBStore:
             else:
                 # Unexpected scalar — skip
                 continue
-        gf: Dict[str, Any] = {
+        doc: Dict[str, Any] = {
+            "id": str(wrapper_id),
             "featureIdentifier": {"id": feature_id, "resource": str(resource)},
             "featureType": {"id": str(ft_id), "label": str(ft_label)},
             "aliases": aliases,
+            "matrixIds": list(matrix_ids),
         }
+        bt_id = row.get("biotype_id")
+        if bt_id is not None and not _is_nan(bt_id) and str(bt_id):
+            biotype: Dict[str, Any] = {"id": str(bt_id)}
+            bt_label = row.get("biotype_label")
+            if bt_label is not None and not _is_nan(bt_label) and str(bt_label):
+                biotype["label"] = str(bt_label)
+            doc["biotype"] = biotype
         if xrefs:
-            gf["xrefs"] = xrefs
+            doc["xrefs"] = xrefs
         if ontology_terms:
-            gf["ontologyTerms"] = ontology_terms
+            doc["ontologyTerms"] = ontology_terms
         interval = build_genomic_interval(
             row.get("chrom"), row.get("start"), row.get("end"), row.get("strand")
         )
         if interval:
-            gf["genomicInterval"] = interval
-        doc: Dict[str, Any] = {
-            "id": str(wrapper_id),
-            "genomicFeature": gf,
-            "matrixIds": list(matrix_ids),
-        }
+            doc["genomicInterval"] = interval
         return doc
 
     def _matrix_ids_for_wrapper(self, wrapper_id: str) -> List[str]:
@@ -1004,6 +1010,11 @@ class DuckDBStore:
                 f"SELECT DISTINCT CAST(feature_type_id AS VARCHAR) FROM {view} "
                 "WHERE feature_type_id IS NOT NULL"
             )
+        if "biotype_id" in cols:
+            present |= self._distinct_values(
+                f"SELECT DISTINCT CAST(biotype_id AS VARCHAR) FROM {view} "
+                "WHERE biotype_id IS NOT NULL"
+            )
         if "ontology_terms" in cols:
             present |= self._distinct_values(
                 f"""
@@ -1117,6 +1128,9 @@ class DuckDBStore:
             present = self._feature_axis_present_ids(matrix_id)
             matrix_doc = self.get_matrix(matrix_id)
             present |= _matrix_feature_type_ids(matrix_doc)
+            from beacon.matrix_axis_catalog import _matrix_catalog_term_ids
+
+            present |= _matrix_catalog_term_ids(matrix_doc, "biotypes")
             present |= self._tissues_present_for_matrix(matrix_id)
             terms, resources = _subset_terms(
                 global_terms,
@@ -1380,6 +1394,25 @@ class DuckDBStore:
                         label=str(tlabel) if tlabel else None,
                         scopes=["genomicFeature", "matrix"],
                     )
+            try:
+                rows, _ = self._fetchall(
+                    f"""
+                    SELECT DISTINCT CAST(biotype_id AS VARCHAR),
+                           CAST(biotype_label AS VARCHAR)
+                    FROM {feat_src}
+                    WHERE biotype_id IS NOT NULL
+                    """
+                )
+                for tid, tlabel in rows:
+                    if tid:
+                        add_term(
+                            type_="SO",
+                            id_=str(tid),
+                            label=str(tlabel) if tlabel else None,
+                            scopes=["genomicFeature", "matrix"],
+                        )
+            except duckdb.Error as exc:
+                logger.warning("biotype_id facet scan failed: %s", exc)
             try:
                 rows, _ = self._fetchall(
                     f"""
@@ -1661,12 +1694,13 @@ class DuckDBStore:
                 else:
                     clauses.append(
                         "(CAST(feature_type_id AS VARCHAR) = ? OR "
+                        "CAST(biotype_id AS VARCHAR) = ? OR "
                         "(ontology_terms IS NOT NULL AND EXISTS ("
                         "SELECT 1 FROM UNNEST(ontology_terms) AS _ot(term) "
                         "WHERE CAST(term.id AS VARCHAR) = ?"
                         ")))"
                     )
-                    params.extend([f.id, f.id])
+                    params.extend([f.id, f.id, f.id])
             elif is_biotype_family_filter(f):
                 from beacon.biotype_families import so_ids_for_family
 
@@ -1677,11 +1711,13 @@ class DuckDBStore:
                 placeholders = ", ".join(["?"] * len(so_ids))
                 clauses.append(
                     f"(CAST(feature_type_id AS VARCHAR) IN ({placeholders}) OR "
+                    f"CAST(biotype_id AS VARCHAR) IN ({placeholders}) OR "
                     "(ontology_terms IS NOT NULL AND EXISTS ("
                     "SELECT 1 FROM UNNEST(ontology_terms) AS _ot(term) "
                     f"WHERE CAST(term.id AS VARCHAR) IN ({placeholders})"
                     ")))"
                 )
+                params.extend(so_ids)
                 params.extend(so_ids)
                 params.extend(so_ids)
             elif is_gene_public_id_filter(f):
@@ -2338,6 +2374,8 @@ class DuckDBStore:
                       resource,
                       feature_type_id,
                       feature_type_label,
+                      biotype_id,
+                      biotype_label,
                       aliases,
                       xrefs,
                       ontology_terms,
@@ -2373,6 +2411,8 @@ class DuckDBStore:
                       arbitrary(resource) AS resource,
                       arbitrary(feature_type_id) AS feature_type_id,
                       arbitrary(feature_type_label) AS feature_type_label,
+                      arbitrary(biotype_id) AS biotype_id,
+                      arbitrary(biotype_label) AS biotype_label,
                       arbitrary(aliases) AS aliases,
                       arbitrary(xrefs) AS xrefs,
                       arbitrary(ontology_terms) AS ontology_terms,
@@ -2685,6 +2725,8 @@ class DuckDBStore:
               v.resource,
               v.feature_type_id,
               v.feature_type_label,
+              v.biotype_id,
+              v.biotype_label,
               v.aliases,
               v.xrefs,
               v.ontology_terms,
@@ -2774,6 +2816,8 @@ class DuckDBStore:
                   v.resource,
                   v.feature_type_id,
                   v.feature_type_label,
+                  v.biotype_id,
+                  v.biotype_label,
                   v.aliases,
                   v.xrefs,
                   v.ontology_terms,
@@ -2790,6 +2834,8 @@ class DuckDBStore:
                     arbitrary(resource) AS resource,
                     arbitrary(feature_type_id) AS feature_type_id,
                     arbitrary(feature_type_label) AS feature_type_label,
+                    arbitrary(biotype_id) AS biotype_id,
+                    arbitrary(biotype_label) AS biotype_label,
                     arbitrary(aliases) AS aliases,
                     arbitrary(xrefs) AS xrefs,
                     arbitrary(ontology_terms) AS ontology_terms,
@@ -2818,6 +2864,8 @@ class DuckDBStore:
                   arbitrary(resource) AS resource,
                   arbitrary(feature_type_id) AS feature_type_id,
                   arbitrary(feature_type_label) AS feature_type_label,
+                  arbitrary(biotype_id) AS biotype_id,
+                  arbitrary(biotype_label) AS biotype_label,
                   arbitrary(aliases) AS aliases,
                   arbitrary(xrefs) AS xrefs,
                   arbitrary(ontology_terms) AS ontology_terms,
@@ -2851,6 +2899,8 @@ class DuckDBStore:
                   resource,
                   feature_type_id,
                   feature_type_label,
+                  biotype_id,
+                  biotype_label,
                   aliases,
                   xrefs,
                   ontology_terms,
@@ -2883,6 +2933,8 @@ class DuckDBStore:
               arbitrary(resource) AS resource,
               arbitrary(feature_type_id) AS feature_type_id,
               arbitrary(feature_type_label) AS feature_type_label,
+              arbitrary(biotype_id) AS biotype_id,
+              arbitrary(biotype_label) AS biotype_label,
               arbitrary(aliases) AS aliases,
               arbitrary(xrefs) AS xrefs,
               arbitrary(ontology_terms) AS ontology_terms,
@@ -3246,7 +3298,7 @@ class DuckDBStore:
             )
 
         native_id = str(
-            (feature.get("genomicFeature") or {}).get("featureIdentifier", {}).get("id")
+            (feature.get("featureIdentifier") or {}).get("id")
             or feature_id
         )
 
@@ -3504,6 +3556,9 @@ class DuckDBStore:
                 if not cols or "feature_type_id" in cols:
                     parts.append(f"CAST(feature_type_id AS VARCHAR) IN ({placeholders})")
                     params.extend(so_ids)
+                if not cols or "biotype_id" in cols:
+                    parts.append(f"CAST(biotype_id AS VARCHAR) IN ({placeholders})")
+                    params.extend(so_ids)
                 if "ontology_terms" in cols:
                     parts.append(
                         "(ontology_terms IS NOT NULL AND EXISTS ("
@@ -3519,6 +3574,9 @@ class DuckDBStore:
                 parts = []
                 if not cols or "feature_type_id" in cols:
                     parts.append("CAST(feature_type_id AS VARCHAR) = ?")
+                    params.append(filt.id)
+                if not cols or "biotype_id" in cols:
+                    parts.append("CAST(biotype_id AS VARCHAR) = ?")
                     params.append(filt.id)
                 if "ontology_terms" in cols:
                     parts.append(

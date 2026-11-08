@@ -214,15 +214,12 @@ def parse_encode_gene_quantifications(
                     "id": f"feature-{_slug(native_id)}",
                     "nativeId": native_id,
                     "resource": resource,
+                    "featureIdentifier": {
+                        "id": native_id,
+                        "resource": resource,
+                    },
                     "featureType": feature_type,
                     "aliases": [unversioned] if unversioned != native_id else [],
-                    "genomicFeature": {
-                        "featureIdentifier": {
-                            "id": native_id,
-                            "resource": resource,
-                        },
-                        "featureType": feature_type,
-                    },
                     "matrixIds": [matrix_id],
                 }
                 feature_order.append(native_id)

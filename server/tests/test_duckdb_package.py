@@ -51,6 +51,8 @@ _FEAT_SCHEMA = pa.schema(
         ("xrefs", _STR_LIST),
         ("feature_type_id", pa.string()),
         ("feature_type_label", pa.string()),
+        ("biotype_id", pa.string()),
+        ("biotype_label", pa.string()),
         ("ontology_terms", _TERMS),
         ("chrom", pa.string()),
         ("start", pa.int64()),
@@ -111,6 +113,8 @@ def _feature(fid: str, wid: str, matrix_id: str, **extra: Any) -> Dict[str, Any]
         "xrefs": extra.get("xrefs") or [],
         "feature_type_id": "SO:0000704",
         "feature_type_label": "gene",
+        "biotype_id": extra.get("biotype_id"),
+        "biotype_label": extra.get("biotype_label"),
         "ontology_terms": extra.get("ontology_terms") or [],
         "chrom": extra.get("chrom"),
         "start": extra.get("start"),
@@ -167,7 +171,9 @@ def _build_package(root: Path) -> None:
         symbol="TP53",
         aliases=["TP53"],
         xrefs=["HGNC:11998"],
-        ontology_terms=[{"id": "SO:0001217", "label": "protein_coding_gene"}],
+        biotype_id="SO:0001217",
+        biotype_label="protein_coding_gene",
+        ontology_terms=[{"id": "GO:0008150", "label": "biological_process"}],
         chrom="chr17",
         start=7661779,
         end=7687550,
@@ -336,6 +342,16 @@ def _build_package(root: Path) -> None:
                     "role": "feature_type",
                 }
             )
+            if row.get("biotype_id"):
+                ontology_rows.append(
+                    {
+                        "feature_id": row["feature_id"],
+                        "wrapper_id": row["wrapper_id"],
+                        "ontology_id": row["biotype_id"],
+                        "ontology_label": row.get("biotype_label") or "",
+                        "role": "biotype",
+                    }
+                )
     _write(root / "feature_index.parquet", index_rows, pa.schema([f for f in _FEAT_SCHEMA if f.name != "matrix_id"]))
     _write(
         root / "feature_matrix.parquet",
@@ -479,7 +495,7 @@ def _build_package(root: Path) -> None:
                         "type": "SO",
                         "id": "SO:0001217",
                         "label": "protein_coding_gene",
-                        "scopes": ["genomicFeature"],
+                        "scopes": ["genomicFeature", "matrix"],
                     },
                     {
                         "type": "UBERON",
@@ -636,7 +652,7 @@ class DuckDBPackageTest(unittest.TestCase):
         )
         self.assertEqual(blood.status_code, 200, blood.text)
         ids = {
-            row["genomicFeature"]["featureIdentifier"]["id"]
+            row["featureIdentifier"]["id"]
             for row in blood.json()["response"]["resultSets"][0]["results"]
         }
         self.assertEqual(ids, {"ENSG00000141510.18"})
@@ -898,7 +914,7 @@ class DuckDBPackageTest(unittest.TestCase):
     def test_genomic_interval_and_no_leaked_biosample_fields(self) -> None:
         feature = self.client.get("/features/feature-ENSG00000141510.18").json()
         row = feature["response"]["resultSets"][0]["results"][0]
-        interval = row["genomicFeature"]["genomicInterval"]
+        interval = row["genomicInterval"]
         self.assertEqual(interval["location"]["sequence_id"], "refseq:NC_000017.11")
         self.assertEqual(
             feature["meta"]["apiVersion"],
@@ -977,7 +993,7 @@ class DuckDBPackageTest(unittest.TestCase):
         ).json()
         schemas = REPO_ROOT / "beacon-schemas"
         cases = [
-            (feature["response"]["resultSets"][0]["results"][0], schemas / "genomicFeatureWrapper.json"),
+            (feature["response"]["resultSets"][0]["results"][0], schemas / "genomicFeature.json"),
             (biosample["response"]["resultSets"][0]["results"][0], schemas / "biosample.json"),
             (values["response"]["resultSets"][0]["results"][0], schemas / "expressionValue.json"),
         ]
@@ -1012,7 +1028,7 @@ class FeatureAliasOrderTest(unittest.TestCase):
             ["GTEx-v8-Liver"],
         )
         self.assertEqual(
-            doc["genomicFeature"]["aliases"],
+            doc["aliases"],
             ["MT-ND4", "ENSG00000198886"],
         )
 
@@ -1029,7 +1045,9 @@ class FeatureIndexMergeTest(unittest.TestCase):
             "symbol": "TP53",
             "aliases": ["TP53"],
             "xrefs": ["HGNC:1"],
-            "ontology_terms": [{"id": "SO:0001217", "label": "protein_coding_gene"}],
+            "biotype_id": "SO:0001217",
+            "biotype_label": "protein_coding_gene",
+            "ontology_terms": [{"id": "GO:0008150", "label": "biological_process"}],
             "chrom": "chr17",
             "_ann_rank": (24,),
         }
@@ -1038,6 +1056,8 @@ class FeatureIndexMergeTest(unittest.TestCase):
             "symbol": None,
             "aliases": ["P53"],
             "xrefs": ["NCBIGene:7157"],
+            "biotype_id": None,
+            "biotype_label": None,
             "ontology_terms": [],
             "chrom": "chr17",
             "_ann_rank": (26,),
@@ -1046,7 +1066,8 @@ class FeatureIndexMergeTest(unittest.TestCase):
         self.assertEqual(merged["symbol"], "TP53")
         self.assertEqual(merged["aliases"], ["TP53", "P53"])
         self.assertEqual(merged["xrefs"], ["HGNC:1", "NCBIGene:7157"])
-        self.assertEqual(merged["ontology_terms"][0]["id"], "SO:0001217")
+        self.assertEqual(merged["biotype_id"], "SO:0001217")
+        self.assertEqual(merged["ontology_terms"][0]["id"], "GO:0008150")
         self.assertEqual(merged["_ann_rank"], (26,))
 
 

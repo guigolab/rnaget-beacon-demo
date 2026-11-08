@@ -162,6 +162,8 @@ export type Matrix = {
   dimensions?: { features?: number; biosamples?: number }
   assayType?: OntologyTerm
   featureTypes?: OntologyTerm[]
+  biotypes?: OntologyTerm[]
+  biosampleTypes?: OntologyTerm[]
   /** @deprecated Prefer featureTypes */
   featureType?: OntologyTerm | OntologyTerm[]
   annotation?: { source?: string; version?: string; file?: string }
@@ -182,15 +184,15 @@ export type GenomicInterval = {
 
 export type Feature = {
   id: string
-  genomicFeature?: {
-    featureIdentifier?: { id?: string; resource?: string }
-    featureType?: OntologyTerm
-    aliases?: string[]
-    xrefs?: string[]
-    ontologyTerms?: OntologyTerm[]
-    genomicInterval?: GenomicInterval
-  }
+  featureIdentifier?: { id?: string; resource?: string }
+  featureType?: OntologyTerm
+  biotype?: OntologyTerm
+  aliases?: string[]
+  xrefs?: string[]
+  ontologyTerms?: OntologyTerm[]
+  genomicInterval?: GenomicInterval
   matrixIds?: string[]
+  info?: Record<string, unknown>
 }
 
 export type OntologyTerm = { id?: string; label?: string }

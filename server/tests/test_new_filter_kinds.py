@@ -68,11 +68,9 @@ class NewFilterKindsTest(unittest.TestCase):
         from beacon.filters import feature_doc_matches, normalize_filters
 
         doc = {
-            "genomicFeature": {
-                "featureIdentifier": {"id": "ENSG1", "resource": "gencode"},
+            "featureIdentifier": {"id": "ENSG1", "resource": "gencode"},
                 "featureType": {"id": "SO:0001217"},
                 "ontologyTerms": [{"id": "SO:0002127"}],
-            },
             "info": {
                 "median_percentile": 99.2,
             },
@@ -115,32 +113,50 @@ class NewFilterKindsTest(unittest.TestCase):
         self.assertFalse(feature_doc_matches(doc, ncbi))
 
         gene_only = {
-            "genomicFeature": {
-                "featureIdentifier": {"id": "ENSG2", "resource": "gencode"},
+            "featureIdentifier": {"id": "ENSG2", "resource": "gencode"},
                 "featureType": {"id": "SO:0000704"},
                 "ontologyTerms": [{"id": "SO:0002127"}],
-            }
         }
         self.assertFalse(feature_doc_matches(gene_only, pc))
         self.assertTrue(feature_doc_matches(gene_only, lnc))
 
         pc_via_ontology = {
-            "genomicFeature": {
-                "featureIdentifier": {"id": "ENSG3", "resource": "gencode"},
+            "featureIdentifier": {"id": "ENSG3", "resource": "gencode"},
                 "featureType": {"id": "SO:0000704"},
                 "ontologyTerms": [{"id": "SO:0001217"}],
-            }
         }
         self.assertTrue(feature_doc_matches(pc_via_ontology, pc))
+
+        pc_via_biotype = {
+            "featureIdentifier": {"id": "ENSG4", "resource": "gencode"},
+            "featureType": {"id": "SO:0000704"},
+            "biotype": {"id": "SO:0001217", "label": "protein_coding_gene"},
+            "ontologyTerms": [{"id": "GO:0008150"}],
+        }
+        self.assertTrue(feature_doc_matches(pc_via_biotype, pc))
+        self.assertFalse(feature_doc_matches(pc_via_biotype, lnc))
+
+        so_biotype = normalize_filters([{"id": "SO:0001217"}])
+        so_go = normalize_filters([{"id": "GO:0008150"}])
+        self.assertTrue(feature_doc_matches(pc_via_biotype, so_biotype))
+        self.assertTrue(feature_doc_matches(pc_via_biotype, so_go))
+        self.assertFalse(
+            feature_doc_matches(
+                {
+                    "featureIdentifier": {"id": "ENSG5", "resource": "gencode"},
+                    "featureType": {"id": "SO:0000704"},
+                    "ontologyTerms": [{"id": "GO:0008150"}],
+                },
+                so_biotype,
+            )
+        )
 
     def test_feature_doc_matches_symbol_case_sensitive(self) -> None:
         from beacon.filters import feature_doc_matches, normalize_filters
 
         doc = {
-            "genomicFeature": {
-                "featureIdentifier": {"id": "ENSG_ALB", "resource": "gencode"},
+            "featureIdentifier": {"id": "ENSG_ALB", "resource": "gencode"},
                 "aliases": ["ALB", "HSA"],
-            }
         }
         alb_upper = normalize_filters([{"id": "symbol:ALB"}])
         alb_title = normalize_filters([{"id": "symbol:Alb"}])
@@ -150,10 +166,8 @@ class NewFilterKindsTest(unittest.TestCase):
         self.assertFalse(feature_doc_matches(doc, alb_lower))
 
         doc_title = {
-            "genomicFeature": {
-                "featureIdentifier": {"id": "ENSG_Alb", "resource": "gencode"},
+            "featureIdentifier": {"id": "ENSG_Alb", "resource": "gencode"},
                 "aliases": ["Alb"],
-            }
         }
         self.assertTrue(feature_doc_matches(doc_title, alb_title))
         self.assertFalse(feature_doc_matches(doc_title, alb_upper))
