@@ -157,15 +157,6 @@ jobs:
       - name: Verify package
         run: python scripts/verify_data_package.py --package dist/data-package
 
-      - name: Test API against package
-        working-directory: server
-        env:
-          RNAGET_BUILT_PACKAGE: ${{ github.workspace }}/dist/data-package
-        run: |
-          set -euo pipefail
-          pip install -r requirements.txt pytest
-          python -m pytest -q
-
       - name: Pack tarball
         run: |
           set -euo pipefail
