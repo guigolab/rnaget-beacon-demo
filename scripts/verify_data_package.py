@@ -431,11 +431,21 @@ def main(argv: List[str] | None = None) -> int:
                 errors.append("gene_lookup.parquet has no lookup_kind=symbol rows")
         gene_ids = set(genes_table.column("feature_id").to_pylist())
         lookup_ids = set(lookup_table.column("feature_id").to_pylist())
-        orphan = lookup_ids - gene_ids
+        # complete_gene_lookup.py also keys served features that have no GTF/GFF
+        # gene row (symbol-less matrix features), so feature_index ids are valid too.
+        known_ids = set(gene_ids)
+        feature_index_path = root / "feature_index.parquet"
+        if feature_index_path.is_file():
+            known_ids |= set(
+                pq.read_table(feature_index_path, columns=["feature_id"])
+                .column("feature_id")
+                .to_pylist()
+            )
+        orphan = lookup_ids - known_ids
         if orphan:
             sample = sorted(orphan)[:5]
             errors.append(
-                f"gene_lookup feature_id(s) missing from genes: {sample}"
+                f"gene_lookup feature_id(s) missing from genes and feature_index: {sample}"
                 + (f" (+{len(orphan) - 5} more)" if len(orphan) > 5 else "")
             )
         if manifest.get("genesPath") != "genes.parquet":
