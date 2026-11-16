@@ -28,7 +28,7 @@ export function HelpPopover({
     const place = () => {
       const b = btnRef.current?.getBoundingClientRect()
       if (!b) return
-      const w = Math.min(448, window.innerWidth * 0.85)
+      const w = Math.min(480, window.innerWidth * 0.88)
       const left = Math.max(8, Math.min(b.left, window.innerWidth - w - 8))
       const h = panelRef.current?.offsetHeight ?? 0
       let top = b.bottom + 6
@@ -82,7 +82,7 @@ export function HelpPopover({
           ref={panelRef}
           role="dialog"
           style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? 'visible' : 'hidden' }}
-          className="fixed z-50 max-h-[calc(100vh-16px)] w-[min(28rem,85vw)] overflow-y-auto rounded-lg border border-border bg-card p-4 text-xs normal-case tracking-normal text-foreground shadow-lg"
+          className="fixed z-50 max-h-[calc(100vh-16px)] w-[min(30rem,88vw)] overflow-y-auto rounded-lg border border-border bg-card p-4 text-[13px] leading-relaxed normal-case tracking-normal text-foreground shadow-lg"
         >
           <h3 className="mb-2 text-sm font-semibold">{title}</h3>
           {children}
@@ -90,5 +90,23 @@ export function HelpPopover({
         document.body
       )}
     </div>
+  )
+}
+
+/** Titled block inside a help popover. */
+export function HelpSection({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <section className="mt-3 border-t border-border pt-3 first:mt-0 first:border-0 first:pt-0">
+      <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h4>
+      <div className="space-y-1.5">{children}</div>
+    </section>
   )
 }
