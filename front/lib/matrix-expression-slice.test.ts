@@ -47,9 +47,9 @@ assert.deepEqual(empty.featureIds, [])
 assert.deepEqual(empty.biosampleIds, [])
 assert.equal(empty.values.size, 0)
 
-assert.equal(sliceAxesCanExtend(20, 20), false)
-assert.equal(sliceAxesCanExtend(20, 19), true)
-assert.equal(sliceAxesCanExtend(19, 20), true)
+assert.equal(sliceAxesCanExtend(5, 20), false)
+assert.equal(sliceAxesCanExtend(5, 19), true)
+assert.equal(sliceAxesCanExtend(4, 20), true)
 assert.deepEqual(sliceDistinctCounts([cell('F1', 'B1', 1), cell('F1', 'B2', 2)]), {
   features: 1,
   biosamples: 2,

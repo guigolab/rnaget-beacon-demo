@@ -5,6 +5,7 @@ import {
   namespaceLabel,
   resourceAllowedInScope,
 } from './scope-theme'
+import { lensQueryPlaceholder } from '@/lib/lens-catalog'
 import type { FilteringResource, FilteringTerm } from '@/lib/beacon/types'
 
 function term(partial: Partial<FilteringTerm> & { id: string }): FilteringTerm {
@@ -54,7 +55,6 @@ const resources: FilteringResource[] = [
   { id: 'so', name: 'Sequence Ontology', nameSpacePrefix: 'SO' },
   { id: 'go', name: 'Gene Ontology', nameSpacePrefix: 'GO' },
   { id: 'hgnc', name: 'HUGO Gene Nomenclature Committee', nameSpacePrefix: 'HGNC' },
-  { id: 'symbol', name: 'Gene symbol', nameSpacePrefix: 'symbol' },
   { id: 'uberon', name: 'Uberon', nameSpacePrefix: 'UBERON' },
   { id: 'obi', name: 'Ontology for Biomedical Investigations', nameSpacePrefix: 'OBI' },
 ]
@@ -67,7 +67,7 @@ const featurePrefixes = home
 console.assert(featurePrefixes.includes('SO'))
 console.assert(featurePrefixes.includes('GO'))
 console.assert(featurePrefixes.includes('HGNC'))
-console.assert(featurePrefixes.includes('symbol'))
+console.assert(!featurePrefixes.includes('symbol'), 'symbol is a term, not a resource')
 const goHome = home.find((g) => g.key === 'GO|genomicFeature')
 console.assert(goHome?.count === 0 && goHome.terms.length === 0)
 const soHome = home.find((g) => g.key === 'SO|genomicFeature')
@@ -95,6 +95,21 @@ console.assert(
 )
 console.assert(
   resourceAllowedInScope('biosample', { id: 'uberon', nameSpacePrefix: 'UBERON' })
+)
+
+const symbolTerm: FilteringTerm = {
+  type: 'alphanumeric',
+  id: 'symbol',
+  label: 'Gene symbol',
+  scopes: ['genomicFeature'],
+}
+const symbolHome = groupHomeNamespaces([symbolTerm], resources).filter(
+  (g) => g.scope === 'genomicFeature' && g.terms.some((t) => t.id === 'symbol')
+)
+console.assert(symbolHome.length === 1 && symbolHome[0].namespaceType === 'alphanumeric')
+console.assert(
+  lensQueryPlaceholder('feature', [symbolTerm], resources).startsWith('symbol:…'),
+  'symbol term drives the placeholder'
 )
 
 console.log('scope-theme.test.ts: ok')

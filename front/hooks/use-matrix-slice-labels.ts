@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   isAbortError,
   lookupMatrixBiosamples,
@@ -8,12 +8,15 @@ import {
   type Biosample,
   type Feature,
 } from '@/lib/beacon'
+import { nativeFeatureId } from '@/lib/heatmap-expression'
 import {
   mergeFeatureRecordsByNativeId,
   mergeRecordsById,
   stubBiosamplesFromIds,
   stubFeaturesFromIds,
 } from '@/lib/matrix-expression-slice'
+
+const CACHE_CAP = 4000
 
 /**
  * Enrich slice-derived feature/biosample ids with nested matrix axis records.
@@ -42,66 +45,62 @@ export function useMatrixSliceLabels(input: {
     [biosampleKey]
   )
 
-  const [featureRecords, setFeatureRecords] = useState<Feature[]>([])
-  const [biosampleRecords, setBiosampleRecords] = useState<Biosample[]>([])
-  const [featureRecordsKey, setFeatureRecordsKey] = useState('')
-  const [biosampleRecordsKey, setBiosampleRecordsKey] = useState('')
+  // Enriched records survive window changes, so symbols do not flash back to ids and
+  // only ids not seen yet are looked up.
+  const featureCache = useRef(new Map<string, Feature>())
+  const biosampleCache = useRef(new Map<string, Biosample>())
+  const [featureVersion, setFeatureVersion] = useState(0)
+  const [biosampleVersion, setBiosampleVersion] = useState(0)
 
   useEffect(() => {
-    if (!enabled || !input.featureIds.length) {
-      setFeatureRecords([])
-      setFeatureRecordsKey(featureKey)
-      return
-    }
+    if (!enabled) return
+    const missing = input.featureIds.filter((id) => !featureCache.current.has(id))
+    if (!missing.length) return
     const controller = new AbortController()
-    lookupMatrixFeatures(input.matrixId, input.featureIds, {
-      signal: controller.signal,
-    })
+    lookupMatrixFeatures(input.matrixId, missing, { signal: controller.signal })
       .then((records) => {
         if (controller.signal.aborted) return
-        setFeatureRecords(records)
-        setFeatureRecordsKey(featureKey)
+        if (featureCache.current.size > CACHE_CAP) featureCache.current.clear()
+        for (const record of records) {
+          featureCache.current.set(nativeFeatureId(record).trim(), record)
+        }
+        setFeatureVersion((n) => n + 1)
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted || isAbortError(err)) return
-        setFeatureRecords([])
-        setFeatureRecordsKey(featureKey)
       })
     return () => controller.abort()
   }, [enabled, featureKey, input.featureIds, input.matrixId])
 
   useEffect(() => {
-    if (!enabled || !input.biosampleIds.length) {
-      setBiosampleRecords([])
-      setBiosampleRecordsKey(biosampleKey)
-      return
-    }
+    if (!enabled) return
+    const missing = input.biosampleIds.filter((id) => !biosampleCache.current.has(id))
+    if (!missing.length) return
     const controller = new AbortController()
-    lookupMatrixBiosamples(input.matrixId, input.biosampleIds, {
-      signal: controller.signal,
-    })
+    lookupMatrixBiosamples(input.matrixId, missing, { signal: controller.signal })
       .then((records) => {
         if (controller.signal.aborted) return
-        setBiosampleRecords(records)
-        setBiosampleRecordsKey(biosampleKey)
+        if (biosampleCache.current.size > CACHE_CAP) biosampleCache.current.clear()
+        for (const record of records) biosampleCache.current.set(record.id, record)
+        setBiosampleVersion((n) => n + 1)
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted || isAbortError(err)) return
-        setBiosampleRecords([])
-        setBiosampleRecordsKey(biosampleKey)
       })
     return () => controller.abort()
   }, [biosampleKey, enabled, input.biosampleIds, input.matrixId])
 
-  const features = useMemo(() => {
-    if (featureRecordsKey !== featureKey) return stubsFeatures
-    return mergeFeatureRecordsByNativeId(stubsFeatures, featureRecords)
-  }, [featureKey, featureRecords, featureRecordsKey, stubsFeatures])
+  const features = useMemo(
+    () => mergeFeatureRecordsByNativeId(stubsFeatures, [...featureCache.current.values()]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stubsFeatures, featureVersion]
+  )
 
-  const biosamples = useMemo(() => {
-    if (biosampleRecordsKey !== biosampleKey) return stubsBiosamples
-    return mergeRecordsById(stubsBiosamples, biosampleRecords)
-  }, [biosampleKey, biosampleRecords, biosampleRecordsKey, stubsBiosamples])
+  const biosamples = useMemo(
+    () => mergeRecordsById(stubsBiosamples, [...biosampleCache.current.values()]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stubsBiosamples, biosampleVersion]
+  )
 
   return { features, biosamples }
 }

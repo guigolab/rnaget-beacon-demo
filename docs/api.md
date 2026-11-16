@@ -81,9 +81,8 @@ Filled from export/hydrate when data exists; clinical biosample fields and gene 
 ## Filtering terms and `query.filters`
 
 Overview of advertised terms and how catalogs are built:
-[filtering-terms.md](filtering-terms.md). Catalog of **custom** filter ids
-(expression customs, biotype families), how stats bands are computed, and
-friendlier labels: [custom-filtering-terms.md](custom-filtering-terms.md).
+[filtering-terms.md](filtering-terms.md). Match rules live in
+`server/beacon/filters.py`; display labels in `server/beacon/filter_display.py`.
 
 Informational catalogs:
 
@@ -91,7 +90,7 @@ Informational catalogs:
 
 Dropped: `/matrices/{id}/filtering_terms`, `/features/filtering_terms`, `/biosamples/filtering_terms`, `/matrices/filtering_terms`, and `/matrices/{id}/{features|biosamples}/filtering_terms`.
 
-Catalogs are built by `scripts/build_filtering_terms.py` / `scripts/fetch_data_package.py` into root `filtering_terms.json`. They include SO/GO feature facets (SO is **genomicFeature**-scoped only); UBERON/EFO biosample facets; matrix OBI assay + `matrix.*` alphanumeric facets; and `resources[]` for namespaces in use (`so`, `go`, `uberon`, `efo`, `obi`, `mondo`, `hp`, `ncit`, `hgnc`, `ncbigene`, `ensembl`, `symbol`). Individual HGNC/NCBIGene/ENSEMBL values and gene symbols are **not** listed as terms.
+Catalogs are built by `scripts/build_filtering_terms.py` / `scripts/fetch_data_package.py` into root `filtering_terms.json`. They include SO/GO feature facets (SO is **genomicFeature**-scoped only); UBERON/EFO biosample facets; matrix OBI assay + `matrix.*` alphanumeric facets; and `resources[]` for namespaces in use (`so`, `go`, `uberon`, `efo`, `obi`, `mondo`, `hp`, `ncit`, `hgnc`, `ncbigene`, `ensembl`). Individual HGNC/NCBIGene/ENSEMBL values are **not** listed as terms; gene symbols are advertised as the alphanumeric term `symbol` (no `values`).
 
 Apply filters on collection-root list endpoints only (`GET|POST /features`, `GET|POST /biosamples`, `GET|POST /matrices`). Nested relation routes (`/{entry}/{id}/…`) do not accept `filters`.
 

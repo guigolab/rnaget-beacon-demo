@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useFilteringTerms } from '@/hooks/use-filtering-terms'
 import { useMatrixCandidates } from '@/hooks/use-matrix-candidates'
@@ -14,10 +14,10 @@ import {
   cellKey,
   matrixHeatmapColorScaleBounds,
   nativeFeatureId,
-  windowPercentileColourValues,
-  type MatrixColourMode,
 } from '@/lib/heatmap-expression'
-import { AXIS_STEP } from '@/lib/matrix-expression-slice'
+import { AXIS_STEP, FEATURE_STEP } from '@/lib/matrix-expression-slice'
+import { HEATMAP_FEW_BIOSAMPLE_MAX } from '@/lib/heatmap-table'
+import { MatrixGridSkeleton } from './matrix-grid-skeleton'
 import { MatrixHeatmapGrid } from './matrix-heatmap-grid'
 import { MatrixQueryPanel } from './matrix-query-panel'
 import {
@@ -31,9 +31,15 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
   const { query, patch, clearFilters } = useMatrixQueryState(matrixId, scopeIndex)
   const catalog = useFilteringTerms('/filtering_terms')
   const [visibleIds, setVisibleIds] = useState<string[]>([])
-  const [colourMode, setColourMode] = useState<MatrixColourMode>('value')
-  const [featureCap, setFeatureCap] = useState(AXIS_STEP)
-  const [biosampleCap, setBiosampleCap] = useState(AXIS_STEP)
+  const [featureCap, setFeatureCap] = useState(FEATURE_STEP)
+  // Matrix dimensions are known up front: small matrices load every column at once
+  // (full-width table, no layout jump); big ones start with one window.
+  const dims = matrix.dimensions
+  const initialBiosampleCap =
+    dims?.biosamples != null && dims.biosamples > 0 && dims.biosamples <= HEATMAP_FEW_BIOSAMPLE_MAX
+      ? dims.biosamples
+      : AXIS_STEP
+  const [biosampleCap, setBiosampleCap] = useState(initialBiosampleCap)
 
   // Typed genes / ontology filters narrow the candidate ids; with none, the ranked
   // expression_values slice below covers the whole matrix.
@@ -48,14 +54,16 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
     featureCap,
     biosampleCap,
     enabled: candidates.status === 'ready' && !candidates.noMatch,
+    // Filters are still resolving: keep the current grid instead of blanking it.
+    holdWhenDisabled: candidates.status === 'loading',
   })
 
   // A new query starts again at the first 20 × 20 cells.
   const sliceQueryKey = `${candidates.featureIDList ?? ''}#${candidates.biosampleIDList ?? ''}#${query.minValue ?? ''}#${query.maxValue ?? ''}#${query.order}`
   useEffect(() => {
-    setFeatureCap(AXIS_STEP)
-    setBiosampleCap(AXIS_STEP)
-  }, [sliceQueryKey, matrixId])
+    setFeatureCap(FEATURE_STEP)
+    setBiosampleCap(initialBiosampleCap)
+  }, [sliceQueryKey, matrixId, initialBiosampleCap])
 
   const labels = useMatrixSliceLabels({
     matrixId,
@@ -66,9 +74,21 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
   const heatmapFeatures = labels.features
   const heatmapBiosamples = labels.biosamples
 
+  // Scrolling reports a new column window on every frame; wait for it to settle so
+  // fast scrolls do not cancel and restart the cell requests.
+  const visibleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onVisibleBiosampleIds = useCallback((ids: string[]) => {
-    setVisibleIds((prev) => (prev.join('|') === ids.join('|') ? prev : ids))
+    if (visibleTimer.current) clearTimeout(visibleTimer.current)
+    visibleTimer.current = setTimeout(() => {
+      setVisibleIds((prev) => (prev.join('|') === ids.join('|') ? prev : ids))
+    }, 120)
   }, [])
+  useEffect(
+    () => () => {
+      if (visibleTimer.current) clearTimeout(visibleTimer.current)
+    },
+    []
+  )
 
   const fetchBiosamples = useMemo(() => {
     if (!heatmapBiosamples.length) return []
@@ -98,7 +118,7 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
     if (slice.hasMoreBiosamples) setBiosampleCap((cap) => cap + AXIS_STEP)
   }, [slice.hasMoreBiosamples])
   const onLoadMoreFeatures = useCallback(() => {
-    if (slice.hasMoreFeatures) setFeatureCap((cap) => cap + AXIS_STEP)
+    if (slice.hasMoreFeatures) setFeatureCap((cap) => cap + FEATURE_STEP)
   }, [slice.hasMoreFeatures])
 
   const valueRange = matrix.expressionValueRange
@@ -110,18 +130,7 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
     Number.isFinite(catalogMin) &&
     Number.isFinite(catalogMax)
 
-  const colourValues = useMemo(() => {
-    if (colourMode === 'value') return values
-    return windowPercentileColourValues(
-      values,
-      heatmapFeatures,
-      fetchBiosamples,
-      colourMode
-    )
-  }, [colourMode, fetchBiosamples, heatmapFeatures, values])
-
   const range = useMemo(() => {
-    if (colourMode !== 'value') return { min: 0, max: 100 }
     if (catalogReady && catalogMin != null && catalogMax != null) {
       return { min: catalogMin, max: catalogMax }
     }
@@ -142,24 +151,30 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
     catalogMax,
     catalogMin,
     catalogReady,
-    colourMode,
     fetchBiosamples,
     heatmapFeatures,
     values,
   ])
 
   const colorScale = useMemo(
-    () =>
-      colourMode === 'value'
-        ? matrixHeatmapColorScaleBounds(valueRange, range.min, range.max)
-        : { min: 0, max: 100 },
-    [colourMode, range.max, range.min, valueRange]
+    () => matrixHeatmapColorScaleBounds(valueRange, range.min, range.max),
+    [range.max, range.min, valueRange]
   )
 
   const onClear = useCallback(() => {
     clearFilters(catalog.terms)
   }, [catalog.terms, clearFilters])
 
+  // Totals the grid can rely on from the first paint: the whole matrix when
+  // unfiltered, otherwise the resolved candidate ids.
+  const idCount = (list?: string) => (list ? list.split(',').length : 0)
+  const featureTotalHint = candidates.featureIDList
+    ? idCount(candidates.featureIDList)
+    : (dims?.features ?? 0)
+  const biosampleTotalHint = candidates.biosampleIDList
+    ? idCount(candidates.biosampleIDList)
+    : (dims?.biosamples ?? 0)
+  const queryPending = candidates.status === 'loading' || slice.status === 'loading'
   const hasRows = heatmapFeatures.length > 0 && heatmapBiosamples.length > 0
   const error = candidates.error || slice.error || densify.error
   const loading =
@@ -188,12 +203,12 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
         }`}
       >
         <MatrixResultsToolbar
-          colourMode={colourMode}
-          onColourModeChange={setColourMode}
+          order={query.order}
+          onOrderChange={(order) => patch({ order })}
           featureShown={heatmapFeatures.length}
-          featureTotal={0}
+          featureTotal={featureTotalHint}
           biosampleShown={heatmapBiosamples.length}
-          biosampleTotal={0}
+          biosampleTotal={biosampleTotalHint}
           loading={loading}
           catalogMin={valueRange?.min}
           catalogMax={valueRange?.max}
@@ -221,10 +236,27 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
 
         <div
           id={MATRIX_RESULTS_PANEL_ID}
-          className="overflow-hidden rounded-lg border border-border bg-muted/20"
+          className="relative overflow-hidden rounded-lg border border-border bg-muted/20"
+          aria-busy={loading}
         >
+          <div
+            aria-hidden
+            className={`absolute inset-x-0 top-0 z-[40] h-0.5 overflow-hidden transition-opacity duration-200 ${
+              loading ? 'opacity-100' : 'opacity-0'
+            }`}
+          >
+            <div className="h-full w-1/3 animate-[matrix-progress_1.1s_ease-in-out_infinite] bg-primary/70" />
+          </div>
+          <div
+            className={`transition-opacity duration-200 ${
+              queryPending && hasRows ? 'opacity-55' : 'opacity-100'
+            }`}
+          >
           {!axesReady && !hasRows ? (
-            <p className="px-3 py-6 text-sm text-muted-foreground">Loading matrix axes…</p>
+            <MatrixGridSkeleton
+              featureTotal={featureTotalHint}
+              biosampleTotal={biosampleTotalHint}
+            />
           ) : !hasRows ? (
             error ? null : (
               <div className="space-y-2 px-3 py-6">
@@ -239,10 +271,11 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
               features={heatmapFeatures}
               biosamples={heatmapBiosamples}
               columnTotal={
-                heatmapBiosamples.length + (slice.hasMoreBiosamples ? 1 : 0)
+                biosampleTotalHint > 0
+                  ? biosampleTotalHint
+                  : heatmapBiosamples.length + (slice.hasMoreBiosamples ? 1 : 0)
               }
               values={values}
-              colorValues={colourMode === 'value' ? undefined : colourValues}
               pendingKeys={pendingKeys}
               colorMin={colorScale.min}
               colorMax={colorScale.max}
@@ -251,9 +284,10 @@ export function MatrixWorkspace({ matrix }: { matrix: Matrix }) {
               canLoadMoreFeatures={slice.hasMoreFeatures}
               onLoadMoreFeatures={onLoadMoreFeatures}
               loadingMoreFeatures={slice.loadingMore}
-              featureTotal={0}
+              featureTotal={featureTotalHint}
             />
           )}
+          </div>
         </div>
       </div>
     </section>

@@ -160,6 +160,10 @@ jobs:
         # Gene x tissue matrix for fast tissue.percentile queries (derived from the summary).
         run: python scripts/build_tissue_percentile_wide.py --package dist/data-package
 
+      - name: Build expression top cells
+        # Head of each matrix's unfiltered value ranking: the first Matrix page.
+        run: python scripts/build_expression_top_cells.py --package dist/data-package
+
       - name: Build filtering_terms catalog
         # Root filtering_terms.json only (nested by_matrix catalogs retired).
         # fetch_data_package.py rebuilds after percentiles so expression.percentileIn*

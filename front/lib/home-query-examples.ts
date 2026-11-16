@@ -12,7 +12,6 @@ import type { Granularity } from '@/lib/beacon'
 import type { QueryOptions } from '@/lib/beacon/query'
 import {
   exploreLensSearchParams,
-  tissuePresentFilter,
   tissueTopFilter,
 } from '@/lib/explore-lens'
 import { geneLensQueryExamples } from '@/lib/gene-lens'
@@ -24,7 +23,6 @@ export type HomeExampleTab =
   | 'feature'
   | 'biosample'
   | 'expressionValue'
-  | 'explore'
 
 export type HomeExampleRequest = {
   path: string
@@ -40,8 +38,6 @@ export type HomeQueryExample = {
   request?: HomeExampleRequest
   /** Deep link into the app (Explore / Matrices). */
   href?: string
-  /** Extra curl lines for Explore (synthetic Beacon calls under the hood). */
-  underlying?: Array<{ label: string; request: HomeExampleRequest }>
 }
 
 /** Granularity an example is requested at (Beacon `requestedGranularity`). */
@@ -54,7 +50,6 @@ export const HOME_EXAMPLE_TABS: Array<{ id: HomeExampleTab; label: string }> = [
   { id: 'feature', label: 'Genomic features' },
   { id: 'biosample', label: 'Biosamples' },
   { id: 'expressionValue', label: 'Expression values' },
-  { id: 'explore', label: 'Explore' },
 ]
 
 function recordOpts(filters?: UiFilter[], extra?: Partial<QueryOptions>): QueryOptions {
@@ -396,41 +391,6 @@ export function buildHomeQueryExamples(opts: {
           } satisfies HomeQueryExample,
         ]
       : []),
-
-    // ── Explore ─────────────────────────────────────────────────────────────
-    {
-      id: 'explore-liver',
-      tab: 'explore',
-      title: 'Which genes define liver? (tissue-first Explore)',
-      blurb:
-        'A single tissue with no gene filters pages genes by tissue.percentile: top 1% (>= 99) first, then every gene present in the tissue (>= 0).',
-      href: exploreHref([liver]),
-      request: {
-        path: '/features',
-        opts: recordOpts([tissueTopFilter(LIVER_ID)]),
-      },
-      underlying: [
-        {
-          label: 'Presence continuation (after top page)',
-          request: {
-            path: '/features',
-            opts: recordOpts([tissuePresentFilter(LIVER_ID)]),
-          },
-        },
-      ],
-    },
-    {
-      id: 'explore-alb-liver',
-      tab: 'explore',
-      title: 'Gene × tissue · ALB in liver',
-      blurb:
-        'Case-sensitive gene symbol plus tissue — Alb ≠ ALB. Heatmap bands probe tissue.percentile >= 99 for the visible genes.',
-      href: exploreHref([alb, liver]),
-      request: {
-        path: '/features',
-        opts: recordOpts([alb, tissuePresentFilter(LIVER_ID)]),
-      },
-    },
   ]
 
   return examples

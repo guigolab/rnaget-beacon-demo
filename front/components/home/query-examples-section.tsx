@@ -22,7 +22,8 @@ type QueryExamplesSectionProps = {
 }
 
 export function QueryExamplesSection({ terms }: QueryExamplesSectionProps) {
-  const [tab, setTab] = useState<HomeExampleTab>('matrix')
+  const [tab, setTab] = useState<HomeExampleTab>('feature')
+  const [expandAll, setExpandAll] = useState(false)
   const [matrixIds, setMatrixIds] = useState<string[]>(FALLBACK_MATRIX_IDS)
 
   useEffect(() => {
@@ -56,22 +57,9 @@ export function QueryExamplesSection({ terms }: QueryExamplesSectionProps) {
         <p className="mt-1 text-sm text-muted-foreground">
           Real questions answered by the four Beacon v2 models (genomic features, biosamples, matrices and expression values). Each card is a runnable request.
         </p>
-        <div className="mt-1">
-          <LensMutedEndpoints
-            lines={[
-              'GET or POST /matrices',
-              'GET or POST /features',
-              'GET or POST /biosamples',
-              'GET or POST /matrices/{id}/expression_values',
-              'GET or POST /matrices/{id}',
-              'GET or POST /features/{id}/matrices',
-              'GET or POST /biosamples/{id}/matrices',
-            ]}
-          />
-        </div>
       </div>
 
-      <div className="flex flex-wrap gap-1 border-b border-border pb-2">
+      <div className="flex flex-wrap items-center gap-1 border-b border-border pb-2">
         {HOME_EXAMPLE_TABS.map((item) => {
           const active = item.id === tab
           return (
@@ -87,12 +75,17 @@ export function QueryExamplesSection({ terms }: QueryExamplesSectionProps) {
               )}
             >
               {item.label}
-              <span className="ml-1.5 tabular-nums opacity-60">
-                {examplesForTab(examples, item.id).length}
-              </span>
             </button>
           )
         })}
+        <button
+          type="button"
+          aria-pressed={expandAll}
+          onClick={() => setExpandAll((v) => !v)}
+          className="ml-auto rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+        >
+          {expandAll ? 'Hide all requests' : 'Show all requests'}
+        </button>
       </div>
 
       {visible.length === 0 ? (
@@ -100,7 +93,11 @@ export function QueryExamplesSection({ terms }: QueryExamplesSectionProps) {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {visible.map((example) => (
-            <QueryExampleCard key={example.id} example={example} />
+            <QueryExampleCard
+              key={example.id}
+              example={example}
+              expandAll={expandAll}
+            />
           ))}
         </div>
       )}

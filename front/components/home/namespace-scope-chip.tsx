@@ -48,6 +48,9 @@ export function NamespaceScopeChip({ group }: { group: NamespaceScopeGroup }) {
   const alphanumeric = termType === 'alphanumeric'
   const typeStyle = filterTypeChipStyle(termType)
   const prefix = alphanumeric ? group.namespaceLabel : group.namespaceType
+  // Open-ended alphanumeric terms (e.g. gene symbol) list no precomputed values.
+  const openEnded =
+    alphanumeric && group.terms.every((term) => (term.values?.length ?? 0) === 0)
   const hasTerms = group.count > 0 && group.terms.length > 0
   const titleCount = hasTerms
     ? `${group.count} term${group.count === 1 ? '' : 's'}`
@@ -74,7 +77,7 @@ export function NamespaceScopeChip({ group }: { group: NamespaceScopeGroup }) {
         }
       >
         <span className={alphanumeric ? 'truncate' : 'truncate font-mono'}>{prefix}</span>
-        {hasTerms && (
+        {hasTerms && !openEnded && (
           <span className="tabular-nums text-[9px] opacity-80">{group.count}</span>
         )}
       </Popover.Trigger>
@@ -98,8 +101,10 @@ export function NamespaceScopeChip({ group }: { group: NamespaceScopeGroup }) {
                 <code className="font-mono">operator</code> +{' '}
                 <code className="font-mono">value</code> (for example{' '}
                 <code className="font-mono">=</code> or{' '}
-                <code className="font-mono">&gt;=</code>). Values below are the
-                precomputed set offered in the UI.
+                <code className="font-mono">&gt;=</code>).{' '}
+                {openEnded
+                  ? 'Open-ended: any value is accepted (gene symbols are case-sensitive).'
+                  : 'Values below are the precomputed set offered in the UI.'}
               </p>
             )}
             {hasTerms ? (

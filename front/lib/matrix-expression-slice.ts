@@ -5,7 +5,9 @@ import { cellKey, nativeFeatureId } from '@/lib/heatmap-expression'
 export const SLICE_LIMIT = 1000
 /** Max heatmap rows derived from a ranked slice. */
 export const AXIS_STEP = 20
-export const SLICE_FEATURE_CAP = AXIS_STEP
+/** Feature rows per step: small, so a view costs few concurrent requests (no 503s). */
+export const FEATURE_STEP = 5
+export const SLICE_FEATURE_CAP = FEATURE_STEP
 /** Max heatmap columns derived from a ranked slice. */
 export const SLICE_BIOSAMPLE_CAP = AXIS_STEP
 

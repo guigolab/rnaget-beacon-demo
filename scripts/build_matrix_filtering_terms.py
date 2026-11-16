@@ -350,7 +350,7 @@ def _build_one_matrix_doc(
         present_ids=feat_present,
         alphanumeric=feat_alphanumeric,
         scope="genomicFeature",
-        keep_symbol_resource=has_features,
+        keep_symbol_term=has_features,
         allowed_expression_ids=allowed_expression_ids,
     )
     feat_terms, feat_resources = ensure_matrix_feature_so_terms(
@@ -367,7 +367,7 @@ def _build_one_matrix_doc(
         present_ids=bio_present,
         alphanumeric=bio_alpha,
         scope="biosample",
-        keep_symbol_resource=False,
+        keep_symbol_term=False,
         allowed_expression_ids=allowed_expression_ids,
     )
     terms, resources = merge_matrix_scoped_filtering_terms(

@@ -487,15 +487,14 @@ def _build_package(root: Path) -> None:
                         "iriPrefix": "http://purl.obolibrary.org/obo/UBERON_",
                         "url": "http://purl.obolibrary.org/obo/uberon.owl",
                     },
-                    {
-                        "id": "symbol",
-                        "name": "Gene symbol",
-                        "nameSpacePrefix": "symbol",
-                        "iriPrefix": "https://www.genenames.org/tools/search/#!/?query=",
-                        "url": "https://www.genenames.org",
-                    },
                 ],
                 "filteringTerms": [
+                    {
+                        "type": "alphanumeric",
+                        "id": "symbol",
+                        "label": "Gene symbol",
+                        "scopes": ["genomicFeature"],
+                    },
                     {"type": "SO", "id": "SO:0000704", "label": "gene", "scopes": ["genomicFeature"]},
                     {
                         "type": "SO",

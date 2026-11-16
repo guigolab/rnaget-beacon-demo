@@ -35,9 +35,10 @@ const STEPS: Array<{ title: string; body: string; endpoints?: string[] }> = [
   },
 ]
 
-export function ExploreHowItWorks() {
+export function ExploreHowItWorks({ hideHeading = false }: { hideHeading?: boolean }) {
   return (
-    <section id="explore" className="space-y-4">
+    <section className="space-y-4">
+      {hideHeading ? null : (
       <div>
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           How Explore uses the models
@@ -48,6 +49,7 @@ export function ExploreHowItWorks() {
           case for the Beacon models in this demo.
         </p>
       </div>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="border-b border-border bg-muted/20 px-4 py-3">

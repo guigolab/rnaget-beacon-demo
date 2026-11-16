@@ -309,13 +309,6 @@ RESOURCE_DEFS: Dict[str, Dict[str, str]] = {
         "iriPrefix": "http://purl.obolibrary.org/obo/UO_",
         "url": "http://purl.obolibrary.org/obo/uo.owl",
     },
-    "symbol": {
-        "id": "symbol",
-        "name": "Gene symbol",
-        "nameSpacePrefix": "symbol",
-        "iriPrefix": "https://www.genenames.org/tools/search/#!/?query=",
-        "url": "https://www.genenames.org",
-    },
 }
 
 
@@ -652,12 +645,19 @@ def build_catalog(package: Path) -> Dict[str, Any]:
         elif pref in ("ENSEMBL", "ENSG"):
             needed_resources.add("ensembl")
 
-    # Symbol is a lookup namespace (alphanumeric filter id ``symbol``); no term dump.
+    # Gene symbol is an open-ended alphanumeric field: advertised as a term with
+    # no ``values`` (not an ontology resource).
     if genes_path.is_file() or any(
         (package / "matrices" / (e.get("dir") or "") / "features.parquet").is_file()
         for e in (manifest.get("matrices") or [])
     ):
-        needed_resources.add("symbol")
+        _add_term(
+            terms,
+            type_="alphanumeric",
+            id_="symbol",
+            label="Gene symbol",
+            scopes=["genomicFeature"],
+        )
 
     _append_expression_root_terms(package, terms, needed_resources)
     _append_biotype_family_terms(terms)
@@ -684,7 +684,6 @@ def build_catalog(package: Path) -> Dict[str, Any]:
             "hgnc",
             "ncbigene",
             "ensembl",
-            "symbol",
         )
         if key in needed_resources and key in RESOURCE_DEFS
     ]

@@ -26,6 +26,8 @@ import { biosampleHeatmapColumnHeader } from '@/lib/sample-lens'
 
 const BIO_COL_FALLBACK_PX = 72
 const BIO_OVERSCAN = 4
+/** Columns are fetched in blocks with one block of look-ahead each side. */
+const BIO_FETCH_BLOCK = 8
 const BIO_SCROLL_FETCH_PX = 240
 /** Ignore sub-pixel / scrollbar flicker in ResizeObserver updates. */
 const SIZE_EPSILON_PX = 2
@@ -36,8 +38,6 @@ type MatrixHeatmapGridProps = {
   columnTotal: number
   /** Raw expression values (labels). */
   values: Map<string, number>
-  /** Optional colour map (e.g. window percentiles); defaults to `values`. */
-  colorValues?: Map<string, number>
   pendingKeys: Set<string>
   colorMin: number
   colorMax: number
@@ -54,7 +54,6 @@ export function MatrixHeatmapGrid({
   biosamples,
   columnTotal,
   values,
-  colorValues,
   pendingKeys,
   colorMin,
   colorMax,
@@ -65,7 +64,6 @@ export function MatrixHeatmapGrid({
   loadingMoreFeatures,
   featureTotal,
 }: MatrixHeatmapGridProps) {
-  const fillValues = colorValues ?? values
   const scrollRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLTableCellElement>(null)
   const [scrollLeft, setScrollLeft] = useState(0)
@@ -88,11 +86,20 @@ export function MatrixHeatmapGrid({
   const visible = few ? biosamples : biosamples.slice(start, Math.min(end, biosamples.length))
   const padLeft = few ? 0 : start * colWidth
   const padRight = few ? 0 : Math.max(0, trackCount - end) * colWidth
-  const visibleKey = visible.map((sample) => sample.id).join('|')
+  // Fetch window: whole blocks around the viewport, so small scrolls reuse the same
+  // request and the next columns are already loading before they appear.
+  const fetchStart = few ? 0 : Math.max(0, Math.floor(start / BIO_FETCH_BLOCK) * BIO_FETCH_BLOCK - BIO_FETCH_BLOCK)
+  const fetchEnd = few
+    ? biosamples.length
+    : Math.min(biosamples.length, Math.ceil(end / BIO_FETCH_BLOCK) * BIO_FETCH_BLOCK + BIO_FETCH_BLOCK)
+  const fetchKey = biosamples
+    .slice(fetchStart, fetchEnd)
+    .map((sample) => sample.id)
+    .join('|')
 
   useEffect(() => {
-    onVisibleBiosampleIds(visible.map((sample) => sample.id))
-  }, [visibleKey, onVisibleBiosampleIds])
+    onVisibleBiosampleIds(fetchKey ? fetchKey.split('|') : [])
+  }, [fetchKey, onVisibleBiosampleIds])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -237,7 +244,7 @@ export function MatrixHeatmapGrid({
                   const key = cellKey(featureNativeId, columnId)
                   const value = values.get(key)
                   const hasValue = value !== undefined && Number.isFinite(value)
-                  const fill = fillValues.get(key)
+                  const fill = value
                   const hasFill = fill !== undefined && Number.isFinite(fill)
                   const isLoading = !hasValue && pendingKeys.has(key)
                   const background = hasFill

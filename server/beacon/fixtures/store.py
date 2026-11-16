@@ -4,6 +4,8 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from beacon.symbol_term import normalize_symbol_term
+
 from .loader import load_all, strip_schema
 
 logger = logging.getLogger(__name__)
@@ -63,13 +65,6 @@ _FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
             "iriPrefix": "http://purl.obolibrary.org/obo/GO_",
             "url": "http://purl.obolibrary.org/obo/go.owl",
         },
-        {
-            "id": "symbol",
-            "name": "Gene symbol",
-            "nameSpacePrefix": "symbol",
-            "iriPrefix": "https://www.genenames.org/tools/search/#!/?query=",
-            "url": "https://www.genenames.org",
-        },
     ],
     "filteringTerms": [
         {
@@ -114,6 +109,12 @@ _FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
             "label": "Data source",
             "scopes": ["matrix"],
             "values": ["encode", "geo", "gtex"],
+        },
+        {
+            "type": "alphanumeric",
+            "id": "symbol",
+            "label": "Gene symbol",
+            "scopes": ["genomicFeature"],
         },
         {
             "type": "alphanumeric",
@@ -220,12 +221,13 @@ class FixtureStore:
             if r.get("id")
         }
         resources = list(resources_by_id.values())
+        terms, resources = normalize_symbol_term(terms, resources)
         if scopes:
             want = set(scopes)
             terms = [t for t in terms if want.intersection(t.get("scopes") or [])]
             keep = set()
             if "genomicFeature" in want:
-                keep.update({"so", "go", "hgnc", "ncbigene", "ensembl", "symbol"})
+                keep.update({"so", "go", "hgnc", "ncbigene", "ensembl"})
             if "biosample" in want:
                 keep.update({"uberon", "efo", "obi", "mondo", "hp", "go", "ncit"})
             if "matrix" in want:

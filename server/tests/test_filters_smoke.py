@@ -115,7 +115,13 @@ class FiltersSmokeTest(unittest.TestCase):
             for res in body.get("resources") or []
         }
         self.assertIn("go", prefixes)
-        self.assertIn("symbol", prefixes)
+        # Gene symbol is an alphanumeric term without values, not a resource.
+        self.assertNotIn("symbol", prefixes)
+        symbol_terms = [t for t in body["filteringTerms"] if t["id"] == "symbol"]
+        self.assertEqual(len(symbol_terms), 1)
+        self.assertEqual(symbol_terms[0]["type"], "alphanumeric")
+        self.assertIn("genomicFeature", symbol_terms[0]["scopes"])
+        self.assertNotIn("values", symbol_terms[0])
 
     def test_ensembl_unversioned_curie(self) -> None:
         r = self.client.post(

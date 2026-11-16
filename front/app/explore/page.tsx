@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { PercentileHelp } from '@/components/explore/percentile-help'
 import { ExploreHeatmap } from '@/components/explore/explore-heatmap'
 import { FilterChipButton } from '@/components/shared/filter-chip-button'
 import { GeneFeatureQueryBar } from '@/components/genes/gene-feature-query-bar'
@@ -331,9 +332,12 @@ function ExploreLensContent() {
       <section className="mt-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/20 px-4 py-3">
           <div>
-            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Gene × tissue heatmap
-            </h2>
+            <div className="flex items-center gap-1">
+              <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Gene × tissue heatmap
+              </h2>
+              <PercentileHelp />
+            </div>
             <div className="mt-1">
               <LensMutedEndpoints
                 lines={[

@@ -52,6 +52,7 @@ Checkout → Disk check → Python + download cache
   → build_tissue_feature_summary.py
   → complete_gene_lookup.py           (every feature id is a gene_lookup key; per-cell Explore queries)
   → build_tissue_percentile_wide.py   (gene × tissue matrix for fast tissue.percentile queries)
+  → build_expression_top_cells.py     (head of each matrix's value ranking; first Matrix page)
   → build_filtering_terms.py
   → verify_data_package.py → pytest
   → Pack data-package.tar.zst → Upload artifact → (optional) Release
@@ -79,6 +80,7 @@ data-package/
   gene_lookup.parquet
   tissue_feature_summary.parquet
   tissue_percentile_wide.parquet
+  expression_top_cells.parquet
   filtering_terms.json
   matrices/
     <matrix-id>/

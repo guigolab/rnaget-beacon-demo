@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, Sequence, Set, Tuple
 
+from beacon.symbol_term import (
+    SYMBOL_TERM_ID,
+    symbol_filtering_term,
+)
+
 AxisKind = Literal["features", "biosamples"]
 
 
@@ -211,7 +216,7 @@ def _prune_resources(
         if tid == "feature.resource":
             keep_ids.update({"ncbigene", "ensembl", "gencode"})
     keep_ids.update(
-        {"hgnc", "ncbigene", "ensembl", "symbol", "so", "uberon", "efo", "go"}
+        {"hgnc", "ncbigene", "ensembl", "so", "uberon", "efo", "go"}
     )
     return [
         r
@@ -256,7 +261,7 @@ def _subset_terms(
     present_ids: Set[str],
     alphanumeric: Dict[str, Set[str]],
     scope: str,
-    keep_symbol_resource: bool = False,
+    keep_symbol_term: bool = False,
     sex_ontology_pairs: Optional[Set[Tuple[str, str]]] = None,
     allowed_expression_ids: Optional[Set[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -379,17 +384,24 @@ def _subset_terms(
             if any(pid.lower() == tid.lower() for pid in present_ids):
                 out.append(dict(term))
 
+    if (
+        keep_symbol_term
+        and scope == "genomicFeature"
+        and not any(str(t.get("id") or "") == SYMBOL_TERM_ID for t in out)
+    ):
+        # Gene symbol is an alphanumeric term (no values) advertised whenever the
+        # matrix has feature rows; reuse the global term when the catalog has one.
+        out.append(
+            next(
+                (
+                    dict(t)
+                    for t in global_terms
+                    if str(t.get("id") or "") == SYMBOL_TERM_ID
+                ),
+                symbol_filtering_term(),
+            )
+        )
     resources = _prune_resources(out, global_resources)
-    if keep_symbol_resource:
-        resources_by_id = {
-            str(r.get("id") or "").lower(): dict(r) for r in resources if r.get("id")
-        }
-        for r in global_resources:
-            rid = str(r.get("id") or "").lower()
-            prefix = str(r.get("nameSpacePrefix") or "").lower()
-            if rid == "symbol" or prefix == "symbol":
-                resources_by_id[rid or "symbol"] = dict(r)
-        resources = list(resources_by_id.values())
     return out, resources
 
 
@@ -412,7 +424,7 @@ def build_matrix_features_filtering_terms(
         present_ids=present,
         alphanumeric={},
         scope="genomicFeature",
-        keep_symbol_resource=bool(features),
+        keep_symbol_term=bool(features),
         allowed_expression_ids=allowed_expression_ids,
     )
     return ensure_matrix_feature_so_terms(
@@ -444,7 +456,7 @@ def build_matrix_biosamples_filtering_terms(
         present_ids=present,
         alphanumeric=alphanumeric,
         scope="biosample",
-        keep_symbol_resource=False,
+        keep_symbol_term=False,
         sex_ontology_pairs=pairs,
         allowed_expression_ids=allowed_expression_ids,
     )

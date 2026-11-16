@@ -8,13 +8,12 @@ import {
   COLOR_TOP,
 } from '@/components/heatmap-colors'
 import { formatHeatmapValue } from '@/lib/heatmap-expression'
-import type { MatrixColourMode } from '@/lib/heatmap-expression'
 
 export const MATRIX_RESULTS_PANEL_ID = 'matrix-results-panel'
 
 type MatrixResultsToolbarProps = {
-  colourMode: MatrixColourMode
-  onColourModeChange: (mode: MatrixColourMode) => void
+  order: 'asc' | 'desc'
+  onOrderChange: (order: 'asc' | 'desc') => void
   featureShown: number
   featureTotal: number
   biosampleShown: number
@@ -26,8 +25,8 @@ type MatrixResultsToolbarProps = {
 }
 
 export function MatrixResultsToolbar({
-  colourMode,
-  onColourModeChange,
+  order,
+  onOrderChange,
   featureShown,
   featureTotal,
   biosampleShown,
@@ -38,13 +37,11 @@ export function MatrixResultsToolbar({
   unit,
 }: MatrixResultsToolbarProps) {
   const gradient = `linear-gradient(90deg, ${COLOR_LOW}, ${COLOR_MID_LOW}, ${COLOR_MID}, ${COLOR_HIGH}, ${COLOR_TOP})`
-  const percentileMode = colourMode !== 'value'
-  const hasScale = percentileMode
-    ? true
-    : catalogMin != null &&
-      catalogMax != null &&
-      Number.isFinite(catalogMin) &&
-      Number.isFinite(catalogMax)
+  const hasScale =
+    catalogMin != null &&
+    catalogMax != null &&
+    Number.isFinite(catalogMin) &&
+    Number.isFinite(catalogMax)
   const featureLabel =
     featureTotal > 0
       ? `${featureShown.toLocaleString()} / ${featureTotal.toLocaleString()} features`
@@ -53,35 +50,29 @@ export function MatrixResultsToolbar({
     biosampleTotal > 0
       ? `${biosampleShown.toLocaleString()} / ${biosampleTotal.toLocaleString()} biosamples`
       : `${biosampleShown.toLocaleString()} biosamples`
-  const scaleMinLabel = percentileMode ? '0' : formatHeatmapValue(catalogMin!)
-  const scaleMaxLabel = percentileMode ? '100' : formatHeatmapValue(catalogMax!)
-  const scaleUnit = percentileMode ? '%' : unit ? ` ${unit}` : ''
-  const scaleAria = percentileMode
-    ? `Window percentile color scale 0 to 100 (${colourMode === 'percentileInFeature' ? 'within feature' : 'within biosample'})`
-    : `Expression color scale ${scaleMinLabel} to ${scaleMaxLabel}${unit ? ` ${unit}` : ''}`
+  const scaleMinLabel = hasScale ? formatHeatmapValue(catalogMin!) : ''
+  const scaleMaxLabel = hasScale ? formatHeatmapValue(catalogMax!) : ''
+  const scaleUnit = unit ? ` ${unit}` : ''
+  const scaleAria = `Expression color scale ${scaleMinLabel} to ${scaleMaxLabel}${scaleUnit}`
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        Colour
+        Sort
         <select
-          aria-label="Heatmap colour mode"
-          value={colourMode}
-          onChange={(event) =>
-            onColourModeChange(event.target.value as MatrixColourMode)
-          }
+          aria-label="Sort expression values"
+          value={order}
+          onChange={(event) => onOrderChange(event.target.value === 'asc' ? 'asc' : 'desc')}
           className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
         >
-          <option value="value">Value</option>
-          <option value="percentileInFeature">Window % in feature</option>
-          <option value="percentileInBiosample">Window % in biosample</option>
+          <option value="desc">Highest first</option>
+          <option value="asc">Lowest first</option>
         </select>
       </label>
       <p className="min-w-0 flex-1 text-[11px] text-muted-foreground">
         {featureLabel}
         {' · '}
         {biosampleLabel}
-        {percentileMode ? ' · window percentile' : ''}
       </p>
       {loading && (
         <span className="text-[11px] text-muted-foreground" aria-live="polite">

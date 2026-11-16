@@ -303,6 +303,17 @@ def package_has_tissue_percentile_wide(package: Path) -> bool:
     return bool(manifest.get("tissuePercentileWide"))
 
 
+def package_has_expression_top_cells(package: Path) -> bool:
+    """True when the precomputed head of the value ranking exists and is registered."""
+    manifest_path = package / "manifest.json"
+    if not (package / "expression_top_cells.parquet").is_file():
+        return False
+    if not manifest_path.is_file():
+        return False
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return bool(manifest.get("expressionTopCells"))
+
+
 def _print_summary(package: Path) -> None:
     manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
     print("\nPackage summary")
@@ -410,6 +421,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         build_tissue_wide(out)
     else:
         print("Reusing shipped tissue percentile wide table")
+
+    # Head of each matrix's unfiltered value ranking (first Matrix page, no scan).
+    if args.force_stats or not package_has_expression_top_cells(out):
+        print("Building expression top cells…")
+        from build_expression_top_cells import build_package as build_top_cells
+
+        build_top_cells(out)
+    else:
+        print("Reusing shipped expression top cells")
 
     # Percentiles are fetch-time only (too large for the 2 GiB release asset).
     print("Building expression percentiles…")

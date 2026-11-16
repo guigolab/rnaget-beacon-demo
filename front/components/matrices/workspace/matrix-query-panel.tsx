@@ -1,8 +1,10 @@
 'use client'
 
 import { Popover } from '@base-ui/react/popover'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { FilteringTermBrowser } from '@/components/shared/filtering-term-browser'
+import { ChevronDown } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { FilterTypeLegend } from '@/components/shared/filter-type-legend'
+import { FilterChipButton } from '@/components/shared/filter-chip-button'
 import { Button } from '@/components/ui/button'
 import { useFilteringTerms } from '@/hooks/use-filtering-terms'
 import type { MatrixQueryUpdate } from '@/hooks/use-matrix-query-state'
@@ -11,7 +13,14 @@ import { listMatrixFeatures } from '@/lib/beacon/client'
 import type { Matrix, UiFilter } from '@/lib/beacon'
 import type { Feature } from '@/lib/beacon/types'
 import { catalogLabelById, filterChipDisplay } from '@/lib/gene-filter-labels'
-import { browsableTerms, lensQueryPlaceholder } from '@/lib/lens-catalog'
+import {
+  filterTermTypeOf,
+  filterTypeChipStyle,
+  type FilterTermType,
+} from '@/lib/filter-type-theme'
+import { formatHeatmapValue } from '@/lib/heatmap-expression'
+import { lensQueryPlaceholder } from '@/lib/lens-catalog'
+import { matrixFilterGroups } from '@/lib/matrix-filter-groups'
 import {
   matrixHeatmapBiosampleExamples,
   matrixHeatmapFeatureExamples,
@@ -28,9 +37,17 @@ import {
 } from '@/lib/matrix-workspace-query'
 import { mergeGeneLensFilters } from '@/lib/gene-lens'
 import { mergeSampleLensFilters } from '@/lib/sample-lens'
-import { MatrixBiotypeFamilyChips } from './matrix-biotype-family-chips'
+import { FilterGroupPopover } from './filter-group-popover'
 import { MatrixRangeFilter } from './matrix-range-filter'
-import { QueryChipInput, type QueryChip, type QueryExampleChip } from './query-chip-input'
+import { QueryChipInput, type QueryExampleChip } from './query-chip-input'
+
+type AppliedChip = {
+  key: string
+  label: string
+  title?: string
+  mono?: boolean
+  type: FilterTermType
+}
 
 function shorten(id: string) {
   return id.length > 22 ? `${id.slice(0, 20)}…` : id
@@ -56,39 +73,30 @@ type MatrixQueryPanelProps = {
   biosampleTotalFallback?: number
 }
 
-function CatalogBrowsePopover({
+function AppliedRow({
   label,
-  count,
-  loading,
-  children,
+  chips,
+  onRemove,
 }: {
   label: string
-  count: number
-  loading: boolean
-  children: ReactNode
+  chips: AppliedChip[]
+  onRemove: (key: string) => void
 }) {
-  if (!loading && count === 0) return null
+  if (!chips.length) return null
   return (
-    <Popover.Root>
-      <Popover.Trigger
-        type="button"
-        className="rounded-md border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground hover:border-foreground/30 hover:text-foreground"
-      >
-        {loading ? label : `${label} (${count.toLocaleString()})`}
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner sideOffset={6} align="start" className="z-[200]">
-          <Popover.Popup className="z-[200] w-[min(100vw-2rem,22rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg outline-none">
-            <div className="border-b border-border px-3 py-2">
-              <Popover.Title className="text-xs font-semibold text-foreground">
-                {label}
-              </Popover.Title>
-            </div>
-            <div className="max-h-[min(70vh,24rem)] overflow-y-auto p-2">{children}</div>
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="w-20 shrink-0 text-[11px] font-medium text-muted-foreground">{label}</span>
+      {chips.map((chip) => (
+        <FilterChipButton
+          key={chip.key}
+          label={chip.label}
+          title={chip.title}
+          mono={chip.mono}
+          style={filterTypeChipStyle(chip.type)}
+          onRemove={() => onRemove(chip.key)}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -105,8 +113,7 @@ export function MatrixQueryPanel({
     () => buildFilterScopeIndex(catalog.terms),
     [catalog.terms]
   )
-  const featureLabels = useMemo(() => catalogLabelById(catalog.terms), [catalog.terms])
-  const biosampleLabels = useMemo(() => catalogLabelById(catalog.terms), [catalog.terms])
+  const labels = useMemo(() => catalogLabelById(catalog.terms), [catalog.terms])
   const featurePlaceholder = lensQueryPlaceholder(
     'feature',
     catalog.terms,
@@ -116,6 +123,14 @@ export function MatrixQueryPanel({
     'biosample',
     catalog.terms,
     catalog.resources
+  )
+  const featureGroups = useMemo(
+    () => matrixFilterGroups('feature', catalog.terms, catalog.resources),
+    [catalog.terms, catalog.resources]
+  )
+  const biosampleGroups = useMemo(
+    () => matrixFilterGroups('biosample', catalog.terms, catalog.resources),
+    [catalog.terms, catalog.resources]
   )
 
   const [featureText, setFeatureText] = useState('')
@@ -168,18 +183,6 @@ export function MatrixQueryPanel({
       }
       return current
     })
-  }
-
-  function toggleFeatureFilter(filter: UiFilter) {
-    const key = filterKey(filter)
-    const active = query.featureFilters.some((item) => filterKey(item) === key)
-    if (active) {
-      onPatch((current) => ({
-        featureFilters: current.featureFilters.filter((item) => filterKey(item) !== key),
-      }))
-      return
-    }
-    applyFeatureFilter(filter)
   }
 
   function applyBiosampleFilter(filter: UiFilter) {
@@ -266,46 +269,6 @@ export function MatrixQueryPanel({
     }
   }
 
-  const featureChips: QueryChip[] = [
-    ...query.featureFilters.map((filter) => {
-      const display = filterChipDisplay(filter, featureLabels)
-      return {
-        key: filterKey(filter),
-        label: display.text,
-        title: display.tooltip,
-      }
-    }),
-    ...query.featureIds.map((id) => ({
-      key: `id:${id}`,
-      label: shorten(id),
-      title: `Feature ${id}`,
-      mono: true,
-    })),
-    ...query.genes.map((gene) => ({
-      key: `gene:${gene}`,
-      label: gene,
-      title: `Gene ${gene}`,
-      mono: true,
-    })),
-  ]
-
-  const biosampleChips: QueryChip[] = [
-    ...query.biosampleIds.map((id) => ({
-      key: `id:${id}`,
-      label: shorten(id),
-      title: `Biosample ${id}`,
-      mono: true,
-    })),
-    ...query.biosampleFilters.map((filter) => {
-      const display = filterChipDisplay(filter, biosampleLabels)
-      return {
-        key: filterKey(filter),
-        label: display.text,
-        title: display.tooltip,
-      }
-    }),
-  ]
-
   function removeFeatureChip(key: string) {
     onPatch((current) => {
       if (key.startsWith('gene:')) {
@@ -334,190 +297,228 @@ export function MatrixQueryPanel({
     })
   }
 
+  const featureChips: AppliedChip[] = [
+    ...query.featureFilters.map((filter) => {
+      const display = filterChipDisplay(filter, labels)
+      return {
+        key: filterKey(filter),
+        label: display.text,
+        title: display.tooltip,
+        type: filterTermTypeOf(filter),
+      }
+    }),
+    ...query.featureIds.map((id) => ({
+      key: `id:${id}`,
+      label: shorten(id),
+      title: `Feature ${id}`,
+      mono: true,
+      type: 'alphanumeric' as const,
+    })),
+    ...query.genes.map((gene) => ({
+      key: `gene:${gene}`,
+      label: gene,
+      title: `Gene ${gene}`,
+      mono: true,
+      type: 'alphanumeric' as const,
+    })),
+  ]
+
+  const biosampleChips: AppliedChip[] = [
+    ...query.biosampleIds.map((id) => ({
+      key: `id:${id}`,
+      label: shorten(id),
+      title: `Biosample ${id}`,
+      mono: true,
+      type: 'alphanumeric' as const,
+    })),
+    ...query.biosampleFilters.map((filter) => {
+      const display = filterChipDisplay(filter, labels)
+      return {
+        key: filterKey(filter),
+        label: display.text,
+        title: display.tooltip,
+        type: filterTermTypeOf(filter),
+      }
+    }),
+  ]
+
   const range = matrix.expressionValueRange
   const hasRange =
     range?.min != null &&
     range?.max != null &&
     Number.isFinite(range.min) &&
     Number.isFinite(range.max)
+  const unit = matrix.expressionUnitAndScale?.unit
+  const rangeActive = query.minValue != null || query.maxValue != null
+  const valueChips: AppliedChip[] =
+    rangeActive && hasRange && range?.min != null && range.max != null
+      ? [
+          {
+            key: 'range',
+            label: `${formatHeatmapValue(query.minValue ?? range.min)} – ${formatHeatmapValue(query.maxValue ?? range.max)}${unit ? ` ${unit}` : ''}`,
+            title: 'Value range (click to remove)',
+            mono: true,
+            type: 'alphanumeric',
+          },
+        ]
+      : []
+
   const featureTokens = featureIdListCsv(query)?.split(',').length ?? 0
   const biosampleTokens = biosampleIdListCsv(query)?.split(',').length ?? 0
-  const capped = featureTokens >= 100 || biosampleTokens >= 100
-  const featureTermCount = browsableTerms(
-    catalog.terms.filter((term) => term.scopes?.includes('genomicFeature') ?? false)
-  ).length
-  const biosampleTermCount = browsableTerms(
-    catalog.terms.filter((term) => term.scopes?.includes('biosample') ?? false)
-  ).length
+  const featureCapped = featureTokens >= 100
+  const biosampleCapped = biosampleTokens >= 100
+  const activeCount = featureChips.length + biosampleChips.length + valueChips.length
 
   const dimCount = matrix.dimensions?.biosamples
   const hideBiosampleQuery =
     dimCount != null ? dimCount <= 2 : (biosampleTotalFallback ?? Infinity) <= 2
 
-  const gridClass = hideBiosampleQuery
-    ? 'grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)] lg:items-start'
-    : 'grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(20rem,26rem)] lg:items-start'
-
   return (
-    <div className={gridClass}>
-      <div className="min-w-0 space-y-1.5">
-        <QueryChipInput
-          id="matrix-feature-search-input"
-          label="Features"
-          chips={featureChips}
-          text={featureText}
-          placeholder={catalog.loading ? 'Add filter…' : featurePlaceholder}
-          error={featureError || catalog.error}
-          pinnedExamples={exampleChips(featureExamples.pinned, applyFeatureFilter)}
-          moreExamples={exampleChips(featureExamples.more, applyFeatureFilter)}
-          suggestions={querySuggestions(catalog.terms, featureText, 'feature')}
-          onTextChange={(value) => {
-            setFeatureText(value)
-            if (featureError) setFeatureError('')
-          }}
-          onCommit={applyFeatureToken}
-          onRemove={removeFeatureChip}
-          onSuggestion={(suggestion) => applySuggestion(suggestion, 'feature')}
-          onBackspaceEmpty={() => {
-            const last = featureChips[featureChips.length - 1]
-            if (last) removeFeatureChip(last.key)
-          }}
-        />
-        <MatrixBiotypeFamilyChips
-          catalogTerms={catalog.terms}
-          activeFilters={query.featureFilters}
-          onToggle={toggleFeatureFilter}
-          loading={catalog.loading}
-        />
-        <CatalogBrowsePopover
-          label="Browse catalog"
-          count={featureTermCount}
-          loading={catalog.loading}
-        >
-          <FilteringTermBrowser
-            variant="embedded"
-            scope="genomicFeature"
-            terms={catalog.terms}
-            resources={catalog.resources}
-            activeFilters={query.featureFilters}
-            onAddFilter={applyFeatureFilter}
-            loading={catalog.loading}
-            error={catalog.error}
-          />
-        </CatalogBrowsePopover>
+    <div className="space-y-3 rounded-xl border border-border bg-card p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-sm font-semibold text-foreground">Filters</h2>
+        {activeCount > 0 && (
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
+            {activeCount} active
+          </span>
+        )}
+        <FilterTypeLegend className="ml-1 hidden sm:flex" />
+        <div className="ml-auto flex items-center gap-2">
+          {hasRange && range?.min != null && range.max != null && (
+            <Popover.Root>
+              <Popover.Trigger
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:border-foreground/30"
+              >
+                Value range
+                <ChevronDown className="size-3" aria-hidden />
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Positioner sideOffset={6} align="end" className="z-[200]">
+                  <Popover.Popup className="z-[200] w-[min(100vw-2rem,22rem)] rounded-lg border border-border bg-popover p-3 shadow-lg outline-none">
+                    <MatrixRangeFilter
+                      matrixMin={range.min}
+                      matrixMax={range.max}
+                      unit={unit}
+                      minValue={query.minValue}
+                      maxValue={query.maxValue}
+                      onApply={(minValue, maxValue) => onPatch({ minValue, maxValue })}
+                    />
+                  </Popover.Popup>
+                </Popover.Positioner>
+              </Popover.Portal>
+            </Popover.Root>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-8 px-2.5 text-foreground disabled:opacity-60"
+            disabled={!matrixWorkspaceHasConstraints(query)}
+            onClick={onClear}
+          >
+            Clear all
+          </Button>
+        </div>
       </div>
 
-      {!hideBiosampleQuery && (
-        <div className="min-w-0 space-y-1.5">
+      <div
+        className={
+          hideBiosampleQuery
+            ? 'grid gap-3'
+            : 'grid gap-3 lg:grid-cols-2 lg:items-start'
+        }
+      >
+        <div className="min-w-0">
           <QueryChipInput
-            id="matrix-biosample-filter-input"
-            label="Biosamples"
-            chips={biosampleChips}
-            text={biosampleText}
-            placeholder={catalog.loading ? 'Add filter…' : biosamplePlaceholder}
-            error={biosampleError || catalog.error}
-            pinnedExamples={exampleChips(biosampleExamples.pinned, applyBiosampleFilter)}
-            moreExamples={exampleChips(biosampleExamples.more, applyBiosampleFilter)}
-            suggestions={querySuggestions(catalog.terms, biosampleText, 'biosample')}
+            id="matrix-feature-search-input"
+            label="Features"
+            hasChips={featureChips.length > 0}
+            text={featureText}
+            placeholder={catalog.loading ? 'Add filter…' : featurePlaceholder}
+            error={featureError || catalog.error}
+            pinnedExamples={exampleChips(featureExamples.pinned, applyFeatureFilter)}
+            moreExamples={exampleChips(featureExamples.more, applyFeatureFilter)}
+            suggestions={querySuggestions(catalog.terms, featureText, 'feature')}
             onTextChange={(value) => {
-              setBiosampleText(value)
-              if (biosampleError) setBiosampleError('')
+              setFeatureText(value)
+              if (featureError) setFeatureError('')
             }}
-            onCommit={applyBiosampleToken}
-            onRemove={removeBiosampleChip}
-            onSuggestion={(suggestion) => applySuggestion(suggestion, 'biosample')}
+            onCommit={applyFeatureToken}
+            onSuggestion={(suggestion) => applySuggestion(suggestion, 'feature')}
             onBackspaceEmpty={() => {
-              const last = biosampleChips[biosampleChips.length - 1]
-              if (last) removeBiosampleChip(last.key)
+              const last = featureChips[featureChips.length - 1]
+              if (last) removeFeatureChip(last.key)
             }}
-          />
-          <CatalogBrowsePopover
-            label="Browse catalog"
-            count={biosampleTermCount}
-            loading={catalog.loading}
           >
-            <FilteringTermBrowser
-              variant="embedded"
-              scope="biosample"
-              terms={catalog.terms}
-              resources={catalog.resources}
-              activeFilters={query.biosampleFilters}
-              onAddFilter={applyBiosampleFilter}
-              loading={catalog.loading}
-              error={catalog.error}
-            />
-          </CatalogBrowsePopover>
+            {featureGroups.map((group) => (
+              <FilterGroupPopover
+                key={group.key}
+                group={group}
+                activeFilters={query.featureFilters}
+                onAdd={applyFeatureFilter}
+              />
+            ))}
+          </QueryChipInput>
+          {featureCapped && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Gene and id lists are capped at 100 tokens.
+            </p>
+          )}
         </div>
-      )}
 
-      <div className="min-w-0 space-y-1.5 lg:border-l lg:border-border lg:pl-3">
-        <div className="flex items-center gap-2">
-          <label
-            htmlFor="matrix-expression-order"
-            className="text-[11px] font-medium text-muted-foreground"
-          >
-            Sort values
-          </label>
-          <select
-            id="matrix-expression-order"
-            value={query.order}
-            onChange={(event) =>
-              onPatch({ order: event.target.value === 'asc' ? 'asc' : 'desc' })
-            }
-            className="h-9 rounded-md border border-border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-          >
-            <option value="desc">Descending (highest first)</option>
-            <option value="asc">Ascending (lowest first)</option>
-          </select>
-        </div>
-        {hasRange && range?.min != null && range.max != null ? (
-          <MatrixRangeFilter
-            matrixMin={range.min}
-            matrixMax={range.max}
-            unit={matrix.expressionUnitAndScale?.unit}
-            minValue={query.minValue}
-            maxValue={query.maxValue}
-            onApply={(minValue, maxValue) => onPatch({ minValue, maxValue })}
-            trailing={
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-9 shrink-0 px-2.5 text-foreground disabled:opacity-60"
-                disabled={!matrixWorkspaceHasConstraints(query)}
-                onClick={onClear}
-              >
-                Clear
-              </Button>
-            }
-          />
-        ) : (
-          <div className="space-y-1.5">
-            <span className="block text-[11px] font-medium text-muted-foreground">Value range</span>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-              <p className="text-[11px] text-muted-foreground">No value range for this matrix.</p>
-              <span className="mx-0.5 shrink-0 text-sm text-muted-foreground" aria-hidden>
-                |
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-9 shrink-0 px-2.5 text-foreground disabled:opacity-60"
-                disabled={!matrixWorkspaceHasConstraints(query)}
-                onClick={onClear}
-              >
-                Clear
-              </Button>
-            </div>
+        {!hideBiosampleQuery && (
+          <div className="min-w-0">
+            <QueryChipInput
+              id="matrix-biosample-filter-input"
+              label="Biosamples"
+              hasChips={biosampleChips.length > 0}
+              text={biosampleText}
+              placeholder={catalog.loading ? 'Add filter…' : biosamplePlaceholder}
+              error={biosampleError || catalog.error}
+              pinnedExamples={exampleChips(biosampleExamples.pinned, applyBiosampleFilter)}
+              moreExamples={exampleChips(biosampleExamples.more, applyBiosampleFilter)}
+              suggestions={querySuggestions(catalog.terms, biosampleText, 'biosample')}
+              onTextChange={(value) => {
+                setBiosampleText(value)
+                if (biosampleError) setBiosampleError('')
+              }}
+              onCommit={applyBiosampleToken}
+              onSuggestion={(suggestion) => applySuggestion(suggestion, 'biosample')}
+              onBackspaceEmpty={() => {
+                const last = biosampleChips[biosampleChips.length - 1]
+                if (last) removeBiosampleChip(last.key)
+              }}
+            >
+              {biosampleGroups.map((group) => (
+                <FilterGroupPopover
+                  key={group.key}
+                  group={group}
+                  activeFilters={query.biosampleFilters}
+                  onAdd={applyBiosampleFilter}
+                />
+              ))}
+            </QueryChipInput>
+            {biosampleCapped && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Gene and id lists are capped at 100 tokens.
+              </p>
+            )}
           </div>
         )}
-        {capped && (
-          <p className="text-[10px] text-muted-foreground">
-            Gene and id lists are capped at 100 tokens.
-          </p>
-        )}
       </div>
+
+      {activeCount > 0 && (
+        <div className="space-y-1.5 border-t border-border pt-2.5">
+          <AppliedRow label="Features" chips={featureChips} onRemove={removeFeatureChip} />
+          <AppliedRow label="Biosamples" chips={biosampleChips} onRemove={removeBiosampleChip} />
+          <AppliedRow
+            label="Value"
+            chips={valueChips}
+            onRemove={() => onPatch({ minValue: undefined, maxValue: undefined })}
+          />
+        </div>
+      )}
     </div>
   )
 }

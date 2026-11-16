@@ -94,9 +94,11 @@ function rowsForSet(set: BeaconMapEndpointSet): MapRow[] {
 
 type BeaconMapSectionProps = {
   map: BeaconMap | null
+  /** Drop the section title (the parent disclosure already names it). */
+  hideHeading?: boolean
 }
 
-export function BeaconMapSection({ map }: BeaconMapSectionProps) {
+export function BeaconMapSection({ map, hideHeading = false }: BeaconMapSectionProps) {
   const sets = useMemo(() => {
     if (!map) return [] as Array<[string, BeaconMapEndpointSet]>
     return Object.entries(map.endpointSets ?? {}).sort(([a], [b]) => {
@@ -131,17 +133,17 @@ export function BeaconMapSection({ map }: BeaconMapSectionProps) {
 
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Endpoint map
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Paths advertised for each entry type and nested lookup.
-        </p>
-        <div className="mt-1">
-          <LensMutedEndpoints lines={['GET /map']} />
+      {hideHeading ? null : (
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Endpoint map
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Paths advertised for each entry type and nested lookup.
+          </p>
         </div>
-      </div>
+      )}
+      <LensMutedEndpoints lines={['GET /map']} />
 
       {sets.length === 0 ? (
         <p className="text-sm text-muted-foreground">No endpoint sets returned.</p>

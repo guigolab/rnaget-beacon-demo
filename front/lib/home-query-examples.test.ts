@@ -78,22 +78,9 @@ for (const example of examples) {
   }
 }
 
-const explore = examplesForTab(examples, 'explore')
 assert.ok(
-  !explore.some((e) => e.id === 'explore-genes'),
-  'AND multi-symbol Explore example should be absent'
-)
-for (const example of explore) {
-  assert.ok(example.href?.startsWith('/explore/'), `${example.id}: explore href`)
-  assert.ok(example.request, `${example.id}: runnable request`)
-  const built = collectionQuery(example.request!.path, example.request!.opts)
-  assert.ok(built.path.startsWith('/features'), `${example.id}: features path`)
-}
-
-const exploreLiver = explore.find((e) => e.id === 'explore-liver')
-assert.ok(
-  (exploreLiver?.underlying?.length ?? 0) > 0,
-  'explore-liver keeps tissuePresent continuation'
+  !examples.some((e) => e.id.startsWith('explore')),
+  'no Explore examples on the home page'
 )
 
 const matrixSingle = examples.find((e) => e.id === 'matrix-single')

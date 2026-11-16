@@ -1,12 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { BeaconMapSection } from '@/components/home/beacon-map-section'
 import { EntryTypeCards } from '@/components/home/entry-type-cards'
-import { ExploreHowItWorks } from '@/components/home/explore-how-it-works'
 import { HomeHero } from '@/components/home/home-hero'
 import { KpiCards } from '@/components/home/kpi-cards'
 import { QueryExamplesSection } from '@/components/home/query-examples-section'
+import { ReferenceSection } from '@/components/home/reference-section'
 import { LensPageShell } from '@/components/shared/lens-page-shell'
 import { ErrorNote } from '@/components/status'
 import { PageFrame } from '@/components/ui-kit'
@@ -41,7 +40,7 @@ const ANCHORS = [
   { href: '#overview', label: 'Overview' },
   { href: '#entities', label: 'Entities' },
   { href: '#queries', label: 'Queries' },
-  { href: '#explore', label: 'Explore' },
+  { href: '#reference', label: 'Reference' },
 ] as const
 
 function HomeAnchorNav({ className }: { className?: string }) {
@@ -120,10 +119,12 @@ export function HomePage() {
         )}
 
         {state.status === 'ready' && (
-          <div className="space-y-10">
+          <div className="space-y-8">
             <HomeAnchorNav />
-            <HomeHero info={state.info} />
-            <KpiCards counts={counts} />
+            <div className="space-y-4">
+              <HomeHero info={state.info} />
+              <KpiCards counts={counts} />
+            </div>
 
             {state.entryTypes.length > 0 && (
               <EntryTypeCards
@@ -133,9 +134,8 @@ export function HomePage() {
               />
             )}
 
-            <BeaconMapSection map={state.map} />
             <QueryExamplesSection terms={state.terms} />
-            <ExploreHowItWorks />
+            <ReferenceSection map={state.map} />
           </div>
         )}
       </PageFrame>

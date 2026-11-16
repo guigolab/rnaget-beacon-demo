@@ -8,7 +8,33 @@ Nested `/matrices/{id}/filtering_terms` is not part of the model or this demo.
 
 Filter kinds are `ontology` and `alphanumeric`; nothing is advertised as `custom` any more. Filters are AND-only across separate ids.
 
-Request shapes and live OpenAPI: [api.md](api.md). Id-by-id match rules and labels: [custom-filtering-terms.md](custom-filtering-terms.md).
+## The two kinds at a glance
+
+| | Ontology | Alphanumeric |
+|---|---|---|
+| Wire form | `{"id": "UBERON:0002107"}` | `{"id": "matrix.unit", "operator": "=", "value": "TPM"}` |
+| Catalog `type` | the namespace prefix (`SO`, `GO`, `UBERON`, `EFO`, `OBI`) | `alphanumeric` |
+| `values` in the catalog | none | the precomputed set offered in the UI (open-ended terms such as `symbol` list none) |
+| Operators | none | `=`, `!`, `<`, `<=`, `>`, `>=` where the field is numeric |
+
+The values listed for an alphanumeric term are the choices the UI offers, not a hard limit. For example `tissue.percentile:{ontologyId}` lists 90, 95 and 99, but `>= 0` ("detected in the tissue") is also accepted, and `symbol` accepts any gene symbol (case-sensitive).
+
+| Scope | Ontology namespaces | Alphanumeric terms |
+|---|---|---|
+| genomicFeature | `GO`, `SO` | `symbol`, `expression.percentile`, `feature.biotypeFamily`, `feature.resource`, `tissue.percentile:{ontologyId}` |
+| biosample | `UBERON`, `EFO` | none |
+| matrix | `OBI` (assay) | `matrix.source`, `matrix.unit`, `matrix.annotation`, `matrix.assembly.name` |
+| expressionValue | none | none; it takes `requestParameters` instead |
+
+## Resources
+
+`resources[]` describes the namespaces used by filters, in Phenopackets `Resource` shape (`id`, `name`, `nameSpacePrefix`, `iriPrefix`, `url`).
+
+- `so`, `go`, `obi`, `uberon`, `efo` also have catalogued terms.
+- `hgnc`, `ncbigene`, `ensembl` are identifier namespaces with no catalogued terms: individual genes are not listed, but `{"id": "HGNC:11998"}` is accepted and resolved through the gene lookup index.
+- `symbol` is **not** a resource: it is an alphanumeric term (`{"id": "symbol", "operator": "=", "value": "TP53"}`).
+
+Request shapes and live OpenAPI: [api.md](api.md). Match rules live in `server/beacon/filters.py` and labels in `server/beacon/filter_display.py`.
 
 ## What this demo advertises
 
@@ -22,9 +48,9 @@ Request shapes and live OpenAPI: [api.md](api.md). Id-by-id match rules and labe
 
 **Not catalogued** (and not matched for schema-true biosamples): `sex`, `condition`, `age_bracket`, `timepoint`, `biosample.preset:`.
 
-**Match-only** (server may still accept the id): `tissueHigh:` / `tissueSpecific:` (incl. `tissueHigh:matrix:…`). Gene symbols (`symbol:TP53`) and public gene ids (`HGNC:…`, `NCBIGene:…`) resolve via the gene lookup index and are not enumerated as individual terms.
+**Match-only** (server may still accept the id): `tissueHigh:` / `tissueSpecific:` (incl. `tissueHigh:matrix:…`). Gene symbols are the alphanumeric term `symbol` (no `values`, any value accepted, case-sensitive); public gene ids (`HGNC:…`, `NCBIGene:…`) resolve via the gene lookup index and are not enumerated as individual terms.
 
-Individual HGNC / NCBIGene / ENSEMBL values and gene symbols are **not** listed as terms. `resources[]` in the catalog covers namespaces in use (`so`, `go`, `uberon`, `efo`, `obi`, `mondo`, `hp`, `ncit`, `hgnc`, `ncbigene`, `ensembl`, `symbol`).
+Individual HGNC / NCBIGene / ENSEMBL values are **not** listed as terms. `resources[]` in the catalog covers namespaces in use (`so`, `go`, `uberon`, `efo`, `obi`, `mondo`, `hp`, `ncit`, `hgnc`, `ncbigene`, `ensembl`).
 
 ## How catalogs are created
 
@@ -68,4 +94,3 @@ Ontology filters match the term id exactly; `includeDescendantTerms` is not appl
 
 - [API](api.md)
 - [Data package pipeline](data-package.md)
-- [Custom filtering terms (match rules)](custom-filtering-terms.md)

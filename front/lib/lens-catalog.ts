@@ -16,7 +16,6 @@ import {
 } from '@/lib/scope-theme'
 
 const FEATURE_LOOKUP_ORDER = [
-  'symbol',
   'HGNC',
   'NCBIGene',
   'ENSEMBL',
@@ -202,9 +201,13 @@ export function lensQueryPlaceholder(
       FEATURE_LOOKUP_ORDER,
       resourceOnlyPrefixes('genomicFeature', terms, resources)
     )
-    const parts = resourceOnly.map((prefix) =>
-      prefix === 'symbol' ? 'symbol:…' : `${prefix}:…`
+    const parts = resourceOnly.map((prefix) => `${prefix}:…`)
+    // Gene symbol is an alphanumeric term (no values), typed as `symbol:…`.
+    const hasSymbolTerm = terms.some(
+      (term) =>
+        term.id === 'symbol' && (term.scopes?.includes('genomicFeature') ?? false)
     )
+    if (hasSymbolTerm) parts.unshift('symbol:…')
     return parts.length ? parts.join(', ') : 'Symbol, HGNC:…, GO:…'
   }
 

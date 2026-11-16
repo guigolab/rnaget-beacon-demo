@@ -169,7 +169,7 @@ export function groupTermsByNamespaceScope(
 
 /** Resource ids kept per scope — mirrors server filtering_terms(scopes=…). */
 export const SCOPE_RESOURCE_IDS: Record<BeaconScope, ReadonlySet<string>> = {
-  genomicFeature: new Set(['so', 'go', 'hgnc', 'ncbigene', 'ensembl', 'symbol']),
+  genomicFeature: new Set(['so', 'go', 'hgnc', 'ncbigene', 'ensembl']),
   biosample: new Set(['uberon', 'efo']),
   matrix: new Set(['obi']),
   expressionValue: new Set(),

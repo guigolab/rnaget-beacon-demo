@@ -8,7 +8,7 @@ import type { Feature, FilteringTerm, UiFilter } from '@/lib/beacon/types'
 
 const CORE_TISSUES = ONTOLOGY_CORE_TISSUES
 
-const PINNED_CAP = 3
+const PINNED_CAP = 2
 
 export type MatrixExample = { label: string; filter: UiFilter }
 

@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { FilteringTerm } from '@/lib/beacon/types'
+import type { FilteringTerm, UiFilter } from '@/lib/beacon/types'
 import type { BeaconScope, NamespaceScopeGroup } from '@/lib/scope-theme'
 
 /** Catalog filtering-term wire types used for Explore chip coloring. */
@@ -12,6 +12,11 @@ export const FILTER_TYPE_LEGEND: Array<{
   { type: 'ontology', label: 'Ontology' },
   { type: 'alphanumeric', label: 'Alphanumeric' },
 ]
+
+/** Ontology filters are ontology-coloured; everything else is alphanumeric. */
+export function filterTermTypeOf(filter: Pick<UiFilter, 'kind'>): FilterTermType {
+  return filter.kind === 'ontology' ? 'ontology' : 'alphanumeric'
+}
 
 export function filterTypeCssVars(type: FilterTermType): {
   bg: string

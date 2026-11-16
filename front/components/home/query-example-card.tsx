@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MetaBadge } from '@/components/shared/detail/meta-badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
@@ -122,33 +122,58 @@ function Answer({ run }: { run: Extract<RunState, { status: 'ok' }> }) {
 
 function RequestPreview({
   request,
+  granularity,
+  open,
+  onToggle,
 }: {
   request: NonNullable<HomeQueryExample['request']>
+  granularity: Granularity
+  open: boolean
+  onToggle: () => void
 }) {
   const built = collectionQuery(request.path, request.opts)
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5">
         <MetaBadge variant="accent">{built.method}</MetaBadge>
-        <code className="break-all font-mono text-[11px] text-foreground">
+        <code className="min-w-0 break-all font-mono text-[11px] text-foreground">
           {built.path}
         </code>
+        <MetaBadge variant="muted" title="requestedGranularity">
+          {granularity}
+        </MetaBadge>
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          className="ml-auto"
+          aria-expanded={open}
+          onClick={onToggle}
+        >
+          {open ? 'Hide request' : 'Show request'}
+        </Button>
       </div>
-      {built.body != null && (
+      {open && built.body != null && (
         <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
           {JSON.stringify(built.body, null, 2)}
         </pre>
       )}
-      <CurlBlock method={built.method} path={built.path} body={built.body} />
+      {open && (
+        <CurlBlock method={built.method} path={built.path} body={built.body} />
+      )}
     </div>
   )
 }
 
 type QueryExampleCardProps = {
   example: HomeQueryExample
+  /** Page-level toggle: expand every request at once. */
+  expandAll?: boolean
 }
 
-export function QueryExampleCard({ example }: QueryExampleCardProps) {
+export function QueryExampleCard({ example, expandAll = false }: QueryExampleCardProps) {
+  const [showRequest, setShowRequest] = useState(expandAll)
+  useEffect(() => setShowRequest(expandAll), [expandAll])
   const [run, setRun] = useState<RunState>({ status: 'idle' })
   const request = example.request
   const granularity = exampleGranularity(example)
@@ -190,7 +215,7 @@ export function QueryExampleCard({ example }: QueryExampleCardProps) {
               href={example.href}
               className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
             >
-              {example.tab === 'explore' ? 'Open in Explore' : 'Open'}
+              Open
               <span aria-hidden>→</span>
             </Link>
           )}
@@ -201,33 +226,13 @@ export function QueryExampleCard({ example }: QueryExampleCardProps) {
       </div>
 
       <div className="flex flex-1 flex-col gap-3 px-4 py-3">
-        {request && <RequestPreview request={request} />}
-
-        {example.underlying && example.underlying.length > 0 && (
-          <div className="space-y-3 border-t border-border pt-3">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Underlying Beacon calls
-            </p>
-            {example.underlying.map((item) => {
-              const built = collectionQuery(item.request.path, item.request.opts)
-              return (
-                <div key={item.label} className="space-y-1.5">
-                  <p className="text-xs font-medium text-foreground">{item.label}</p>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <MetaBadge variant="muted">{built.method}</MetaBadge>
-                    <code className="break-all font-mono text-[11px] text-muted-foreground">
-                      {built.path}
-                    </code>
-                  </div>
-                  <CurlBlock
-                    method={built.method}
-                    path={built.path}
-                    body={built.body}
-                  />
-                </div>
-              )
-            })}
-          </div>
+        {request && (
+          <RequestPreview
+            request={request}
+            granularity={granularity}
+            open={showRequest}
+            onToggle={() => setShowRequest((v) => !v)}
+          />
         )}
 
         {request && (

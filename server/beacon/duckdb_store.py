@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import duckdb
 
+from beacon.symbol_term import normalize_symbol_term
+
 from beacon.filters import (
     EXPRESSION_BIOSAMPLE_ALPHANUMERIC,
     EXPRESSION_FEATURE_ALPHANUMERIC,
@@ -233,6 +235,11 @@ def build_genomic_interval(
     }
 
 
+# Value top-N: only worth a threshold pre-query on large matrices.
+TOP_N_THRESHOLD_MIN_ROWS = 200_000
+TOP_N_THRESHOLD_MAX_AHEAD = 50_000
+
+
 class DuckDBStore:
     """Read-only store backed by DATA_PACKAGE_PATH Parquet + matrices.json."""
 
@@ -284,6 +291,8 @@ class DuckDBStore:
         self._tissue_summary_view: Optional[str] = None
         self._tissue_labels_view: Optional[str] = None
         self._tissue_wide_view: Optional[str] = None
+        self._top_cells_table: Optional[str] = None
+        self._top_cells_matrices: Set[str] = set()
         self._tissue_wide_ontologies: Set[str] = set()
         self._wide_candidates_cache: "OrderedDict[str, Tuple[str, ...]]" = OrderedDict()
         self._pct_feat_views: Dict[str, str] = {}
@@ -459,6 +468,20 @@ class DuckDBStore:
             self._tissue_wide_ontologies = {
                 str(o) for o in (wide_meta.get("ontologies") or [])
             }
+        top_meta = self.manifest.get("expressionTopCells")
+        top_path = (
+            self.package_path / str(top_meta["path"])
+            if isinstance(top_meta, dict) and top_meta.get("path")
+            else None
+        )
+        if top_path is not None and top_path.is_file():
+            # Head of each matrix's unfiltered value ranking (~120k rows, a few MB).
+            self._execute(
+                f"CREATE TABLE expr_top_cells AS "
+                f"SELECT * FROM read_parquet('{_sql_path(top_path)}')"
+            )
+            self._top_cells_table = "expr_top_cells"
+            self._top_cells_matrices = {str(m) for m in (top_meta.get("matrices") or [])}
         if tissue_labels.is_file():
             self._execute(
                 f"CREATE VIEW tissue_labels AS SELECT * FROM read_parquet('{_sql_path(tissue_labels)}')"
@@ -1143,7 +1166,7 @@ class DuckDBStore:
                 present_ids=present,
                 alphanumeric={},
                 scope="genomicFeature",
-                keep_symbol_resource=bool(self._feature_counts.get(matrix_id)),
+                keep_symbol_term=bool(self._feature_counts.get(matrix_id)),
                 allowed_expression_ids=allowed_expression_ids,
             )
             result = ensure_matrix_feature_so_terms(
@@ -1157,7 +1180,7 @@ class DuckDBStore:
                 present_ids=present,
                 alphanumeric=alphanumeric,
                 scope="biosample",
-                keep_symbol_resource=False,
+                keep_symbol_term=False,
                 sex_ontology_pairs=sex_pairs,
                 allowed_expression_ids=allowed_expression_ids,
             )
@@ -1249,13 +1272,6 @@ class DuckDBStore:
             "nameSpacePrefix": "ENSEMBL",
             "iriPrefix": "https://www.ensembl.org/id/",
             "url": "https://www.ensembl.org",
-        },
-        "symbol": {
-            "id": "symbol",
-            "name": "Gene symbol",
-            "nameSpacePrefix": "symbol",
-            "iriPrefix": "https://www.genenames.org/tools/search/#!/?query=",
-            "url": "https://www.genenames.org",
         },
     }
 
@@ -1446,8 +1462,13 @@ class DuckDBStore:
                 needed_resources.add("ensembl")
             if observed_resources & {"ncbigene", "ncbi"}:
                 needed_resources.add("ncbigene")
-            # Symbol is a lookup namespace (no per-gene term dump).
-            needed_resources.add("symbol")
+            # Gene symbol is an alphanumeric term without values (open-ended).
+            add_term(
+                type_="alphanumeric",
+                id_="symbol",
+                label="Gene symbol",
+                scopes=["genomicFeature"],
+            )
 
         # Gene-id namespaces from lookup prefixes (no value dump)
         if self._has_gene_lookup:
@@ -1480,7 +1501,12 @@ class DuckDBStore:
                     """
                 )
                 if sym_rows:
-                    needed_resources.add("symbol")
+                    add_term(
+                        type_="alphanumeric",
+                        id_="symbol",
+                        label="Gene symbol",
+                        scopes=["genomicFeature"],
+                    )
             except duckdb.Error as exc:
                 logger.debug("gene_lookup symbol presence check skipped: %s", exc)
 
@@ -1504,7 +1530,6 @@ class DuckDBStore:
             "hgnc",
             "ncbigene",
             "ensembl",
-            "symbol",
         )
         resources = [
             dict(self._FT_RESOURCE_DEFS[rid])
@@ -1541,6 +1566,8 @@ class DuckDBStore:
             if r.get("id")
         }
         resources = list(resources_by_id.values())
+        # Packages built before symbol became an alphanumeric term list it as a resource.
+        terms, resources = normalize_symbol_term(terms, resources)
         if scopes:
             want = set(scopes)
             terms = [
@@ -1567,7 +1594,7 @@ class DuckDBStore:
                     keep_ids.add(typ)
             if "genomicFeature" in want:
                 keep_ids.update(
-                    {"hgnc", "ncbigene", "ensembl", "so", "go", "symbol"}
+                    {"hgnc", "ncbigene", "ensembl", "so", "go"}
                 )
             if "biosample" in want:
                 keep_ids.update(
@@ -4558,14 +4585,54 @@ class DuckDBStore:
         order_by_sql = self._expression_values_order_by(
             value_asc=value_asc, ties_asc=ties_asc
         )
-        page_sql = f"""
-            SELECT CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR), value
-            FROM {view}
-            WHERE {fetch_where_sql}
-            ORDER BY {order_by_sql}
-            LIMIT ? OFFSET ?
-        """
-        raw_rows, _ = self._fetchall(page_sql, fetch_params + [limit + 1, skip_v])
+        raw_rows: Optional[List[Tuple[Any, ...]]] = None
+        # Unfiltered forward pages: serve from the precomputed head of the ranking
+        # when the whole page (plus the lookahead row) lies inside it.
+        if (
+            self._top_cells_table
+            and forward
+            and len(where) == 1
+            and matrix_id in self._top_cells_matrices
+        ):
+            head_where = "matrix_id = ? AND dir = ?"
+            if keyset_sql:
+                head_where = f"{head_where} AND {keyset_sql}"
+            head_rows, _ = self._fetchall(
+                f"SELECT CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR), value "
+                f"FROM {self._top_cells_table} WHERE {head_where} "
+                f"ORDER BY {order_by_sql} LIMIT ? OFFSET ?",
+                [matrix_id, order_key] + keyset_params + [limit + 1, skip_v],
+            )
+            if len(head_rows) > limit:
+                raw_rows = head_rows
+        if raw_rows is None:
+            threshold_sql = ""
+            threshold_params: List[Any] = []
+            # Sorting 40M+ cells by value plus tie-breakers is slow; the page lies
+            # within the first skip+limit+1 values, so find that value first and
+            # sort only the cells at least that extreme.
+            ahead = skip_v + limit + 1
+            if total >= TOP_N_THRESHOLD_MIN_ROWS and ahead <= TOP_N_THRESHOLD_MAX_AHEAD:
+                edge = self._fetchone(
+                    f"SELECT value FROM {view} WHERE {fetch_where_sql} "
+                    f"AND value IS NOT NULL "
+                    f"ORDER BY value {'ASC' if value_asc else 'DESC'} "
+                    f"LIMIT 1 OFFSET ?",
+                    fetch_params + [ahead - 1],
+                )
+                if edge and edge[0] is not None:
+                    threshold_sql = f" AND value {'<=' if value_asc else '>='} ?"
+                    threshold_params = [float(edge[0])]
+            page_sql = f"""
+                SELECT CAST(feature_id AS VARCHAR), CAST(biosample_id AS VARCHAR), value
+                FROM {view}
+                WHERE {fetch_where_sql}{threshold_sql}
+                ORDER BY {order_by_sql}
+                LIMIT ? OFFSET ?
+            """
+            raw_rows, _ = self._fetchall(
+                page_sql, fetch_params + threshold_params + [limit + 1, skip_v]
+            )
         has_extra = len(raw_rows) > limit
         raw_rows = raw_rows[:limit]
         if not forward:

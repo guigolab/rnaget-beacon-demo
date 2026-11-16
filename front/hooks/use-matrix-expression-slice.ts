@@ -44,12 +44,15 @@ type UseMatrixExpressionSliceInput = {
   featureCap?: number
   biosampleCap?: number
   enabled?: boolean
+  /** While disabled, keep showing the previous cells (the inputs are still resolving). */
+  holdWhenDisabled?: boolean
 }
 
 export function useMatrixExpressionSlice(
   input: UseMatrixExpressionSliceInput
 ): MatrixExpressionSliceState {
   const enabled = input.enabled !== false
+  const holdWhenDisabled = input.holdWhenDisabled === true
   const featureCap = input.featureCap ?? SLICE_FEATURE_CAP
   const biosampleCap = input.biosampleCap ?? SLICE_BIOSAMPLE_CAP
   const capsRef = useRef({ featureCap, biosampleCap })
@@ -82,6 +85,7 @@ export function useMatrixExpressionSlice(
 
   useEffect(() => {
     if (!enabled) {
+      if (holdWhenDisabled) return
       setStatus('ready')
       setCells([])
       setTotal(0)
@@ -94,10 +98,9 @@ export function useMatrixExpressionSlice(
     moreControllerRef.current?.abort()
     moreRef.current = false
     setLoadingMore(false)
+    // Keep the previous cells on screen until the new page replaces them.
     setStatus('loading')
     setError('')
-    setCells([])
-    setTotal(0)
     setNextPage(undefined)
     setRequestKeyState(requestKey)
 
@@ -134,6 +137,7 @@ export function useMatrixExpressionSlice(
   }, [
     attempt,
     enabled,
+    holdWhenDisabled,
     input.biosampleIDList,
     input.featureIDList,
     input.matrixId,
