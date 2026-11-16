@@ -42,7 +42,9 @@ Example matrices are catalogued in [`scripts/profiles/datasets.yaml`](scripts/pr
 [`scripts/fetch_data_package.py`](scripts/fetch_data_package.py) downloads that release (`gh`, else HTTPS), extracts it, merges expression shards into per-matrix `expression.parquet`, reuses shipped stats unless `--force-stats`, always builds percentiles, then rebuilds filtering-term catalogs. Point the API at the result with `DATA_PACKAGE_PATH`.
 
 ```bash
-python3 scripts/fetch_data_package.py --out /data/rnaget-demo --force
+# Production (Docker; no host Python libs):
+./scripts/fetch_data_package_docker.sh
+# Or: python3 scripts/fetch_data_package.py --out /data/rnaget-demo --force
 export DATA_PACKAGE_PATH=/data/rnaget-demo
 ```
 

@@ -196,11 +196,13 @@ From the repo root:
 ```bash
 # Downloads data-latest, extracts, merges shards, reuses shipped stats,
 # builds percentiles, rebuilds filtering_terms (adds percentileIn* terms).
-# Prod / compose host path:
+# Prod / compose host path (preferred: one-shot container, no host Python libs):
 sudo mkdir -p /data/rnaget-demo
-# Use --force when replacing an existing non-empty --out tree
-python3 scripts/fetch_data_package.py --out /data/rnaget-demo --force
-# Optional: --force-stats to rebuild feature/biosample stats even if shipped
+./scripts/fetch_data_package_docker.sh
+# Optional: ./scripts/fetch_data_package_docker.sh --force-stats
+#
+# Or with host Python (needs pyarrow, duckdb, zstd CLI):
+# python3 scripts/fetch_data_package.py --out /data/rnaget-demo --force
 
 # Or operate on an already-extracted tree:
 # python3 scripts/fetch_data_package.py --out /data/rnaget-demo --skip-download

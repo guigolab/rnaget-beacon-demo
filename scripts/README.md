@@ -200,7 +200,10 @@ Workflow: [`.github/workflows/build-data-package.yml`](../.github/workflows/buil
 On the API host:
 
 ```bash
-# Preferred: download, safe extract, merge, reuse stats, percentiles, filtering_terms
+# Preferred on production (Docker; no system pip installs):
+./scripts/fetch_data_package_docker.sh
+
+# Or host Python with pyarrow + duckdb (+ zstd CLI):
 python3 scripts/fetch_data_package.py --out /data/rnaget-demo --force
 
 export DATA_PACKAGE_PATH=/data/rnaget-demo

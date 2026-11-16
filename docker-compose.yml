@@ -1,6 +1,6 @@
 # Production stack: build images from this tree on the host.
-# Data on NFS (prepare once):
-#   python3 scripts/fetch_data_package.py --out /data/rnaget-demo --force
+# Data on NFS (prepare once; no host Python libs needed):
+#   ./scripts/fetch_data_package_docker.sh
 # Then:
 #   docker compose up --build -d
 
@@ -41,7 +41,7 @@ services:
     container_name: rnaget-server
     restart: always
     volumes:
-      # Host package: python3 scripts/fetch_data_package.py --out /data/rnaget-demo
+      # Host package: ./scripts/fetch_data_package_docker.sh → /data/rnaget-demo
       - /data/rnaget-demo:/data/package:ro
     environment:
       - DATA_PACKAGE_PATH=/data/package

@@ -105,12 +105,15 @@ data-package/
 6. Rebuild filtering-term catalogs so percentile-related terms appear.
 
 ```bash
-# From rnaget-beacon-demo/
+# From rnaget-beacon-demo/ — production (Docker; no host pip/venv):
+./scripts/fetch_data_package_docker.sh
+
+# Or with a local Python that already has pyarrow + duckdb (+ zstd CLI):
 python3 scripts/fetch_data_package.py --out /data/rnaget-demo --force
 export DATA_PACKAGE_PATH=/data/rnaget-demo
 ```
 
-Useful flags: `--skip-download` (merge an already-extracted tree), `--force-stats`, `--repo`, `--tag`, `--asset`.
+Useful flags (passed through by the Docker helper too): `--skip-download`, `--force-stats`, `--repo`, `--tag`, `--asset`.
 
 Set `DATA_PACKAGE_PATH` to a directory that contains `manifest.json`. If that variable is set but the manifest is missing, the server fails at startup. When unset, the demo falls back to small JSON fixtures.
 
