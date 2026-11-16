@@ -2,60 +2,71 @@
 
 import { HelpPopover, HelpSection } from '@/components/shared/help-popover'
 
-/** Explains the heatmap cell colours and how the genes / bands are queried. */
+/** Explore help: what the heatmap shows, how it is built, then what "top 1%" means. */
 export function PercentileHelp() {
   return (
     <HelpPopover label="How to read this heatmap" title="How to read this heatmap">
-      <p className="text-muted-foreground">
-        Each cell asks one question: is this gene among the most expressed genes in this
-        tissue?
-      </p>
-
-      <HelpSection title="Cell colours">
+      <HelpSection title="What you see">
+        <p>
+          Rows are genes, columns are tissues. Each cell answers: is
+          this gene among the most expressed genes in this tissue?
+        </p>
         <ul className="list-disc space-y-1 pl-4">
           <li>
-            <b>Top 1%</b>: the gene is in the top 1% of genes in that tissue
-            (<code>tissue.percentile:&lt;tissue&gt; &gt;= 99</code>).
+            <b>Top 1%</b>: in the top 1% of genes of that tissue.
           </li>
           <li>
-            <b>Present</b>: measured in that tissue but below the top 1%.
+            <b>Present</b>: detected in that tissue, but below the top 1%.
           </li>
           <li>
-            <b>Not in any matrix</b>: no loaded matrix measures the gene in that tissue.
+            <b>Not in any matrix</b>: never measured in that tissue.
           </li>
         </ul>
       </HelpSection>
 
-      <HelpSection title="How the percentile is computed">
+      <HelpSection title="How it is built">
+        <ol className="list-decimal space-y-1.5 pl-4">
+          <li>
+            <b>Genes</b>: <code>POST /features</code> with your gene filters. If you
+            picked a tissue, its top 1% genes come first, then the other genes detected
+            in it (<code>tissue.percentile &gt;= 0</code>).
+          </li>
+          <li>
+            <b>Measured or not?</b> Checked locally, comparing the gene&apos;s matrices
+            with the matrices that contain the tissue (from <code>GET /matrices</code>).
+            No overlap means Not in any matrix, with no request.
+          </li>
+          <li>
+            <b>Top 1% or Present?</b> One yes/no <code>POST /features</code> per cell,
+            with the gene&apos;s symbol and resource plus{' '}
+            <code>tissue.percentile:&lt;tissue&gt; &gt;= 99</code>. Yes is Top 1%, no is
+            Present.
+          </li>
+        </ol>
+        <p className="text-muted-foreground">
+          Cells fill in as answers arrive, and each answer is cached.
+        </p>
+      </HelpSection>
+
+      <HelpSection title="What “top 1%” means">
         <p>
-          For each matrix and tissue, the expression of every gene is summarised by its
-          median over that tissue&apos;s samples. Genes with a median above 0 are ranked
-          against each other inside the tissue (0 to 100). Genes with median 0 are
-          measured but not detected.
+          A percentile ranks a gene by its <b>median</b> expression over a group of
+          samples (99 = top 1%). Only genes with a median above 0 are ranked. Two
+          different top-1% sets exist.
+        </p>
+        <p>
+          <b>Tissue top 1% (the cells)</b>: ranked per tissue, using only that
+          tissue&apos;s samples. If several matrices cover the tissue, the one with the
+          most samples is used.
+        </p>
+        <p>
+          <b>General top 1% (the &ldquo;Top 1% of genes&rdquo; chips)</b>: ranked per
+          matrix, using all its samples. A gene is in the set if it is top 1% in at
+          least one matrix. Tissues play no role.
         </p>
         <p className="text-muted-foreground">
-          If several matrices cover a tissue, the one with the most samples is used.
-          Tissues with few samples are less reliable than large ones.
+          The two are independent: a gene can be in one and not the other.
         </p>
-      </HelpSection>
-
-      <HelpSection title="Queries behind the page">
-        <ul className="list-disc space-y-1 pl-4">
-          <li>
-            <b>Gene list</b>: <code>POST /features</code> with your gene filters. Picking
-            a tissue also lists its top 1% genes first, then the genes detected in it
-            (<code>tissue.percentile &gt;= 0</code>).
-          </li>
-          <li>
-            <b>Each cell</b>: one boolean <code>POST /features</code> (symbol + resource
-            + <code>tissue.percentile &gt;= 99</code>). Presence is checked locally from
-            the matrices&apos; tissues, so absent cells cost no request.
-          </li>
-          <li>
-            <b>Gene chips</b> &ldquo;Top 1% / Top 10% of genes&rdquo; filter by{' '}
-            <code>expression.percentile</code>, the gene&apos;s rank within a matrix.
-          </li>
-        </ul>
       </HelpSection>
     </HelpPopover>
   )
