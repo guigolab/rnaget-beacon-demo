@@ -6,21 +6,21 @@ function m(partial: Partial<Matrix>): Matrix {
 }
 
 const gtexA = m({
-  matrixId: 'a',
+  id: 'a',
   expressionUnitAndScale: { unit: 'TPM', scale: 'linear' },
   annotation: { source: 'gencode', version: 'v26' },
   assembly: { name: 'GRCh38' },
 })
 
 const gtexB = m({
-  matrixId: 'b',
+  id: 'b',
   expressionUnitAndScale: { unit: 'TPM', scale: 'linear' },
   annotation: { source: 'gencode', version: 'v26' },
   assembly: { name: 'GRCh38' },
 })
 
 const geo = m({
-  matrixId: 'c',
+  id: 'c',
   expressionUnitAndScale: { unit: 'TPM', scale: 'linear' },
   annotation: { source: 'ncbigene', version: '109' },
   assembly: { name: 'GRCh38.p13' },

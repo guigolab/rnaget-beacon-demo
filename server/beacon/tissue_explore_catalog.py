@@ -1,6 +1,6 @@
-"""Catalog tissueTop / tissuePresent custom filtering terms for Beacon discovery.
+"""Catalog ``tissue.percentile:<ontologyId>`` alphanumeric filtering terms.
 
-These ids are already matchable on ``/features``. This module advertises them
+These ids are matchable on ``/features``. This module advertises them
 in ``/filtering_terms`` (genomicFeature scope) so clients stay Beacon-compliant.
 """
 
@@ -14,7 +14,9 @@ from beacon.filter_display import (
     tissue_present_label,
     tissue_top_label,
 )
+from beacon.expression_filter_maps import PERCENTILE_CATALOG_VALUES
 from beacon.tissue_catalog import (
+    TISSUE_PERCENTILE_FIELD_PREFIX,
     TISSUE_PRESENT_PREFIX,
     TISSUE_TOP_PREFIX,
     is_matrix_pseudo_ontology_id,
@@ -34,7 +36,10 @@ def _column_n(row: Mapping[str, Any]) -> Optional[int]:
 def build_tissue_explore_filtering_terms(
     columns: Sequence[Mapping[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Build custom Top/Present terms for catalogued tissue/cell ontology ids.
+    """Build ``tissue.percentile:<ontologyId>`` alphanumeric terms per tissue/cell ontology id.
+
+    One term per column; the cell is queried as ``>= <percentile>`` (``0`` =
+    detected in the tissue, ``99`` = top 1% within the tissue).
 
     ``columns`` entries should include ``ontology_id`` and optionally ``label``
     and ``n_biosamples``. Pseudo ``matrix:*`` columns and non-UBERON/EFO ids
@@ -56,18 +61,11 @@ def build_tissue_explore_filtering_terms(
         n = _column_n(row)
         terms.append(
             {
-                "type": "custom",
-                "id": f"{TISSUE_TOP_PREFIX}{oid}",
+                "type": "alphanumeric",
+                "id": f"{TISSUE_PERCENTILE_FIELD_PREFIX}{oid}",
                 "label": tissue_top_label(oid, tissue, n_biosamples=n),
                 "scopes": ["genomicFeature"],
-            }
-        )
-        terms.append(
-            {
-                "type": "custom",
-                "id": f"{TISSUE_PRESENT_PREFIX}{oid}",
-                "label": tissue_present_label(oid, tissue, n_biosamples=n),
-                "scopes": ["genomicFeature"],
+                "values": list(PERCENTILE_CATALOG_VALUES),
             }
         )
     return sorted(terms, key=lambda t: (t.get("id") or "", t.get("type") or ""))

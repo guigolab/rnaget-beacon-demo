@@ -14,12 +14,7 @@ export type AlphanumericFilter = {
   scope?: string
 }
 
-export type CustomFilter = {
-  id: string
-  scope?: string
-}
-
-export type BeaconFilter = OntologyFilter | AlphanumericFilter | CustomFilter
+export type BeaconFilter = OntologyFilter | AlphanumericFilter
 
 export type UiFilter =
   | { kind: 'ontology'; id: string; label?: string }
@@ -34,8 +29,6 @@ export type UiFilter =
       label?: string
     }
   | { kind: 'matrixUnit'; value: string }
-  /** Custom ids such as symbol:TP53 or matrix.profileSource:gtex. */
-  | { kind: 'custom'; id: string; label?: string }
 
 export type FilteringTerm = {
   id: string
@@ -153,7 +146,10 @@ export type BeaconConfiguration = {
 }
 
 export type Matrix = {
-  matrixId: string
+  /** beacon-v2 matrix model identifier (formerly `matrixId`). */
+  id: string
+  /** Origin of the matrix data (encode | geo | gtex). */
+  source?: string
   name?: string
   description?: string
   expressionUnitAndScale?: { unit?: string; scale?: string }

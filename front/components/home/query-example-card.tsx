@@ -11,7 +11,11 @@ import {
   queryCollection,
 } from '@/lib/beacon'
 import { collectionQuery } from '@/lib/beacon/query'
-import type { HomeQueryExample } from '@/lib/home-query-examples'
+import type { Granularity } from '@/lib/beacon'
+import {
+  exampleGranularity,
+  type HomeQueryExample,
+} from '@/lib/home-query-examples'
 import { cn } from '@/lib/utils'
 
 type RunState =
@@ -19,6 +23,8 @@ type RunState =
   | { status: 'loading' }
   | {
       status: 'ok'
+      granularity: Granularity
+      exists: boolean
       total?: number
       ids: string[]
     }
@@ -61,9 +67,65 @@ function CurlBlock({
   )
 }
 
-function RequestPreview({ example }: { example: HomeQueryExample }) {
-  if (!example.request) return null
-  const built = collectionQuery(example.request.path, example.request.opts)
+function Answer({ run }: { run: Extract<RunState, { status: 'ok' }> }) {
+  const summary: Record<string, unknown> = { exists: run.exists }
+  if (run.granularity !== 'boolean' && run.total != null) {
+    summary.numTotalResults = run.total
+  }
+  return (
+    <div className="space-y-2">
+      {run.granularity === 'boolean' && (
+        <p
+          className={cn(
+            'text-2xl font-semibold tracking-tight',
+            run.exists ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'
+          )}
+        >
+          {run.exists ? 'Yes' : 'No'}
+        </p>
+      )}
+      {run.granularity === 'count' && (
+        <p className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
+          {(run.total ?? 0).toLocaleString()}
+          <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+            result{run.total === 1 ? '' : 's'}
+          </span>
+        </p>
+      )}
+      {run.granularity === 'record' && (
+        <p className="text-sm text-foreground">
+          <span className="font-semibold tabular-nums">
+            {(run.total ?? 0).toLocaleString()}
+          </span>{' '}
+          <span className="text-muted-foreground">
+            result{run.total === 1 ? '' : 's'} · first {run.ids.length} shown
+          </span>
+        </p>
+      )}
+      <pre className="overflow-x-auto rounded-md bg-muted/40 px-2.5 py-1.5 font-mono text-[10px] text-muted-foreground">
+        {`responseSummary: ${JSON.stringify(summary)}`}
+      </pre>
+      {run.ids.length > 0 && (
+        <ul className="flex flex-wrap gap-1">
+          {run.ids.map((id) => (
+            <li key={id}>
+              <MetaBadge variant="muted" title={id}>
+                <span className="max-w-[12rem] truncate font-mono">{id}</span>
+              </MetaBadge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function RequestPreview({
+  request,
+}: {
+  request: NonNullable<HomeQueryExample['request']>
+}) {
+  const built = collectionQuery(request.path, request.opts)
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5">
@@ -88,20 +150,25 @@ type QueryExampleCardProps = {
 
 export function QueryExampleCard({ example }: QueryExampleCardProps) {
   const [run, setRun] = useState<RunState>({ status: 'idle' })
+  const request = example.request
+  const granularity = exampleGranularity(example)
 
   async function onRun() {
-    if (!example.request) return
+    if (!request) return
     setRun({ status: 'loading' })
     try {
-      const page = await queryCollection<unknown>(
-        example.request.path,
-        example.request.opts
-      )
+      const page = await queryCollection<unknown>(request.path, request.opts)
       const ids = page.results
         .map(resultId)
         .filter((id): id is string => Boolean(id))
         .slice(0, 3)
-      setRun({ status: 'ok', total: page.total, ids })
+      setRun({
+        status: 'ok',
+        granularity,
+        exists: page.exists,
+        total: page.total,
+        ids,
+      })
     } catch (err: unknown) {
       if (isAbortError(err)) return
       setRun({
@@ -115,7 +182,9 @@ export function QueryExampleCard({ example }: QueryExampleCardProps) {
     <article className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       <div className="border-b border-border bg-muted/20 px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <h3 className="text-sm font-semibold text-foreground">{example.title}</h3>
+          <h3 className="min-w-0 flex-1 text-sm font-semibold text-foreground">
+            {example.title}
+          </h3>
           {example.href && (
             <Link
               href={example.href}
@@ -132,7 +201,7 @@ export function QueryExampleCard({ example }: QueryExampleCardProps) {
       </div>
 
       <div className="flex flex-1 flex-col gap-3 px-4 py-3">
-        <RequestPreview example={example} />
+        {request && <RequestPreview request={request} />}
 
         {example.underlying && example.underlying.length > 0 && (
           <div className="space-y-3 border-t border-border pt-3">
@@ -161,7 +230,7 @@ export function QueryExampleCard({ example }: QueryExampleCardProps) {
           </div>
         )}
 
-        {example.request && (
+        {request && (
           <div className="mt-auto space-y-2 border-t border-border pt-3">
             <Button
               type="button"
@@ -172,28 +241,7 @@ export function QueryExampleCard({ example }: QueryExampleCardProps) {
             >
               {run.status === 'loading' ? 'Running…' : 'Run'}
             </Button>
-            {run.status === 'ok' && (
-              <div className="space-y-1.5">
-                <p className="text-xs text-muted-foreground">
-                  {run.total != null
-                    ? `${run.total.toLocaleString()} result${run.total === 1 ? '' : 's'}`
-                    : 'Done'}
-                </p>
-                {run.ids.length > 0 && (
-                  <ul className="flex flex-wrap gap-1">
-                    {run.ids.map((id) => (
-                      <li key={id}>
-                        <MetaBadge variant="muted" title={id}>
-                          <span className="max-w-[12rem] truncate font-mono">
-                            {id}
-                          </span>
-                        </MetaBadge>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
+            {run.status === 'ok' && <Answer run={run} />}
             {run.status === 'error' && (
               <p className="text-xs text-destructive">{run.message}</p>
             )}

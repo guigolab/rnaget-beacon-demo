@@ -1,7 +1,7 @@
 import {
   dedupeFilters,
-  isMatrixProfileSourceFilterId,
-  matrixProfileSourceCustomFilter,
+  isMatrixSourceFilter,
+  matrixSourceFilter,
 } from '@/lib/beacon/filters'
 import { catalogValueDisplayLabel } from '@/lib/lens-catalog'
 import type { FilteringTerm, Matrix, UiFilter } from '@/lib/beacon/types'
@@ -49,22 +49,22 @@ export function matrixLensQueryExamples(
   const unitTerm = terms.find((t) => t.id === 'matrix.unit' && matrixScope(t))
   pushAlphanumeric(examples, unitTerm, 'TPM', 'TPM')
 
-  const profile = terms.find((t) => t.id === 'matrix.profileSource' && matrixScope(t))
+  const profile = terms.find((t) => t.id === 'matrix.source' && matrixScope(t))
   if (profile?.values?.includes('gtex')) {
     examples.push({
-      label: catalogValueDisplayLabel('matrix.profileSource', 'gtex'),
-      filter: matrixProfileSourceCustomFilter(
+      label: catalogValueDisplayLabel('matrix.source', 'gtex'),
+      filter: matrixSourceFilter(
         'gtex',
-        `${profile.label ?? 'profileSource'} = ${catalogValueDisplayLabel('matrix.profileSource', 'gtex')}`
+        `${profile.label ?? 'profileSource'} = ${catalogValueDisplayLabel('matrix.source', 'gtex')}`
       ),
     })
   }
   if (profile?.values?.includes('geo')) {
     examples.push({
-      label: catalogValueDisplayLabel('matrix.profileSource', 'geo'),
-      filter: matrixProfileSourceCustomFilter(
+      label: catalogValueDisplayLabel('matrix.source', 'geo'),
+      filter: matrixSourceFilter(
         'geo',
-        `${profile.label ?? 'profileSource'} = ${catalogValueDisplayLabel('matrix.profileSource', 'geo')}`
+        `${profile.label ?? 'profileSource'} = ${catalogValueDisplayLabel('matrix.source', 'geo')}`
       ),
     })
   }
@@ -104,17 +104,9 @@ export function mergeMatrixLensFilters(current: UiFilter[], added: UiFilter): Ui
       added,
     ])
   }
-  if (added.kind === 'custom' && isMatrixProfileSourceFilterId(added.id)) {
-    return dedupeFilters([
-      ...current.filter(
-        (f) => !(f.kind === 'custom' && isMatrixProfileSourceFilterId(f.id))
-      ),
-      added,
-    ])
-  }
   return dedupeFilters([...current, added])
 }
 
 export function matrixDisplayLabel(matrix: Matrix): string {
-  return matrix.name?.trim() || matrix.matrixId
+  return matrix.name?.trim() || matrix.id
 }

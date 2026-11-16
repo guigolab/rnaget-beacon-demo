@@ -100,7 +100,7 @@ export function BiosampleMatrixStrips({
   )
   const { matrices, pendingCount, error } = useMatricesByIds(matrixIds)
   const matrixById = useMemo(
-    () => new Map(matrices.map((m) => [m.matrixId ?? '', m])),
+    () => new Map(matrices.map((m) => [m.id ?? '', m])),
     [matrices]
   )
   const sampleById = useMemo(

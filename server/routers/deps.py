@@ -26,16 +26,31 @@ ALLOWED_REQUEST_PARAMETER_KEYS = frozenset(
     {
         "featureIDList",
         "biosampleIDList",
-        "matrixIDList",
         "minValue",
         "maxValue",
         "order",
     }
 )
 
+# Only matrices/{id}/expression_values defines request parameters in the model
+# (matrices/requestParameters.yaml); other entry types define none.
+REQUEST_PARAMETER_ENTITY_KEYS = frozenset({"expressionValue"})
+
+ENTITY_REQUEST_PARAMETER_LEAVES: Dict[str, frozenset] = {
+    "expressionValue": frozenset(
+        {
+            "featureIDList",
+            "biosampleIDList",
+            "minValue",
+            "maxValue",
+            "order",
+        }
+    ),
+}
+
 
 class AxisOrder(str, Enum):
-    """Order expression_values by cell quantification."""
+    """Order expression_values by cell quantification (model default: desc)."""
 
     asc = "asc"
     desc = "desc"
@@ -44,7 +59,7 @@ class AxisOrder(str, Enum):
 class BeaconRequestBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    meta: Optional[BeaconRequestMeta] = None
+    meta: BeaconRequestMeta
     query: Optional[BeaconQuery] = None
 
     @model_validator(mode="before")
@@ -65,8 +80,7 @@ class BeaconRequestBody(BaseModel):
 class MatrixAxisRequestBody(BeaconRequestBody):
     """POST body for nested matrix features / biosamples listings.
 
-    Under ``query.requestParameters``: features accept ``featureIDList`` only;
-    biosamples accept ``biosampleIDList`` only.
+    These listings define no ``requestParameters`` in the model.
     """
 
     pass
@@ -75,7 +89,7 @@ class MatrixAxisRequestBody(BeaconRequestBody):
 class ExpressionValuesRequestBody(BeaconRequestBody):
     """POST body for matrix expression_values.
 
-    Slice params under ``query.requestParameters``:
+    Slice params under ``query.requestParameters.expressionValue``:
     featureIDList, biosampleIDList, minValue, maxValue, order (by value).
     Top-level sibling fields and ``sort`` are not accepted.
     """
@@ -118,7 +132,7 @@ def parse_id_list_or_error(
 
 def axis_order_value(order: Union[AxisOrder, str, None]) -> str:
     if order is None:
-        return AxisOrder.asc.value
+        return AxisOrder.desc.value
     if isinstance(order, AxisOrder):
         return order.value
     return str(order)
@@ -149,12 +163,10 @@ def _validate_pagination_bounds(
         )
 
 
-def validate_request_parameters(raw: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """Return (params dict, error message)."""
-    if raw is None:
-        return {}, None
-    if not isinstance(raw, dict):
-        return None, "query.requestParameters must be an object"
+def _validate_leaf_request_parameters(
+    raw: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Validate a flat leaf-key dict (internal / GET shape)."""
     unknown = set(raw.keys()) - ALLOWED_REQUEST_PARAMETER_KEYS
     if unknown:
         return None, f"unknown requestParameters keys: {sorted(unknown)}"
@@ -163,7 +175,7 @@ def validate_request_parameters(raw: Any) -> Tuple[Optional[Dict[str, Any]], Opt
         if key not in raw or raw[key] is None:
             continue
         val = raw[key]
-        if key in ("featureIDList", "biosampleIDList", "matrixIDList"):
+        if key in ("featureIDList", "biosampleIDList"):
             try:
                 out[key] = validate_id_list_csv(coerce_id_list_csv(val))
             except ValueError as exc:
@@ -174,10 +186,70 @@ def validate_request_parameters(raw: Any) -> Tuple[Optional[Dict[str, Any]], Opt
             except (TypeError, ValueError):
                 return None, f"requestParameters.{key} must be a number"
         elif key == "order":
+            if str(val) not in ("asc", "desc"):
+                return None, "requestParameters.order must be 'asc' or 'desc'"
             out[key] = str(val)
         else:
             out[key] = val
     return out, None
+
+
+def _flatten_nested_request_parameters(
+    raw: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Unwrap entry-type objects into a flat leaf dict."""
+    flat_leaves = ALLOWED_REQUEST_PARAMETER_KEYS & set(raw.keys())
+    if flat_leaves:
+        return None, (
+            "use query.requestParameters.expressionValue for "
+            + ", ".join(sorted(flat_leaves))
+            + "; flat leaf keys are not accepted"
+        )
+    unknown = set(raw.keys()) - REQUEST_PARAMETER_ENTITY_KEYS
+    if unknown:
+        return None, f"unknown requestParameters keys: {sorted(unknown)}"
+    merged: Dict[str, Any] = {}
+    for entity, obj in raw.items():
+        if obj is None:
+            continue
+        if not isinstance(obj, dict):
+            return None, f"requestParameters.{entity} must be an object"
+        allowed = ENTITY_REQUEST_PARAMETER_LEAVES[entity]
+        bad = set(obj.keys()) - allowed
+        if bad:
+            return None, (
+                f"unsupported keys under requestParameters.{entity}: "
+                + ", ".join(sorted(bad))
+            )
+        for key, val in obj.items():
+            if val is None:
+                continue
+            if key in merged and merged[key] != val:
+                return None, (
+                    f"conflicting requestParameters.{key} across entity objects"
+                )
+            merged[key] = val
+    return merged, None
+
+
+def validate_request_parameters(
+    raw: Any, *, nested: bool = False
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Return (flat leaf params dict, error message).
+
+    When ``nested`` is True (POST bodies), require entry-type object keys and
+    flatten them. GET aliases pass a flat dict with ``nested=False``.
+    """
+    if raw is None:
+        return {}, None
+    if not isinstance(raw, dict):
+        return None, "query.requestParameters must be an object"
+    if nested:
+        flat, err = _flatten_nested_request_parameters(raw)
+        if err:
+            return None, err
+        return _validate_leaf_request_parameters(flat or {})
+    return _validate_leaf_request_parameters(raw)
 
 
 def request_parameters_from_get(**kwargs: Any) -> Dict[str, Any]:
@@ -186,7 +258,6 @@ def request_parameters_from_get(**kwargs: Any) -> Dict[str, Any]:
     mapping = {
         "featureIDList": "featureIDList",
         "biosampleIDList": "biosampleIDList",
-        "matrixIDList": "matrixIDList",
         "minValue": "minValue",
         "maxValue": "maxValue",
         "order": "order",
@@ -211,6 +282,25 @@ def reject_legacy_top_level_body(
             + "; top-level fields are not accepted",
             received=received,
         )
+    return None
+
+
+NESTED_FILTERS_REJECT_MSG = (
+    "filters are not accepted on nested relation endpoints; "
+    "use collection-root queries or requestParameters"
+)
+
+
+def reject_nested_query_filters(
+    body: Optional[Dict[str, Any]] = None,
+    *,
+    received: Optional[Dict[str, Any]] = None,
+) -> Optional[JSONResponse]:
+    """Beacon filters apply at collection roots only, not ``/{id}/…`` relations."""
+    query = (body or {}).get("query") or {}
+    filters = query.get("filters") if isinstance(query, dict) else None
+    if filters:
+        return error_json(400, NESTED_FILTERS_REJECT_MSG, received=received)
     return None
 
 

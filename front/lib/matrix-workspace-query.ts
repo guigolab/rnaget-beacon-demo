@@ -3,14 +3,12 @@ import {
   catalogSearchParams,
   dedupeFilters,
   filterKey,
-  isCustomId,
+  isLegacyCustomId,
   isFeatureLensFilter,
   isOntologyId,
-  isSymbolCustomId,
   parseCatalogSearch,
   scopeOf,
-  symbolCustomFilter,
-  symbolFromCustomId,
+  symbolFilter,
   tokenToFilter,
 } from '@/lib/beacon/filters'
 import type { FilteringTerm, UiFilter } from '@/lib/beacon/types'
@@ -32,7 +30,7 @@ export type MatrixWorkspaceQuery = {
   maxValue?: number
   /** @deprecated Parsed from old URLs; not used for fetches. */
   sort: MatrixFeatureSort
-  /** @deprecated Parsed from old URLs; not used for fetches. */
+  /** Sort direction of expression values (`order` URL param; `desc` is the default). */
   order: MatrixFeatureOrder
 }
 
@@ -104,18 +102,12 @@ export function withExpressionPercentileFilter(
   return dedupeFilters([...rest, topExpressedPercentileFilter(value)])
 }
 
-/** Empty query, optionally seeded with Top 1% when the catalog supports it. */
+/** Empty query: the ranked expression_values slice shows the top cells. */
 export function clearedMatrixWorkspaceQuery(
-  terms?: readonly FilteringTerm[]
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _terms?: readonly FilteringTerm[]
 ): MatrixWorkspaceQuery {
-  const base = emptyMatrixWorkspaceQuery()
-  if (terms && catalogHasTopExpressedSeed(terms)) {
-    return {
-      ...base,
-      featureFilters: [topExpressedPercentileFilter('99')],
-    }
-  }
-  return base
+  return emptyMatrixWorkspaceQuery()
 }
 
 const TOKEN_CAP = 100
@@ -173,10 +165,6 @@ export function parseMatrixWorkspaceQuery(
       pushUnique(genes, seenGenes, filter.value, TOKEN_CAP)
       continue
     }
-    if (filter.kind === 'custom' && isSymbolCustomId(filter.id)) {
-      pushUnique(genes, seenGenes, symbolFromCustomId(filter.id), TOKEN_CAP)
-      continue
-    }
     if (scopeOf(filter, index) === 'expressionValue') {
       expressionFilters.push(filter)
       continue
@@ -209,9 +197,7 @@ export function parseMatrixWorkspaceQuery(
   const sort: MatrixFeatureSort =
     sortRaw === 'expression.min' ? 'expression.min' : 'expression.max'
   const orderRaw = params.get('order')
-  const defaultOrder: MatrixFeatureOrder = sort === 'expression.min' ? 'asc' : 'desc'
-  const order: MatrixFeatureOrder =
-    orderRaw === 'asc' || orderRaw === 'desc' ? orderRaw : defaultOrder
+  const order: MatrixFeatureOrder = orderRaw === 'asc' ? 'asc' : 'desc'
 
   return {
     featureFilters: dedupeFilters(featureFilters),
@@ -238,6 +224,7 @@ export function matrixWorkspaceQueryKey(query: MatrixWorkspaceQuery): string {
     expressionFilters: query.expressionFilters.map(filterKey),
     minValue: query.minValue ?? null,
     maxValue: query.maxValue ?? null,
+    order: query.order,
   })
 }
 
@@ -256,14 +243,15 @@ export function matrixWorkspaceHasConstraints(query: MatrixWorkspaceQuery): bool
 
 export function matrixWorkspaceSearchParams(
   query: MatrixWorkspaceQuery,
-  preserve?: URLSearchParams
+  preserve?: URLSearchParams,
+  matrixId?: string | null
 ): URLSearchParams {
   const params = catalogSearchParams({
     filters: [
       ...query.featureFilters,
       ...query.biosampleFilters,
       ...query.expressionFilters,
-      ...query.genes.map((value) => symbolCustomFilter(value)),
+      ...query.genes.map((value) => symbolFilter(value)),
     ],
     granularity: 'record',
   })
@@ -274,7 +262,11 @@ export function matrixWorkspaceSearchParams(
   if (query.biosampleIds.length) params.set('biosampleIds', query.biosampleIds.join(','))
   if (query.minValue != null) params.set('minValue', String(query.minValue))
   if (query.maxValue != null) params.set('maxValue', String(query.maxValue))
-  // sort/order are legacy; do not write them (axis paging + densify ignore them).
+  // `sort` is legacy and never written; `order` is only written when not the default.
+  if (query.order === 'asc') params.set('order', 'asc')
+  const mid = matrixId?.trim() || preserve?.get('matrix')?.trim() || ''
+  if (mid) params.set('matrix', mid)
+  else params.delete('matrix')
   if (preserve) {
     for (const key of [RECORD_KIND_PARAM, RECORD_ID_PARAM]) {
       const value = preserve.get(key)
@@ -284,7 +276,7 @@ export function matrixWorkspaceSearchParams(
   return params
 }
 
-/** Symbols and explicit ids, capped, for `featureIDList`. */
+/** Symbols and explicit ids, capped (looked up as records; see lookupMatrixFeatures). */
 export function featureIdListCsv(query: Pick<MatrixWorkspaceQuery, 'genes' | 'featureIds'>): string | undefined {
   const out: string[] = []
   const seen = new Set<string>()
@@ -311,7 +303,7 @@ export type QueryToken =
   | { ok: false; message: string }
 
 function withLabel(filter: UiFilter, terms: FilteringTerm[]): UiFilter {
-  if (filter.kind !== 'ontology' && filter.kind !== 'custom') return filter
+  if (filter.kind !== 'ontology') return filter
   const match = terms.find((term) => term.id.toLowerCase() === filter.id.toLowerCase())
   return { ...filter, label: match?.label ?? filter.label }
 }
@@ -347,13 +339,10 @@ export function interpretFeatureQueryToken(
   const typed = tokenToFilter(text, 'feature', index)
   if (typed) {
     if (typed.kind === 'symbol') return { ok: true, kind: 'gene', value: typed.value }
-    if (typed.kind === 'custom' && isSymbolCustomId(typed.id)) {
-      return { ok: true, kind: 'gene', value: symbolFromCustomId(typed.id) }
-    }
     return { ok: true, kind: 'filter', filter: withLabel(typed, terms) }
   }
 
-  if (isOntologyId(text) || isCustomId(text)) {
+  if (isOntologyId(text) || isLegacyCustomId(text)) {
     const any = tokenToFilter(text, 'both', index)
     const scope = any ? scopeOf(any, index) : undefined
     if (scope === 'biosample') {
@@ -411,7 +400,7 @@ export function interpretBiosampleQueryToken(
     return { ok: true, kind: 'filter', filter: withLabel(typed, terms) }
   }
 
-  if (isOntologyId(text) || isCustomId(text)) {
+  if (isOntologyId(text) || isLegacyCustomId(text)) {
     const any = tokenToFilter(text, 'both', index)
     const scope = any ? scopeOf(any, index) : undefined
     if (scope === 'feature') {

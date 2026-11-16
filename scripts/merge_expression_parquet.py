@@ -157,24 +157,8 @@ def merge_package(package: Path, *, keep_shards: bool = False) -> Dict[str, Any]
         shards.pop("parts", None)
         entry["shards"] = shards
 
-        doc = by_id.get(mid)
-        if doc is not None:
-            pkg = dict(doc.get("package") or {})
-            pkg["expressionPath"] = rel
-            pkg["expressionRows"] = info["rows"]
-            if "shards" in pkg:
-                pkg["shards"] = {
-                    **(pkg.get("shards") or {}),
-                    "merged": True,
-                    "rows": info["rows"],
-                }
-                pkg["shards"].pop("parts", None)
-            doc["package"] = pkg
-            info_obj = dict(doc.get("info") or {})
-            if "package" in info_obj or pkg:
-                info_obj["package"] = pkg
-            doc["info"] = info_obj
-
+        # Matrix documents carry no packaging metadata; manifest.json is the
+        # source of truth for expressionPath / expressionRows / shards.
         results.append({"matrix_id": mid, **info})
         method = info.get("method", "cached")
         print(

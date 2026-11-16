@@ -1,49 +1,69 @@
 {
-    "$comment": "Synced from beacon-v2/models/json/.../matrices/defaultSchema.json (source YAML: models/src/.../matrices/defaultSchema.yaml); local $refs inlined for offline use",
+    "$comment": "Synced from beacon-v2/models/json/.../matrices/defaultSchema.json (run scripts/sync_beacon_schemas.py); local $refs inlined for offline use",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": true,
     "description": "Metadata for an RNA-seq quantification matrix available in the Beacon. Cell-level values are represented as expressionValue entries (or retrieved via matrix expression_values endpoints); this object describes how those values and feature identifiers should be interpreted.",
+    "if": {
+        "properties": {
+            "reproducible": {
+                "const": true
+            }
+        },
+        "required": [
+            "reproducible"
+        ]
+    },
     "properties": {
-        "matrixId": {
-            "description": "Unique identifier of the matrix entry within the Beacon.",
-            "examples": [
-                "matrix-gene-expression-001"
+        "annotation": {
+            "description": "Annotation catalog used to define feature identifiers in this matrix. source SHOULD use the same identifiers.org-style prefix vocabulary as featureIdentifier.resource (e.g. ensembl, gencode). version is the annotation release; it is not the same as an Ensembl object version suffix (e.g. .18).",
+            "properties": {
+                "file": {
+                    "description": "URL to the annotation file.",
+                    "type": "string"
+                },
+                "md5Checksum": {
+                    "description": "MD5 checksum of the annotation file.",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "Identifier namespace / annotation catalog. An identifiers.org prefix is recommended.",
+                    "examples": [
+                        "ensembl",
+                        "gencode",
+                        "refseq",
+                        "ncbigene"
+                    ],
+                    "type": "string"
+                },
+                "version": {
+                    "description": "Annotation release or build version string.",
+                    "examples": [
+                        "109",
+                        "49",
+                        "109.20190905"
+                    ],
+                    "type": "string"
+                }
+            },
+            "required": [
+                "source",
+                "version"
             ],
-            "type": "string"
-        },
-        "createDateTime": {
-            "description": "The time the matrix was created (ISO 8601 format).",
-            "format": "date-time",
-            "type": "string",
-            "examples": [
-                "2017-01-17T20:33:40Z"
-            ]
-        },
-        "description": {
-            "description": "Description of the matrix.",
-            "examples": [
-                "This matrix provides examples of the actual data in this Beacon instance."
-            ],
-            "type": "string"
-        },
-        "downloadUrl": {
-            "description": "Optional URL to download the full matrix (RFC 3986). Bulk download is not required when sliced expression values are served via the API.",
-            "examples": [
-                "https://example.org/matrices/matrix.csv"
-            ],
-            "type": "string"
-        },
-        "reproducible": {
-            "type": "boolean",
-            "description": "Whether this Beacon provides enough provenance to regenerate the quantification matrix (annotation source, version and file, assembly, units/scale, and analysis/protocol information). true means that information is available; false means provenance is incomplete and the matrix should not be treated as independently reproducible from Beacon metadata alone.",
-            "examples": [
-                true,
-                false
-            ]
+            "type": "object"
         },
         "assayType": {
-            "type": "object",
             "additionalProperties": true,
+            "description": "Type of RNA-seq assay (e.g. bulk vs single-cell).",
+            "examples": [
+                {
+                    "id": "OBI:0002631",
+                    "label": "single-cell RNA sequencing assay"
+                },
+                {
+                    "id": "OBI:0003090",
+                    "label": "bulk RNA-seq assay"
+                }
+            ],
             "properties": {
                 "id": {
                     "type": "string"
@@ -55,177 +75,7 @@
             "required": [
                 "id"
             ],
-            "description": "Type of RNA-seq assay (e.g. bulk vs single-cell).",
-            "examples": [
-                {
-                    "id": "OBI:0002631",
-                    "label": "single-cell RNA sequencing assay"
-                },
-                {
-                    "id": "OBI:0003090",
-                    "label": "bulk RNA-seq assay"
-                }
-            ]
-        },
-        "info": {
-            "type": "object",
-            "additionalProperties": true,
-            "description": "Optional free-form metadata bag."
-        },
-        "name": {
-            "description": "Human-readable name of the matrix.",
-            "examples": [
-                "Gene expression matrix"
-            ],
-            "type": "string"
-        },
-        "dimensions": {
-            "description": "Number of features (rows) and biosamples (columns) in the matrix.",
-            "type": "object",
-            "properties": {
-                "features": {
-                    "type": "integer",
-                    "description": "Number of genomic feature rows."
-                },
-                "biosamples": {
-                    "type": "integer",
-                    "description": "Number of biosample columns."
-                }
-            },
-            "required": [
-                "features",
-                "biosamples"
-            ]
-        },
-        "featureTypes": {
-            "description": "Sequence Ontology terms for the class(es) of genomic feature rows in this matrix. Homogeneous matrices list one term (e.g. gene or mRNA). Matrices that mix genes and transcripts (or other feature classes) MUST list every class present. Each feature in the matrix MUST have a featureType that appears in this array. Values from SO (Sequence Ontology) are recommended.",
-            "type": "array",
-            "minItems": 1,
-            "items": {
-                "type": "object",
-                "additionalProperties": true,
-                "properties": {
-                    "id": {
-                        "type": "string"
-                    },
-                    "label": {
-                        "type": "string"
-                    }
-                },
-                "required": [
-                    "id"
-                ]
-            },
-            "examples": [
-                [
-                    {
-                        "id": "SO:0000704",
-                        "label": "gene"
-                    }
-                ],
-                [
-                    {
-                        "id": "SO:0000234",
-                        "label": "mRNA"
-                    }
-                ],
-                [
-                    {
-                        "id": "SO:0000704",
-                        "label": "gene"
-                    },
-                    {
-                        "id": "SO:0000234",
-                        "label": "mRNA"
-                    }
-                ]
-            ]
-        },
-        "expressionUnitAndScale": {
-            "description": "Unit and numeric scale of expression values in this matrix. Applies to all expressionValue.value entries that reference this matrixId.",
-            "type": "object",
-            "required": [
-                "unit",
-                "scale"
-            ],
-            "properties": {
-                "unit": {
-                    "enum": [
-                        "raw",
-                        "TPM",
-                        "FPKM",
-                        "RPKM",
-                        "CPM",
-                        "RPM"
-                    ],
-                    "default": "raw",
-                    "description": "Quantification unit of the expression values."
-                },
-                "scale": {
-                    "enum": [
-                        "linear",
-                        "log2",
-                        "log10"
-                    ],
-                    "default": "linear",
-                    "description": "Whether values are linear or log-transformed. If not provided, it is assumed to be linear."
-                }
-            }
-        },
-        "expressionValueRange": {
-            "type": "object",
-            "description": "Global minimum and maximum of expressionValue.value across this matrix. Uses the same unit and scale as expressionUnitAndScale. Optional; when present, clients may use it for colour scales without scanning all cells.",
-            "required": [
-                "min",
-                "max"
-            ],
-            "properties": {
-                "min": {
-                    "type": "number",
-                    "description": "Minimum expression value observed in the matrix."
-                },
-                "max": {
-                    "type": "number",
-                    "description": "Maximum expression value observed in the matrix."
-                }
-            }
-        },
-        "annotation": {
-            "description": "Annotation catalog used to define feature identifiers in this matrix. source SHOULD use the same identifiers.org-style prefix vocabulary as featureIdentifier.resource (e.g. ensembl, gencode). version is the annotation release; it is not the same as an Ensembl object version suffix (e.g. .18).",
-            "type": "object",
-            "properties": {
-                "source": {
-                    "type": "string",
-                    "description": "Identifier namespace / annotation catalog. An identifiers.org prefix is recommended.",
-                    "examples": [
-                        "ensembl",
-                        "gencode",
-                        "refseq",
-                        "ncbigene"
-                    ]
-                },
-                "version": {
-                    "type": "string",
-                    "description": "Annotation release or build version string.",
-                    "examples": [
-                        "109",
-                        "49",
-                        "109.20190905"
-                    ]
-                },
-                "file": {
-                    "type": "string",
-                    "description": "URL to the annotation file."
-                },
-                "md5Checksum": {
-                    "type": "string",
-                    "description": "MD5 checksum of the annotation file."
-                }
-            },
-            "required": [
-                "source",
-                "version"
-            ]
+            "type": "object"
         },
         "assembly": {
             "description": "Reference genome assembly used to map reads and define genomic coordinates for features in this matrix.",
@@ -235,7 +85,6 @@
                     "name": "GRCh38.p14"
                 }
             ],
-            "type": "object",
             "properties": {
                 "accession": {
                     "description": "Assembly accession (e.g. INSDC GCA_/GCF_).",
@@ -249,16 +98,272 @@
             "required": [
                 "accession",
                 "name"
-            ]
+            ],
+            "type": "object"
+        },
+        "biosampleTypes": {
+            "description": "Ontology terms for tissue, cell type, or cell line present on biosample columns of this matrix. Prefer UBERON for anatomical tissue, CL for cell type, and CLO or BTO for cell lines. Each listed term MUST appear on a linked biosample (e.g. sampleOriginDetail). Distinct from assayType.",
+            "examples": [
+                [
+                    {
+                        "id": "UBERON:0002190",
+                        "label": "subcutaneous adipose tissue"
+                    }
+                ],
+                [
+                    {
+                        "id": "UBERON:0000964",
+                        "label": "cornea"
+                    },
+                    {
+                        "id": "UBERON:0001777",
+                        "label": "sclera"
+                    }
+                ],
+                [
+                    {
+                        "id": "CL:0000236",
+                        "label": "B cell"
+                    }
+                ]
+            ],
+            "items": {
+                "additionalProperties": true,
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id"
+                ],
+                "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "biotypes": {
+            "description": "Sequence Ontology biotypes present on genomic feature rows of this matrix (e.g. protein_coding_gene, lncRNA_gene). Distinct from featureTypes (structural class). Each listed term MUST appear as some feature's biotype in this matrix. Values from SO (Sequence Ontology) are recommended.",
+            "examples": [
+                [
+                    {
+                        "id": "SO:0001217",
+                        "label": "protein_coding_gene"
+                    }
+                ],
+                [
+                    {
+                        "id": "SO:0001217",
+                        "label": "protein_coding_gene"
+                    },
+                    {
+                        "id": "SO:0002127",
+                        "label": "lncRNA_gene"
+                    }
+                ]
+            ],
+            "items": {
+                "additionalProperties": true,
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id"
+                ],
+                "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "createDateTime": {
+            "description": "The time the matrix was created (ISO 8601 format).",
+            "examples": [
+                "2017-01-17T20:33:40Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+        },
+        "description": {
+            "description": "Description of the matrix.",
+            "examples": [
+                "This matrix provides examples of the actual data in this Beacon instance."
+            ],
+            "type": "string"
+        },
+        "dimensions": {
+            "description": "Number of features (rows) and biosamples (columns) in the matrix.",
+            "properties": {
+                "biosamples": {
+                    "description": "Number of biosample columns.",
+                    "type": "integer"
+                },
+                "features": {
+                    "description": "Number of genomic feature rows.",
+                    "type": "integer"
+                }
+            },
+            "required": [
+                "features",
+                "biosamples"
+            ],
+            "type": "object"
+        },
+        "downloadUrl": {
+            "description": "Optional URL to download the full matrix (RFC 3986). Bulk download is not required when sliced expression values are served via the API.",
+            "examples": [
+                "https://example.org/matrices/matrix.csv"
+            ],
+            "type": "string"
+        },
+        "expressionUnitAndScale": {
+            "description": "Unit and numeric scale of expression values in this matrix. Applies to all expressionValue.value entries that reference this matrix id.",
+            "properties": {
+                "scale": {
+                    "default": "linear",
+                    "description": "Whether values are linear or log-transformed. If not provided, it is assumed to be linear.",
+                    "enum": [
+                        "linear",
+                        "log2",
+                        "log10"
+                    ]
+                },
+                "unit": {
+                    "default": "raw",
+                    "description": "Quantification unit of the expression values.",
+                    "enum": [
+                        "raw",
+                        "TPM",
+                        "FPKM",
+                        "RPKM",
+                        "CPM",
+                        "RPM"
+                    ]
+                }
+            },
+            "required": [
+                "unit",
+                "scale"
+            ],
+            "type": "object"
+        },
+        "expressionValueRange": {
+            "description": "Global minimum and maximum of expressionValue.value across this matrix. Uses the same unit and scale as expressionUnitAndScale.",
+            "properties": {
+                "max": {
+                    "description": "Maximum expression value observed in the matrix.",
+                    "type": "number"
+                },
+                "min": {
+                    "description": "Minimum expression value observed in the matrix.",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "min",
+                "max"
+            ],
+            "type": "object"
+        },
+        "featureTypes": {
+            "description": "Sequence Ontology terms for the class(es) of genomic feature rows in this matrix. Homogeneous matrices list one term (e.g. gene or mRNA). Matrices that mix genes and transcripts (or other feature classes) MUST list every class present. Each feature in the matrix MUST have a featureType that appears in this array. Values from SO (Sequence Ontology) are recommended.",
+            "examples": [
+                [
+                    {
+                        "id": "SO:0000704",
+                        "label": "gene"
+                    }
+                ],
+                [
+                    {
+                        "id": "SO:0000234",
+                        "label": "mRNA"
+                    }
+                ],
+                [
+                    {
+                        "id": "SO:0000704",
+                        "label": "gene"
+                    },
+                    {
+                        "id": "SO:0000234",
+                        "label": "mRNA"
+                    }
+                ]
+            ],
+            "items": {
+                "additionalProperties": true,
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id"
+                ],
+                "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "id": {
+            "description": "Unique identifier of the matrix entry within the Beacon. Referenced as matrixId by expressionValue entries.",
+            "examples": [
+                "matrix-gene-expression-001"
+            ],
+            "type": "string"
+        },
+        "info": {
+            "additionalProperties": true,
+            "description": "Optional free-form metadata bag.",
+            "type": "object"
+        },
+        "name": {
+            "description": "Human-readable name of the matrix.",
+            "examples": [
+                "Gene expression matrix"
+            ],
+            "type": "string"
+        },
+        "reproducible": {
+            "description": "Whether this Beacon provides enough provenance to regenerate the quantification matrix (annotation source, version and file, assembly, units/scale, and analysis/protocol information). true means that information is available; false means provenance is incomplete and the matrix should not be treated as independently reproducible from Beacon metadata alone.",
+            "examples": [
+                true,
+                false
+            ],
+            "type": "boolean"
+        },
+        "source": {
+            "description": "Origin of the matrix data, i.e. the resource or pipeline the quantification was obtained from.",
+            "examples": [
+                "encode",
+                "geo",
+                "gtex"
+            ],
+            "type": "string"
         }
     },
     "required": [
-        "matrixId",
+        "id",
         "expressionUnitAndScale",
         "featureTypes",
-        "annotation",
-        "assembly",
         "reproducible"
     ],
+    "then": {
+        "required": [
+            "annotation",
+            "assembly"
+        ]
+    },
     "type": "object"
 }

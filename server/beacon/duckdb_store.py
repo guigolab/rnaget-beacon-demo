@@ -35,6 +35,11 @@ MAX_INTERMEDIATE_IDS = MAX_PAGE_LIMIT
 # Explore probe caches (package is immutable for the process lifetime).
 _FEATURE_ID_LIST_CACHE_MAX = 256
 _HYDRATED_FEATURE_CACHE_MAX = 4096
+# Gene-filter -> wrapper-id resolutions kept for the tissue wide fast path.
+_WIDE_CANDIDATES_CACHE_MAX = 2048
+# Above this many candidate genes the old SQL (join + subquery) is used.
+_WIDE_CANDIDATES_MAX = 2000
+_WIDE_OVERFLOW: Tuple[str, ...] = ("\0overflow",)
 
 BIOSAMPLE_HYDRATE_COLS: Tuple[str, ...] = (
     "biosample_id",
@@ -278,6 +283,9 @@ class DuckDBStore:
         self._tissue_stats_views: Dict[str, str] = {}
         self._tissue_summary_view: Optional[str] = None
         self._tissue_labels_view: Optional[str] = None
+        self._tissue_wide_view: Optional[str] = None
+        self._tissue_wide_ontologies: Set[str] = set()
+        self._wide_candidates_cache: "OrderedDict[str, Tuple[str, ...]]" = OrderedDict()
         self._pct_feat_views: Dict[str, str] = {}
         self._pct_bio_views: Dict[str, str] = {}
         self._all_features_view: Optional[str] = None
@@ -433,6 +441,24 @@ class DuckDBStore:
                 """
             )
             self._tissue_summary_view = "tissue_summary"
+        wide_meta = self.manifest.get("tissuePercentileWide")
+        wide_path = (
+            self.package_path / str(wide_meta["path"])
+            if isinstance(wide_meta, dict) and wide_meta.get("path")
+            else None
+        )
+        if wide_path is not None and wide_path.is_file():
+            # In-memory (~37 MB for the demo package): single-column scans and
+            # point lookups by wrapper_id both run in about a millisecond.
+            self._execute(
+                f"CREATE TABLE tissue_percentile_wide AS "
+                f"SELECT * FROM read_parquet('{_sql_path(wide_path)}') "
+                f"ORDER BY wrapper_id"
+            )
+            self._tissue_wide_view = "tissue_percentile_wide"
+            self._tissue_wide_ontologies = {
+                str(o) for o in (wide_meta.get("ontologies") or [])
+            }
         if tissue_labels.is_file():
             self._execute(
                 f"CREATE VIEW tissue_labels AS SELECT * FROM read_parquet('{_sql_path(tissue_labels)}')"
@@ -936,10 +962,6 @@ class DuckDBStore:
         """Row count written by the package build. Never inferred from dimensions."""
         if matrix_id in self._manifest_expr_rows:
             return self._manifest_expr_rows[matrix_id]
-        mat = self._matrices_by_id.get(matrix_id) or {}
-        pkg = mat.get("package") or (mat.get("info") or {}).get("package") or {}
-        if pkg.get("expressionRows") is not None:
-            return int(pkg["expressionRows"])
         return None
 
     def _expression_row_total(self, matrix_id: str) -> Optional[int]:
@@ -961,24 +983,7 @@ class DuckDBStore:
     ) -> List[Dict[str, Any]]:
         from beacon.matrix_catalog import list_matrices_filtered, public_matrix_doc
 
-        extra: Optional[Dict[str, Set[str]]] = None
-        if filters:
-            # SO biotype terms are dual-scoped to matrix; match against feature-row
-            # SO ids (feature_type_id ∪ ontology_terms), not only matrices.featureTypes.
-            needs_so = any(
-                getattr(f, "kind", None) == "ontology"
-                and str(getattr(f, "id", "")).upper().startswith("SO:")
-                for f in filters
-            )
-            if needs_so:
-                extra = {}
-                for m in self.matrices:
-                    mid = str(m.get("matrixId") or m.get("id") or "")
-                    if mid:
-                        extra[mid] = self._feature_axis_present_ids(mid)
-        matched = list_matrices_filtered(
-            self.matrices, filters, extra_ontology_ids_by_matrix=extra
-        )
+        matched = list_matrices_filtered(self.matrices, filters)
         return [public_matrix_doc(m) for m in matched]
 
     def matrix_filtering_terms(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -1158,49 +1163,6 @@ class DuckDBStore:
             )
         self._axis_terms_cache[(matrix_id, axis)] = result
         return result
-
-    def _matrix_filtering_terms_path(self, matrix_id: str) -> Path:
-        safe = str(matrix_id).replace("/", "_")
-        return self.package_path / "filtering_terms" / "by_matrix" / f"{safe}.json"
-
-    def matrix_scoped_filtering_terms(
-        self, matrix_id: str
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        from beacon.matrix_axis_catalog import (
-            ensure_matrix_feature_so_terms,
-            merge_matrix_scoped_filtering_terms,
-        )
-
-        matrix_doc = self.get_matrix(matrix_id)
-        if not matrix_doc:
-            return [], []
-        packaged = self._matrix_filtering_terms_path(matrix_id)
-        if packaged.is_file():
-            try:
-                with packaged.open(encoding="utf-8") as fh:
-                    doc = json.load(fh)
-                terms = list(doc.get("filteringTerms") or [])
-                resources = list(doc.get("resources") or [])
-                # Keep featureTypes SO visible even on older by_matrix packages.
-                terms, resources = ensure_matrix_feature_so_terms(
-                    terms, resources, matrix=matrix_doc, present_ids=None
-                )
-                return terms, resources
-            except (OSError, json.JSONDecodeError) as exc:
-                logger.warning(
-                    "Failed to load packaged matrix filtering_terms %s: %s",
-                    packaged,
-                    exc,
-                )
-        feat_terms, feat_resources = self.matrix_axis_filtering_terms(
-            matrix_id, "features"
-        )
-        bio_terms, bio_resources = self.matrix_axis_filtering_terms(
-            matrix_id, "biosamples"
-        )
-        return merge_matrix_scoped_filtering_terms(
-            feat_terms, feat_resources, bio_terms, bio_resources
-        )
 
     def get_matrix(self, matrix_id: str) -> Optional[Dict[str, Any]]:
         from beacon.matrix_catalog import public_matrix_doc
@@ -1392,7 +1354,7 @@ class DuckDBStore:
                         type_="SO",
                         id_=str(tid),
                         label=str(tlabel) if tlabel else None,
-                        scopes=["genomicFeature", "matrix"],
+                        scopes=["genomicFeature"],
                     )
             try:
                 rows, _ = self._fetchall(
@@ -1409,7 +1371,7 @@ class DuckDBStore:
                             type_="SO",
                             id_=str(tid),
                             label=str(tlabel) if tlabel else None,
-                            scopes=["genomicFeature", "matrix"],
+                            scopes=["genomicFeature"],
                         )
             except duckdb.Error as exc:
                 logger.warning("biotype_id facet scan failed: %s", exc)
@@ -1433,7 +1395,7 @@ class DuckDBStore:
                             type_="SO",
                             id_=tid_s,
                             label=str(tlabel) if tlabel else None,
-                            scopes=["genomicFeature", "matrix"],
+                            scopes=["genomicFeature"],
                         )
                     elif pref == "GO":
                         needed_resources.add("go")
@@ -1612,7 +1574,7 @@ class DuckDBStore:
                     {"uberon", "efo", "obi", "mondo", "hp", "go", "ncit"}
                 )
             if "matrix" in want:
-                keep_ids.update({"so", "obi"})
+                keep_ids.update({"obi"})
             resources = [
                 r
                 for r in resources
@@ -1934,6 +1896,14 @@ class DuckDBStore:
         if parsed is None:
             return None, []
         kind, oid = parsed
+        if kind == "percentile":
+            pred, params = self._tissue_summary_predicate(filt)
+            if not pred:
+                return None, []
+            return (
+                f"SELECT wrapper_id FROM {self._tissue_summary_view} WHERE {pred}",
+                params,
+            )
         if self._tissue_summary_view:
             if kind == "top":
                 return (
@@ -2073,6 +2043,8 @@ class DuckDBStore:
         if parsed is None:
             return None, []
         kind, oid = parsed
+        if kind == "percentile":
+            return None, []
         if kind == "present":
             return (
                 f"CAST(feature_id AS VARCHAR) IN ("
@@ -2209,6 +2181,19 @@ class DuckDBStore:
         prefix = f"{alias}." if alias else ""
         # tissue_summary columns are VARCHAR (loaded as table at startup).
         ontology = f"{prefix}ontology_id = ?"
+        if kind == "percentile":
+            op = getattr(filt, "operator", None)
+            if op not in (">=", ">", "<=", "<", "="):
+                return None, []
+            try:
+                threshold = float(getattr(filt, "value", ""))
+            except (TypeError, ValueError):
+                return None, []
+            return (
+                f"{ontology} AND {prefix}percentile IS NOT NULL "
+                f"AND {prefix}percentile {op} ?",
+                [oid, threshold],
+            )
         if kind == "top":
             return (
                 f"{ontology} AND {prefix}percentile IS NOT NULL "
@@ -2441,6 +2426,112 @@ class DuckDBStore:
                         )
         return [by_id[wid] for wid in ids if wid in by_id]
 
+    def _tissue_wide_threshold(self, filt: Any) -> Optional[Tuple[str, str, float]]:
+        """(column, operator, threshold) when the wide table can answer ``filt``.
+
+        Only ``tissue.percentile`` with ``>=`` / ``>`` (and the legacy top band)
+        qualify: they exclude NULL, which is how the wide table encodes
+        absent / not detected. Other operators and ``present`` use the summary.
+        """
+        from beacon.expression_filter_maps import parse_tissue_feature_filter
+        from beacon.tissue_catalog import TISSUE_EXPLORE_BAND_PERCENTILE
+
+        parsed = parse_tissue_feature_filter(getattr(filt, "id", ""))
+        if parsed is None:
+            return None
+        kind, oid = parsed
+        if oid not in self._tissue_wide_ontologies:
+            return None
+        if kind == "percentile":
+            op = getattr(filt, "operator", None)
+            if op not in (">=", ">"):
+                return None
+            try:
+                threshold = float(getattr(filt, "value", ""))
+            except (TypeError, ValueError):
+                return None
+        elif kind == "top":
+            op, threshold = ">=", float(TISSUE_EXPLORE_BAND_PERCENTILE)
+        else:
+            return None
+        return '"' + oid.replace('"', '""') + '"', op, threshold
+
+    def _wide_candidate_ids(
+        self, constraint: str, cparams: Sequence[Any], source: str
+    ) -> Optional[Tuple[str, ...]]:
+        """Wrapper ids matching the gene-side constraint (cached), or None.
+
+        None means "too many to enumerate": the caller falls back to the SQL
+        join. The package is immutable, so resolutions are cached for good.
+        """
+        key = f"{source}\0{constraint}\0{list(cparams)!r}"
+        cached = self._lru_get(self._wide_candidates_cache, key)
+        if cached is not None:
+            return None if cached == _WIDE_OVERFLOW else cached
+        rows, _cols = self._fetchall(
+            f"SELECT CAST(wrapper_id AS VARCHAR) FROM {source} "
+            f"WHERE {constraint} LIMIT {_WIDE_CANDIDATES_MAX + 1}",
+            list(cparams),
+        )
+        ids = tuple(str(r[0]) for r in rows if r and r[0])
+        value: Tuple[str, ...] = (
+            _WIDE_OVERFLOW if len(ids) > _WIDE_CANDIDATES_MAX else ids
+        )
+        self._lru_put(
+            self._wide_candidates_cache, key, value, _WIDE_CANDIDATES_CACHE_MAX
+        )
+        return None if value == _WIDE_OVERFLOW else value
+
+    def _list_features_page_via_tissue_wide(
+        self,
+        *,
+        skip: int,
+        limit: int,
+        conditions: Sequence[Tuple[str, str, float]],
+        candidates: Optional[Sequence[str]] = None,
+        timings: Optional[Dict[str, float]] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Genes passing every ``tissue.percentile`` term, from the wide table.
+
+        ``candidates`` (when given) restricts to those wrapper ids: a gene-filter
+        + tissue query then costs a point lookup instead of a join. Same rows
+        and order as the summary query (first tissue percentile DESC, wrapper_id).
+        ``limit == 0`` (boolean / count granularity) skips paging and hydration.
+        """
+        view = self._tissue_wide_view
+        limit = max(0, min(int(limit), MAX_PAGE_LIMIT))
+        skip = max(0, int(skip))
+        where = " AND ".join(f"{col} {op} ?" for col, op, _t in conditions)
+        params: List[Any] = [t for _c, _o, t in conditions]
+        if candidates is not None:
+            if not candidates:
+                return [], 0
+            ph = ", ".join(["?"] * len(candidates))
+            where = f"wrapper_id IN ({ph}) AND {where}"
+            params = list(candidates) + params
+        t_count = time.perf_counter()
+        row = self._fetchone(f"SELECT COUNT(*) FROM {view} WHERE {where}", params)
+        total = int(row[0]) if row else 0
+        if timings is not None:
+            timings["count"] = (time.perf_counter() - t_count) * 1000.0
+        if limit <= 0 or total <= 0 or skip >= total:
+            return [], total
+        t_select = time.perf_counter()
+        first_col = conditions[0][0]
+        rows, _cols = self._fetchall(
+            f"SELECT wrapper_id FROM {view} WHERE {where} "
+            f"ORDER BY {first_col} DESC, wrapper_id ASC LIMIT ? OFFSET ?",
+            params + [limit, skip],
+        )
+        ordered = [str(r[0]) for r in rows if r and r[0]]
+        if timings is not None:
+            timings["select"] = (time.perf_counter() - t_select) * 1000.0
+        t_hydrate = time.perf_counter()
+        docs = self._hydrate_wrappers_in_order(ordered)
+        if timings is not None:
+            timings["hydrate"] = (time.perf_counter() - t_hydrate) * 1000.0
+        return docs, total
+
     def _list_features_page_via_tissue_summary(
         self,
         *,
@@ -2472,6 +2563,25 @@ class DuckDBStore:
         )
         if empty:
             return [], 0
+
+        if self._tissue_wide_view and use_index and not feature_id_list:
+            conditions = [self._tissue_wide_threshold(f) for f in tissue_filters]
+            if all(c is not None for c in conditions):
+                candidates: Optional[Tuple[str, ...]] = None
+                usable = True
+                if constraint:
+                    candidates = self._wide_candidate_ids(
+                        constraint, cparams, self._feature_index_view
+                    )
+                    usable = candidates is not None
+                if usable:
+                    return self._list_features_page_via_tissue_wide(
+                        skip=skip,
+                        limit=limit,
+                        conditions=[c for c in conditions if c is not None],
+                        candidates=candidates,
+                        timings=timings,
+                    )
 
         if feature_id_list:
             wrapper_ids = self._wrapper_ids_for_feature_id_list(feature_id_list)

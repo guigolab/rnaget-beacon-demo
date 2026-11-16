@@ -7,15 +7,13 @@ import {
   type FilterScopeIndex,
   type UiFilter,
 } from '@/lib/beacon'
+import { tissuePercentileFilter } from '@/lib/beacon/filters'
 import { isTissueOrCellOntologyId } from '@/lib/biosample-ontology-grid'
 import { mergeGeneLensFilters } from '@/lib/gene-lens'
 import { mergeSampleLensFilters } from '@/lib/sample-lens'
 
-/** Larger page: probe cost scales with columns, not genes. */
-export const EXPLORE_LENS_PAGE_SIZE = 30
-/** @deprecated Explore biosample seed uses tissuePresent; kept for API callers. */
-export const TISSUE_TOP_PREFIX = 'tissueTop:'
-export const TISSUE_PRESENT_PREFIX = 'tissuePresent:'
+/** Small page: probe cost scales with genes × tissue columns. */
+export const EXPLORE_LENS_PAGE_SIZE = 5
 
 export type ExploreLensSearch = {
   featureFilters: UiFilter[]
@@ -28,6 +26,11 @@ function isExploreBiosampleFilter(
   index?: FilterScopeIndex
 ): boolean {
   return scopeOf(filter, index) === 'biosample'
+}
+
+/** UBERON/EFO ontology filters are the only sample filters Explore keeps. */
+export function isExploreTissueSelectorFilter(filter: UiFilter): boolean {
+  return filter.kind === 'ontology' && isTissueOrCellOntologyId(filter.id)
 }
 
 /** Tissue column ids implied by biosample UBERON/EFO ontology filters. */
@@ -48,20 +51,14 @@ export function tissueOntologyIdsFromBiosampleFilters(
   return out
 }
 
+/** `tissue.percentile:<oid> >= 99` (top 1% of genes in the tissue). */
 export function tissueTopFilter(ontologyId: string): UiFilter {
-  return {
-    kind: 'custom',
-    id: `${TISSUE_TOP_PREFIX}${ontologyId}`,
-    label: `Top 1% in ${ontologyId}`,
-  }
+  return tissuePercentileFilter(ontologyId, '99', `Top 1% in ${ontologyId}`)
 }
 
+/** `tissue.percentile:<oid> >= 0` (gene present in the tissue). */
 export function tissuePresentFilter(ontologyId: string): UiFilter {
-  return {
-    kind: 'custom',
-    id: `${TISSUE_PRESENT_PREFIX}${ontologyId}`,
-    label: `Present in ${ontologyId}`,
-  }
+  return tissuePercentileFilter(ontologyId, '0', `Present in ${ontologyId}`)
 }
 
 /**

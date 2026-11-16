@@ -2,11 +2,12 @@ import type { Biosample, ExpressionValue, Feature } from '@/lib/beacon/types'
 import { cellKey, nativeFeatureId } from '@/lib/heatmap-expression'
 
 /** Ranked expression_values page size for first paint. */
-export const SLICE_LIMIT = 200
+export const SLICE_LIMIT = 1000
 /** Max heatmap rows derived from a ranked slice. */
-export const SLICE_FEATURE_CAP = 12
+export const AXIS_STEP = 20
+export const SLICE_FEATURE_CAP = AXIS_STEP
 /** Max heatmap columns derived from a ranked slice. */
-export const SLICE_BIOSAMPLE_CAP = 24
+export const SLICE_BIOSAMPLE_CAP = AXIS_STEP
 
 export type SliceHeatmapAxes = {
   featureIds: string[]
@@ -130,4 +131,18 @@ export function sliceAxesGrew(
     after.featureIds.length > before.featureIds.length ||
     after.biosampleIds.length > before.biosampleIds.length
   )
+}
+
+/** Distinct feature / biosample ids present in a ranked slice (uncapped). */
+export function sliceDistinctCounts(cells: readonly ExpressionValue[]): {
+  features: number
+  biosamples: number
+} {
+  const features = new Set<string>()
+  const biosamples = new Set<string>()
+  for (const cell of cells) {
+    if (cell.featureId) features.add(cell.featureId)
+    if (cell.biosampleId) biosamples.add(cell.biosampleId)
+  }
+  return { features: features.size, biosamples: biosamples.size }
 }

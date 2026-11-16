@@ -50,7 +50,9 @@ Checkout → Disk check → Python + download cache
   → build_expression_stats.py
   → build_tissue_expression_stats.py
   → build_tissue_feature_summary.py
-  → build_matrix_filtering_terms.py --with-root
+  → complete_gene_lookup.py           (every feature id is a gene_lookup key; per-cell Explore queries)
+  → build_tissue_percentile_wide.py   (gene × tissue matrix for fast tissue.percentile queries)
+  → build_filtering_terms.py
   → verify_data_package.py → pytest
   → Pack data-package.tar.zst → Upload artifact → (optional) Release
 ```
@@ -67,6 +69,8 @@ In short:
 
 ## What the finished package looks like
 
+`matrices.json` entries follow the beacon-v2 matrix model: `id` (identifier), top-level `source`, `featureTypes`, `biotypes`, `biosampleTypes`, annotation and assembly. `matrixId` is kept only as the internal package key (the API does not expose it). Matrix documents carry no `info` or `package` bag: packaging paths, shards and row counts live in `manifest.json`. `scripts/sync_matrix_feature_types.py` (run by the workflow and by `scripts/fetch_data_package.py` on older releases) sets `id` and `source`, drops legacy `info`/`package`, projects missing feature biotypes from `genes.parquet` into each `features.parquet`, and then derives the matrix `featureTypes`, `biotypes` and `biosampleTypes`; fetch rebuilds the feature indexes afterwards.
+
 ```text
 data-package/
   manifest.json
@@ -74,8 +78,8 @@ data-package/
   genes.parquet
   gene_lookup.parquet
   tissue_feature_summary.parquet
+  tissue_percentile_wide.parquet
   filtering_terms.json
-  filtering_terms/by_matrix/{matrixId}.json
   matrices/
     <matrix-id>/
       features.parquet

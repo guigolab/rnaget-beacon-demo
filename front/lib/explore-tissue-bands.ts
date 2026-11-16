@@ -1,25 +1,45 @@
 /**
- * Explore heatmap band paint via tissueTop probes + local presence.
+ * Explore heatmap bands: one Beacon boolean question per gene x tissue cell.
+ *
+ *   POST /features  requestedGranularity: boolean
+ *     filters: symbol = <feature id>, feature.resource = <resource>,
+ *              tissue.percentile:<tissue> >= 99
+ *
+ * `exists: true` means the gene is in the tissue's top 1% (band 99). The
+ * feature id (e.g. ENSG00000163631.16 or 213) plus its resource identify the
+ * exact gene row, so the answer is per row, not per symbol.
  *
  * Presence is derived locally: feature.matrixIds ∩ ontology→matrix index
- * (from nested /matrices/{id}/filtering_terms). Only tissueTop is probed.
+ * (from matrix biosampleTypes on GET /matrices). Cells for tissues the gene is
+ * not measured in are painted as absent with no request.
  *
  * Band map wire:
- * - 99 = matched tissueTop (≥99 within-tissue)
- * - 0 = locally present but not tissueTop (<99)
+ * - 99 = boolean query matched (≥99 within-tissue)
+ * - 0 = locally present but the query did not match (<99)
  * - missing key = none (not in matrix for that tissue)
  *
- * A column whose request fails is left out of `probedPairs` so other columns
- * stay painted and the failed cells can be retried.
+ * Answers are immutable (the package is immutable): they are cached and shared
+ * between concurrent callers. A cell whose request fails is left out of
+ * `probedPairs` so other cells stay painted and it can be retried. Results
+ * stream through `onProgress`.
  */
 
-import { exploreMapPool } from '@/lib/async-pool'
-import { isAbortError, listFeatures } from '@/lib/beacon/client'
+import { withExploreProbeLimit } from '@/lib/async-pool'
+import {
+  BeaconError,
+  isAbortError,
+  listFeatures,
+} from '@/lib/beacon/client'
+import {
+  FEATURE_RESOURCE_ID,
+  symbolFilter,
+  tissuePercentileFilter,
+} from '@/lib/beacon/filters'
+import { collectionQuery } from '@/lib/beacon/query'
 import type { Feature, UiFilter } from '@/lib/beacon/types'
 import {
   featureMatrixIdsForTissue,
   matrixIdsForOntology,
-  ontologyCatalogKey,
 } from '@/lib/explore-tissue-matrices'
 import { isMatrixPseudoOntologyId, type TissueColumn } from '@/lib/tissue-levels'
 
@@ -50,60 +70,125 @@ export function mergeTissueBandMaps(
   return changed ? next : current
 }
 
-function tissueTopFilter(
-  ontologyId: string
-): Extract<UiFilter, { kind: 'custom' }> {
-  return { kind: 'custom', id: `tissueTop:${ontologyId}` }
+/** Feature accession used as the `symbol` lookup key (213, ENSG00000163631.16). */
+function featureLookupKey(feature: Feature): string {
+  return (
+    feature.featureIdentifier?.id?.trim() ||
+    feature.id.replace(/^feature-/, '')
+  )
 }
 
-/** Module-level probe memo (package is immutable). Cap session growth. */
-const PROBE_CACHE_MAX = 256
-const probeCache = new Map<string, Set<string>>()
-
-function probeCacheKey(filterId: string, featureIds: string[]): string {
-  return `${filterId}\0${[...featureIds].sort().join(',')}`
+/** The exact filters asked for one gene x tissue cell. */
+export function tissueCellFilters(feature: Feature, ontologyId: string): UiFilter[] {
+  const filters: UiFilter[] = [symbolFilter(featureLookupKey(feature))]
+  const resource = feature.featureIdentifier?.resource?.trim()
+  if (resource) {
+    filters.push({ kind: 'alphanumeric', id: FEATURE_RESOURCE_ID, value: resource })
+  }
+  filters.push(tissuePercentileFilter(ontologyId, '99'))
+  return filters
 }
+
+/** The Beacon request behind one cell (shown to users and sent by the probe). */
+export function tissueCellRequest(feature: Feature, ontologyId: string) {
+  return collectionQuery('/features', {
+    filters: tissueCellFilters(feature, ontologyId),
+    granularity: 'boolean',
+    skip: 0,
+    limit: 1,
+  })
+}
+
+/** pairKey → is tissueTop (≥99). Immutable per package. */
+const CELL_CACHE_MAX = 50000
+const cellCache = new Map<string, boolean>()
+const cellInflight = new Map<string, Promise<boolean>>()
 
 export function resetExploreTissueBandCaches() {
-  probeCache.clear()
+  cellCache.clear()
+  cellInflight.clear()
 }
 
-async function probeFeatureIds(
-  featureIds: string[],
-  filter: Extract<UiFilter, { kind: 'custom' }>,
-  signal?: AbortSignal
-): Promise<Set<string>> {
-  if (!featureIds.length) return new Set()
-  const key = probeCacheKey(filter.id, featureIds)
-  const cached = probeCache.get(key)
-  if (cached) {
-    // Refresh LRU order.
-    probeCache.delete(key)
-    probeCache.set(key, cached)
-    return new Set(cached)
-  }
-  const page = await listFeatures(0, featureIds.length, {
-    filters: [filter],
-    featureIDList: featureIds.join(','),
-    granularity: 'record',
-    signal,
-  })
-  const hits = new Set(page.results.map((f) => f.id).filter(Boolean))
-  probeCache.set(key, hits)
-  while (probeCache.size > PROBE_CACHE_MAX) {
-    const oldest = probeCache.keys().next().value
+function rememberCell(key: string, top: boolean) {
+  cellCache.delete(key)
+  cellCache.set(key, top)
+  while (cellCache.size > CELL_CACHE_MAX) {
+    const oldest = cellCache.keys().next().value
     if (oldest == null) break
-    probeCache.delete(oldest)
+    cellCache.delete(oldest)
   }
-  return hits
+}
+
+const RATE_LIMIT_RETRIES = 4
+const RATE_LIMIT_BACKOFF_MS = 250
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms)
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        reject(new DOMException('The operation was aborted.', 'AbortError'))
+      },
+      { once: true }
+    )
+  })
+}
+
+/** Ask the boolean question for one cell (the proxy rate-limits bursts: back off on 429). */
+async function askCell(
+  feature: Feature,
+  oid: string,
+  signal?: AbortSignal
+): Promise<boolean> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const page = await listFeatures(0, 1, {
+        filters: tissueCellFilters(feature, oid),
+        granularity: 'boolean',
+        recordGroup: 'explore-tissue-cells',
+      })
+      return page.exists === true
+    } catch (err) {
+      const limited = err instanceof BeaconError && err.status === 429
+      if (!limited || attempt >= RATE_LIMIT_RETRIES) throw err
+      await delay(RATE_LIMIT_BACKOFF_MS * (attempt + 1), signal)
+    }
+  }
+}
+
+function probeCell(
+  feature: Feature,
+  oid: string,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const key = tissueBandPairKey(feature.id, oid)
+  const known = cellCache.get(key)
+  if (known != null) return Promise.resolve(known)
+  const inflight = cellInflight.get(key)
+  if (inflight) return inflight
+  const pending: Promise<boolean> = withExploreProbeLimit(
+    () => askCell(feature, oid, signal),
+    signal
+  )
+    .then((top) => {
+      rememberCell(key, top)
+      return top
+    })
+    .finally(() => {
+      if (cellInflight.get(key) === pending) cellInflight.delete(key)
+    })
+  cellInflight.set(key, pending)
+  return pending
 }
 
 /**
  * Local presence: any of the feature's matrixIds appears in the tissue's
  * matrix list from the ontology→matrix index.
  *
- * Returns null when the index is unavailable (caller should wait or fall
- * back to a tissuePresent probe). Empty index → absent.
+ * Returns null when the index is unavailable (caller should wait). Empty
+ * index → absent.
  */
 export function featurePresentInTissue(
   feature: Feature,
@@ -121,111 +206,131 @@ export async function probeExploreTissueBands(opts: {
   features: Feature[]
   columns: TissueColumn[]
   signal?: AbortSignal
-  /** Pairs already painted; those ids are omitted from that column's request. */
+  /** Pairs already painted; those cells are not asked again. */
   skipPairs?: Set<string>
   /**
-   * Ontology ids already known present for every pending feature (seeded
-   * tissueTop/tissuePresent list). Those columns skip local-present checks
-   * and treat every pending id as present.
+   * Ontology ids already known present for every pending feature (the gene
+   * list was fetched with a tissue term). Local presence is skipped for them.
    */
   assumePresentOntologyIds?: readonly string[]
   /**
-   * Ontology (lower) → matrixId[]. When set, presence is local (no
-   * tissuePresent probe). When null/undefined, pairs stay unprobed so a
-   * later pass can distinguish absent (none) from &lt;99.
+   * Ontology (lower) → matrixId[]. When null/undefined, pairs stay unprobed so
+   * a later pass can distinguish absent (none) from <99.
    */
   ontologyMatrixIndex?: Map<string, string[]> | null
+  /** Columns asked first (e.g. the focused / seeded tissue). */
+  priorityOntologyIds?: readonly string[]
   /**
-   * Ontology ids whose bands are already known from the gene list fetch
-   * (tissueTop-first seed → all 99; present continuation → all 0).
-   * Those columns are painted without a probe.
+   * Called with newly resolved cells as they arrive (local results are
+   * delivered synchronously before any request). The final return value still
+   * contains everything.
    */
-  seedBandByOntology?: ReadonlyMap<string, 99 | 0>
+  onProgress?: (delta: TissueBandProbe) => void
 }): Promise<TissueBandProbe> {
   const features = opts.features.filter((f) => Boolean(f.id))
-  const featureIds = features.map((f) => f.id)
   const out: FeatureTissueBandMap = new Map()
   const probedPairs = new Set<string>()
+  let fresh: TissueBandProbe = { bands: new Map(), probedPairs: new Set() }
+
+  if (!features.length || !opts.columns.length) {
+    return { bands: out, probedPairs }
+  }
+
   const skip = opts.skipPairs
   const assumePresent = new Set(
     (opts.assumePresentOntologyIds ?? [])
       .map((id) => id.trim().toLowerCase())
       .filter(Boolean)
   )
-  const seedBands = opts.seedBandByOntology
   const index = opts.ontologyMatrixIndex
 
-  if (!featureIds.length || !opts.columns.length) {
-    return { bands: out, probedPairs }
+  const markProbed = (fid: string, oid: string) => {
+    const key = tissueBandPairKey(fid, oid)
+    probedPairs.add(key)
+    fresh.probedPairs.add(key)
+  }
+  const setBand = (fid: string, oid: string, value: 99 | 0) => {
+    const bands = out.get(fid) ?? {}
+    bands[oid] = value
+    out.set(fid, bands)
+    const delta = fresh.bands.get(fid) ?? {}
+    delta[oid] = value
+    fresh.bands.set(fid, delta)
+    markProbed(fid, oid)
+  }
+  const emit = () => {
+    if (opts.signal?.aborted || !opts.onProgress) {
+      fresh = { bands: new Map(), probedPairs: new Set() }
+      return
+    }
+    if (!fresh.probedPairs.size && !fresh.bands.size) return
+    const delta = fresh
+    fresh = { bands: new Map(), probedPairs: new Set() }
+    opts.onProgress(delta)
   }
 
-  await exploreMapPool(
-    opts.columns,
-    async (column) => {
-      if (opts.signal?.aborted) return
-      const oid = column.ontologyId
-      if (!oid) return
-      const pending = features.filter(
-        (f) => !skip?.has(tissueBandPairKey(f.id, oid))
-      )
-      if (!pending.length) return
-
+  // Pass 1 (synchronous, no network): absent / cached cells.
+  const jobs: { oid: string; feature: Feature }[] = []
+  for (const column of opts.columns) {
+    const oid = column.ontologyId
+    if (!oid) continue
+    const assumed = assumePresent.has(oid.toLowerCase())
+    for (const f of features) {
+      if (skip?.has(tissueBandPairKey(f.id, oid))) continue
       // Unannotated matrix columns have no tissue summary row. Paint as none.
       if (isMatrixPseudoOntologyId(oid)) {
-        for (const f of pending) probedPairs.add(tissueBandPairKey(f.id, oid))
-        return
+        markProbed(f.id, oid)
+        continue
       }
-
-      const seedBand = seedBands?.get(ontologyCatalogKey(oid))
-      if (seedBand != null && assumePresent.has(oid.toLowerCase())) {
-        for (const f of pending) {
-          const bands = out.get(f.id) ?? {}
-          bands[oid] = seedBand
-          out.set(f.id, bands)
-          probedPairs.add(tissueBandPairKey(f.id, oid))
-        }
-        return
+      const present = assumed ? true : featurePresentInTissue(f, oid, index)
+      if (present === null) continue // index not ready: leave unprobed
+      if (!present) {
+        markProbed(f.id, oid)
+        continue
       }
+      const cached = cellCache.get(tissueBandPairKey(f.id, oid))
+      if (cached != null) setBand(f.id, oid, cached ? 99 : 0)
+      else jobs.push({ oid, feature: f })
+    }
+  }
+  emit()
+  if (!jobs.length) return { bands: out, probedPairs }
 
-      const presentFeatures: Feature[] = []
-      const unknownFeatures: Feature[] = []
-      for (const f of pending) {
-        if (assumePresent.has(oid.toLowerCase())) {
-          presentFeatures.push(f)
-          continue
-        }
-        const local = featurePresentInTissue(f, oid, index)
-        if (local === null) unknownFeatures.push(f)
-        else if (local) presentFeatures.push(f)
-        else probedPairs.add(tissueBandPairKey(f.id, oid))
-      }
+  const priority = new Set(
+    (opts.priorityOntologyIds ?? []).map((id) => id.trim().toLowerCase())
+  )
+  if (priority.size) {
+    jobs.sort(
+      (a, b) =>
+        Number(priority.has(b.oid.toLowerCase())) -
+        Number(priority.has(a.oid.toLowerCase()))
+    )
+  }
 
-      // Index not ready: leave pairs unprobed so a later pass can paint correctly.
-      if (unknownFeatures.length && index == null) {
-        return
-      }
+  /**
+   * Shared in-flight work may reject with an AbortError that belongs to a
+   * previous (superseded) probe run; retry once when ours is still live.
+   */
+  const retry = async <T>(fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn()
+    } catch (err) {
+      if (isAbortError(err) && !opts.signal?.aborted) return fn()
+      throw err
+    }
+  }
 
-      if (!presentFeatures.length) return
-
+  await Promise.all(
+    jobs.map(async ({ oid, feature }) => {
       try {
-        const topIds = await probeFeatureIds(
-          presentFeatures.map((f) => f.id),
-          tissueTopFilter(oid),
-          opts.signal
-        )
+        const top = await retry(() => probeCell(feature, oid, opts.signal))
         if (opts.signal?.aborted) return
-        for (const f of presentFeatures) {
-          const bands = out.get(f.id) ?? {}
-          bands[oid] = topIds.has(f.id) ? 99 : 0
-          out.set(f.id, bands)
-          probedPairs.add(tissueBandPairKey(f.id, oid))
-        }
-      } catch (err) {
-        if (isAbortError(err) || opts.signal?.aborted) return
-        // Leave this column unprobed. Sibling columns already recorded stay.
+        setBand(feature.id, oid, top ? 99 : 0)
+        emit()
+      } catch {
+        // Leave this cell unprobed; siblings stay painted.
       }
-    },
-    opts.signal
+    })
   )
 
   return { bands: out, probedPairs }

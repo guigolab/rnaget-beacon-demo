@@ -2,14 +2,18 @@
 
 import { Popover } from '@base-ui/react/popover'
 import type { FilteringTerm } from '@/lib/beacon/types'
-import {
-  SCOPE_LEGEND,
-  scopeChipStyle,
-  type NamespaceScopeGroup,
-} from '@/lib/scope-theme'
+import { filterTypeChipStyle, type FilterTermType } from '@/lib/filter-type-theme'
+import { SCOPE_LEGEND, type NamespaceScopeGroup } from '@/lib/scope-theme'
 
 function scopeShortLabel(scope: NamespaceScopeGroup['scope']): string {
   return SCOPE_LEGEND.find((s) => s.scope === scope)?.label ?? scope
+}
+
+/** Facet / alphanumeric groups hold alphanumeric terms; every other namespace is an ontology. */
+export function namespaceTermType(group: NamespaceScopeGroup): FilterTermType {
+  return group.namespaceType === 'facet' || group.namespaceType === 'alphanumeric'
+    ? 'alphanumeric'
+    : 'ontology'
 }
 
 function TermRow({ term }: { term: FilteringTerm }) {
@@ -40,8 +44,10 @@ function TermRow({ term }: { term: FilteringTerm }) {
 
 /** Compact namespace chip aligned with MetaBadge sizing. */
 export function NamespaceScopeChip({ group }: { group: NamespaceScopeGroup }) {
-  const scopeStyle = scopeChipStyle(group.scope)
-  const prefix = group.namespaceType
+  const termType = namespaceTermType(group)
+  const alphanumeric = termType === 'alphanumeric'
+  const typeStyle = filterTypeChipStyle(termType)
+  const prefix = alphanumeric ? group.namespaceLabel : group.namespaceType
   const hasTerms = group.count > 0 && group.terms.length > 0
   const titleCount = hasTerms
     ? `${group.count} term${group.count === 1 ? '' : 's'}`
@@ -60,14 +66,14 @@ export function NamespaceScopeChip({ group }: { group: NamespaceScopeGroup }) {
         style={
           hasTerms
             ? {
-                ...scopeStyle,
+                ...typeStyle,
                 borderWidth: 1,
                 borderStyle: 'solid',
               }
             : undefined
         }
       >
-        <span className="truncate font-mono">{prefix}</span>
+        <span className={alphanumeric ? 'truncate' : 'truncate font-mono'}>{prefix}</span>
         {hasTerms && (
           <span className="tabular-nums text-[9px] opacity-80">{group.count}</span>
         )}
@@ -86,6 +92,16 @@ export function NamespaceScopeChip({ group }: { group: NamespaceScopeGroup }) {
                   : ' · resource namespace'}
               </Popover.Description>
             </div>
+            {hasTerms && alphanumeric && (
+              <p className="border-b border-border bg-muted/30 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+                Alphanumeric filter: <code className="font-mono">id</code> +{' '}
+                <code className="font-mono">operator</code> +{' '}
+                <code className="font-mono">value</code> (for example{' '}
+                <code className="font-mono">=</code> or{' '}
+                <code className="font-mono">&gt;=</code>). Values below are the
+                precomputed set offered in the UI.
+              </p>
+            )}
             {hasTerms ? (
               <ul className="max-h-72 overflow-y-auto px-3 py-1.5">
                 {group.terms.map((term) => (

@@ -23,7 +23,7 @@ function termChipLabel(term: OntologyTerm): string {
 }
 
 function MatrixResultCard({ matrix }: { matrix: Matrix }) {
-  const id = matrix.matrixId ?? ''
+  const id = matrix.id ?? ''
   const unit = matrix.expressionUnitAndScale?.unit
   const scale = matrix.expressionUnitAndScale?.scale
   const { min, max } = matrix.expressionValueRange ?? {}
@@ -125,7 +125,7 @@ export function MatrixResultsCards({ matrices }: MatrixResultsCardsProps) {
   return (
     <div className="flex flex-col gap-3">
       {matrices.map((matrix) => {
-        const id = matrix.matrixId ?? ''
+        const id = matrix.id ?? ''
         return <MatrixResultCard key={id} matrix={matrix} />
       })}
     </div>

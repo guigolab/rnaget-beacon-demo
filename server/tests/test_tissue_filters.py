@@ -6,6 +6,16 @@ import os
 import unittest
 from pathlib import Path
 
+SERVER_DIR = Path(__file__).resolve().parents[1]
+TESTS_DIR = Path(__file__).resolve().parent
+import sys
+if str(SERVER_DIR) not in sys.path:
+    sys.path.insert(0, str(SERVER_DIR))
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
+
+from beacon_test_helpers import BEACON_META, with_meta
+
 from beacon.expression_filter_maps import (
     parse_tissue_feature_filter,
     tissue_high_filter_id,
@@ -224,6 +234,45 @@ class TissueFiltersDuckDBTest(unittest.TestCase):
         else:
             os.environ.pop("DATA_PACKAGE_PATH", None)
 
+    def test_tissue_percentile_alphanumeric_matches_legacy_top(self) -> None:
+        liver = "UBERON:0002107"
+        body = {
+            "meta": {"apiVersion": "v2.0.0"},
+            "query": {
+                "filters": [
+                    {"id": f"tissue.percentile:{liver}", "operator": ">=", "value": "99"}
+                ],
+                "requestedGranularity": "count",
+            },
+        }
+        new = self.client.post("/features", json=body)
+        self.assertEqual(new.status_code, 200, new.text)
+        legacy = self.client.get(
+            "/features",
+            params={"filters": tissue_top_filter_id(liver), "requestedGranularity": "count"},
+        )
+        self.assertEqual(
+            new.json()["responseSummary"]["numTotalResults"],
+            legacy.json()["responseSummary"]["numTotalResults"],
+        )
+        looser = dict(body)
+        looser["query"] = {
+            **body["query"],
+            "filters": [
+                {"id": f"tissue.percentile:{liver}", "operator": ">=", "value": "90"}
+            ],
+        }
+        wide = self.client.post("/features", json=looser).json()["responseSummary"]
+        self.assertGreater(
+            wide["numTotalResults"], new.json()["responseSummary"]["numTotalResults"]
+        )
+        bad = dict(body)
+        bad["query"] = {
+            **body["query"],
+            "filters": [{"id": "tissue.percentile:x", "operator": ">=", "value": "9"}],
+        }
+        self.assertEqual(self.client.post("/features", json=bad).status_code, 400)
+
     def test_root_catalog_tissue_explore_customs(self) -> None:
         r = self.client.get("/filtering_terms", params={"limit": 0})
         self.assertEqual(r.status_code, 200, r.text)
@@ -233,21 +282,18 @@ class TissueFiltersDuckDBTest(unittest.TestCase):
         self.assertNotIn(tissue_high_filter_id(liver), by_id)
         pseudo = tissue_high_filter_id(matrix_pseudo_ontology_id("GSE107011"))
         self.assertNotIn(pseudo, by_id)
-        # tissueTop / tissuePresent are catalogued for Beacon discovery.
-        top = tissue_top_filter_id(liver)
-        present = tissue_present_filter_id(liver)
-        self.assertIn(top, by_id)
-        self.assertIn(present, by_id)
-        self.assertEqual(by_id[top].get("type"), "custom")
-        self.assertIn("genomicFeature", by_id[top].get("scopes") or [])
-        self.assertEqual(by_id[present].get("type"), "custom")
-        self.assertIn("genomicFeature", by_id[present].get("scopes") or [])
-        # Pseudo matrix columns are not advertised as Top/Present.
+        # tissue.percentile:<ontologyId> is catalogued as an alphanumeric term.
+        term_id = f"tissue.percentile:{liver}"
+        self.assertIn(term_id, by_id)
+        self.assertEqual(by_id[term_id].get("type"), "alphanumeric")
+        self.assertIn("genomicFeature", by_id[term_id].get("scopes") or [])
+        self.assertEqual(by_id[term_id].get("values"), ["90", "95", "99"])
+        # Custom tissueTop / tissuePresent ids are no longer advertised.
+        self.assertNotIn(tissue_top_filter_id(liver), by_id)
+        self.assertNotIn(tissue_present_filter_id(liver), by_id)
+        # Pseudo matrix columns are not advertised.
         self.assertNotIn(
-            tissue_top_filter_id(matrix_pseudo_ontology_id("GSE107011")), by_id
-        )
-        self.assertNotIn(
-            tissue_present_filter_id(matrix_pseudo_ontology_id("GSE107011")), by_id
+            f"tissue.percentile:{matrix_pseudo_ontology_id('GSE107011')}", by_id
         )
         # Tissue ontology for Explore sample seeding remains.
         self.assertIn(liver, by_id)
@@ -255,13 +301,13 @@ class TissueFiltersDuckDBTest(unittest.TestCase):
     def test_liver_high_returns_beacon_envelope_with_tissue_bands(self) -> None:
         r = self.client.post(
             "/features",
-            json={
+            json=with_meta({
                 "query": {
                     "filters": [{"id": tissue_high_filter_id("UBERON:0002107")}],
                     "pagination": {"skip": 0, "limit": 5},
                     "requestedGranularity": "record",
                 }
-            },
+            }),
         )
         self.assertEqual(r.status_code, 200, r.text)
         body = r.json()
@@ -276,96 +322,15 @@ class TissueFiltersDuckDBTest(unittest.TestCase):
             self.assertIn("id", feat)
             self.assertIn("featureIdentifier", feat)
 
-    def test_feature_id_list_tissue_top_present_probe(self) -> None:
-        """Explore-style probe: featureIDList ∩ tissueTop / tissuePresent, no info."""
-        liver = "UBERON:0002107"
-        seed = self.client.post(
-            "/features",
-            json={
-                "query": {
-                    "filters": [{"id": tissue_present_filter_id(liver)}],
-                    "pagination": {"skip": 0, "limit": 5},
-                    "requestedGranularity": "record",
-                }
-            },
-        )
-        self.assertEqual(seed.status_code, 200, seed.text)
-        seed_rows = (
-            seed.json()
-            .get("response", {})
-            .get("resultSets", [{}])[0]
-            .get("results")
-            or []
-        )
-        if len(seed_rows) < 2:
-            self.skipTest("need ≥2 liver-present features in package")
-        ids = [str(row["id"]) for row in seed_rows]
-        id_csv = ",".join(ids)
-
-        top = self.client.post(
-            "/features",
-            json={
-                "query": {
-                    "filters": [{"id": tissue_top_filter_id(liver)}],
-                    "requestParameters": {"featureIDList": id_csv},
-                    "pagination": {"skip": 0, "limit": len(ids)},
-                    "requestedGranularity": "record",
-                }
-            },
-        )
-        present = self.client.post(
-            "/features",
-            json={
-                "query": {
-                    "filters": [{"id": tissue_present_filter_id(liver)}],
-                    "requestParameters": {"featureIDList": id_csv},
-                    "pagination": {"skip": 0, "limit": len(ids)},
-                    "requestedGranularity": "record",
-                }
-            },
-        )
-        self.assertEqual(top.status_code, 200, top.text)
-        self.assertEqual(present.status_code, 200, present.text)
-        top_ids = {
-            row["id"]
-            for row in (
-                top.json()
-                .get("response", {})
-                .get("resultSets", [{}])[0]
-                .get("results")
-                or []
-            )
-        }
-        present_ids = {
-            row["id"]
-            for row in (
-                present.json()
-                .get("response", {})
-                .get("resultSets", [{}])[0]
-                .get("results")
-                or []
-            )
-        }
-        self.assertTrue(present_ids)
-        self.assertTrue(top_ids <= present_ids)
-        for row in (
-            present.json()
-            .get("response", {})
-            .get("resultSets", [{}])[0]
-            .get("results")
-            or []
-        ):
-            self.assertNotIn("info", row)
-
     def test_tissue_present_page_is_stable_without_info(self) -> None:
         """Gene-row tissuePresent page stays a feature result set, no info bag."""
-        body = {
+        body = with_meta({
             "query": {
                 "filters": [{"id": tissue_present_filter_id("UBERON:0002107")}],
                 "pagination": {"skip": 0, "limit": 5},
                 "requestedGranularity": "record",
             }
-        }
+        })
         first = self.client.post("/features", json=body)
         second = self.client.post("/features", json=body)
         self.assertEqual(first.status_code, 200, first.text)
@@ -391,58 +356,6 @@ class TissueFiltersDuckDBTest(unittest.TestCase):
             self.assertIn("id", row)
             self.assertIn("featureIdentifier", row)
 
-    def test_get_feature_id_list_probe_headers_and_count_skip(self) -> None:
-        """GET probe with featureIDList returns Server-Timing; no info bags."""
-        liver = "UBERON:0002107"
-        seed = self.client.get(
-            "/features",
-            params={
-                "filters": tissue_present_filter_id(liver),
-                "skip": 0,
-                "limit": 4,
-                "requestedGranularity": "record",
-            },
-        )
-        self.assertEqual(seed.status_code, 200, seed.text)
-        seed_rows = (
-            seed.json()
-            .get("response", {})
-            .get("resultSets", [{}])[0]
-            .get("results")
-            or []
-        )
-        if len(seed_rows) < 2:
-            self.skipTest("need ≥2 liver-present features in package")
-        ids = [str(row["id"]) for row in seed_rows]
-        probe = self.client.get(
-            "/features",
-            params={
-                "filters": tissue_top_filter_id(liver),
-                "featureIDList": ",".join(ids),
-                "skip": 0,
-                "limit": len(ids),
-                "requestedGranularity": "record",
-            },
-        )
-        self.assertEqual(probe.status_code, 200, probe.text)
-        self.assertIn("server-timing", {k.lower() for k in probe.headers.keys()})
-        self.assertIn("etag", {k.lower() for k in probe.headers.keys()})
-        body = probe.json()
-        total = body["responseSummary"]["numTotalResults"]
-        rows = (
-            body.get("response", {}).get("resultSets", [{}])[0].get("results") or []
-        )
-        self.assertLessEqual(total, len(ids))
-        self.assertEqual(total, len(rows))
-        for row in rows:
-            self.assertNotIn("info", row)
-            self.assertIn("id", row)
-
-
-@unittest.skipUnless(
-    HAS_DEMO_PACKAGE and HAS_TISSUE_STATS,
-    f"demo package with tissue stats not found at {DEMO_PACKAGE}",
-)
 class TissueRepresentationDuckDBTest(unittest.TestCase):
     def test_per_matrix_column_covers_all_biosamples(self) -> None:
         import duckdb

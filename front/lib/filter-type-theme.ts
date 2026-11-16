@@ -3,7 +3,7 @@ import type { FilteringTerm } from '@/lib/beacon/types'
 import type { BeaconScope, NamespaceScopeGroup } from '@/lib/scope-theme'
 
 /** Catalog filtering-term wire types used for Explore chip coloring. */
-export type FilterTermType = 'ontology' | 'alphanumeric' | 'custom'
+export type FilterTermType = 'ontology' | 'alphanumeric'
 
 export const FILTER_TYPE_LEGEND: Array<{
   type: FilterTermType
@@ -11,7 +11,6 @@ export const FILTER_TYPE_LEGEND: Array<{
 }> = [
   { type: 'ontology', label: 'Ontology' },
   { type: 'alphanumeric', label: 'Alphanumeric' },
-  { type: 'custom', label: 'Custom' },
 ]
 
 export function filterTypeCssVars(type: FilterTermType): {
@@ -41,7 +40,7 @@ export function filterTypeDotStyle(type: FilterTermType): CSSProperties {
   return { backgroundColor: filterTypeCssVars(type).dot }
 }
 
-export type CustomChipFacet = {
+export type FacetChipGroup = {
   key: string
   label: string
   terms: FilteringTerm[]
@@ -54,60 +53,41 @@ function sortTermsByLabel(terms: FilteringTerm[]): FilteringTerm[] {
 }
 
 /**
- * Split catalog custom terms into Explore chips.
+ * Split alphanumeric facet terms into Explore chips.
  *
- * Tissue families become two chips (picker lists the ontologies):
- * - `tissueTop:*` → "Top 1% in tissue"
- * - `tissuePresent:*` → "Present in tissue"
- *
- * Other customs (e.g. expression.percentile, feature.biotypeFamily) stay one
- * chip per term. Dropped families (tissueHigh / tissueSpecific /
- * biosample.preset) are ignored if present in old packages.
+ * `tissue.percentile:<ontologyId>` terms (one per tissue) become a single chip
+ * "Top 1% in tissue" whose picker lists the tissues. Other facets
+ * (expression.percentile, feature.biotypeFamily) stay one chip per term.
  */
-export function groupCustomTermsForChips(
+export function groupFacetTermsForChips(
   _scope: BeaconScope,
   terms: FilteringTerm[]
-): CustomChipFacet[] {
+): FacetChipGroup[] {
   const tissueTop: FilteringTerm[] = []
-  const tissuePresent: FilteringTerm[] = []
   const singles: FilteringTerm[] = []
 
   for (const term of terms) {
     const id = term.id.trim().toLowerCase()
-    if (id.startsWith('tissuehigh:')) continue
-    if (id.startsWith('tissuespecific:')) continue
-    if (id.startsWith('biosample.preset:')) continue
-    if (id.startsWith('tissuetop:')) {
+    if (id.startsWith('tissue.percentile:')) {
       tissueTop.push(term)
-      continue
-    }
-    if (id.startsWith('tissuepresent:')) {
-      tissuePresent.push(term)
       continue
     }
     singles.push(term)
   }
 
-  const out: CustomChipFacet[] = []
+  const out: FacetChipGroup[] = []
 
   if (tissueTop.length) {
     out.push({
-      key: 'custom|tissueTop',
+      key: 'facet|tissuePercentile',
       label: 'Top 1% in tissue',
       terms: sortTermsByLabel(tissueTop),
-    })
-  }
-  if (tissuePresent.length) {
-    out.push({
-      key: 'custom|tissuePresent',
-      label: 'Present in tissue',
-      terms: sortTermsByLabel(tissuePresent),
     })
   }
 
   for (const term of sortTermsByLabel(singles)) {
     out.push({
-      key: `custom|term|${term.id}`,
+      key: `facet|term|${term.id}`,
       label: term.label?.trim() || term.id,
       terms: [term],
     })
@@ -116,13 +96,13 @@ export function groupCustomTermsForChips(
   return out
 }
 
-export function customFacetAsGroup(
+export function facetAsGroup(
   scope: BeaconScope,
-  facet: CustomChipFacet
+  facet: FacetChipGroup
 ): NamespaceScopeGroup {
   return {
     key: facet.key,
-    namespaceType: 'custom',
+    namespaceType: 'facet',
     namespaceLabel: facet.label,
     scope,
     terms: facet.terms,

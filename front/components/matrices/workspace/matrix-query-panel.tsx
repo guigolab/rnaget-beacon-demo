@@ -99,10 +99,8 @@ export function MatrixQueryPanel({
   onClear,
   biosampleTotalFallback,
 }: MatrixQueryPanelProps) {
-  const matrixId = matrix.matrixId
-  const catalog = useFilteringTerms(
-    `/matrices/${encodeURIComponent(matrixId)}/filtering_terms`
-  )
+  const matrixId = matrix.id
+  const catalog = useFilteringTerms('/filtering_terms')
   const scopeIndex = useMemo(
     () => buildFilterScopeIndex(catalog.terms),
     [catalog.terms]
@@ -158,27 +156,12 @@ export function MatrixQueryPanel({
         }
         return { genes: [...current.genes, filter.value] }
       }
-      if (
-        filter.kind === 'custom' &&
-        filter.id.toLowerCase().startsWith('symbol:')
-      ) {
-        const symbol = filter.id.slice(filter.id.indexOf(':') + 1).trim()
-        if (!symbol) return current
-        if (current.genes.some((gene) => gene.toUpperCase() === symbol.toUpperCase())) {
-          return current
-        }
-        return { genes: [...current.genes, symbol] }
-      }
       if (filter.kind === 'expression') {
         return {
           featureFilters: dedupeFilters([...current.featureFilters, filter]),
         }
       }
-      if (
-        filter.kind === 'ontology' ||
-        filter.kind === 'custom' ||
-        filter.kind === 'alphanumeric'
-      ) {
+      if (filter.kind === 'ontology' || filter.kind === 'alphanumeric') {
         return {
           featureFilters: mergeGeneLensFilters(current.featureFilters, filter),
         }
@@ -468,6 +451,25 @@ export function MatrixQueryPanel({
       )}
 
       <div className="min-w-0 space-y-1.5 lg:border-l lg:border-border lg:pl-3">
+        <div className="flex items-center gap-2">
+          <label
+            htmlFor="matrix-expression-order"
+            className="text-[11px] font-medium text-muted-foreground"
+          >
+            Sort values
+          </label>
+          <select
+            id="matrix-expression-order"
+            value={query.order}
+            onChange={(event) =>
+              onPatch({ order: event.target.value === 'asc' ? 'asc' : 'desc' })
+            }
+            className="h-9 rounded-md border border-border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+          >
+            <option value="desc">Descending (highest first)</option>
+            <option value="asc">Ascending (lowest first)</option>
+          </select>
+        </div>
         {hasRange && range?.min != null && range.max != null ? (
           <MatrixRangeFilter
             matrixMin={range.min}

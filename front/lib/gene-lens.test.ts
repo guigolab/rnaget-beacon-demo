@@ -18,7 +18,10 @@ const accessionFirst: Feature = {
     featureIdentifier: { id: 'ENSG00000198886.2', resource: 'gencode' }}
 console.assert(featureSymbol(accessionFirst) === 'MT-ND4')
 console.assert(featureDisplayLabel(accessionFirst) === 'MT-ND4')
-console.assert(matrixViewHref('GTEx-v8-Liver', accessionFirst).includes('genes=MT-ND4'))
+const matrixHref = matrixViewHref('GTEx-v8-Liver', accessionFirst)
+console.assert(matrixHref.includes('matrix=GTEx-v8-Liver'))
+console.assert(matrixHref.includes('genes=MT-ND4'))
+console.assert(!matrixHref.includes('/matrices/GTEx-v8-Liver'))
 
 const symbolFirst: Feature = {
   id: 'feature-tp53',

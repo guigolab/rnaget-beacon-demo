@@ -778,6 +778,19 @@ def hydrate_package(
             if g.get("strand") is not None:
                 row["strand"] = g["strand"]
             updated += 1
+        # from_pylist infers columns from the first row only; give every row the
+        # union of keys so e.g. biotype_id/biotype_label are not dropped when the
+        # first feature has no biotype.
+        all_keys: List[str] = list(orig_schema.names)
+        seen_keys = set(all_keys)
+        for r in rows:
+            for k in r:
+                if k not in seen_keys:
+                    seen_keys.add(k)
+                    all_keys.append(k)
+        for r in rows:
+            for k in all_keys:
+                r.setdefault(k, None)
         out_table = pa.Table.from_pylist(rows)
         del rows
         # Preserve original column types where cast is possible.

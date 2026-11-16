@@ -2,16 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  filterKey,
   isAbortError,
   listExpressionValues,
   type ExpressionValue,
-  type UiFilter,
 } from '@/lib/beacon'
 import {
   deriveSliceHeatmapAxes,
   sliceAxesCanExtend,
   sliceAxesGrew,
+  sliceDistinctCounts,
+  SLICE_BIOSAMPLE_CAP,
+  SLICE_FEATURE_CAP,
   SLICE_LIMIT,
   type SliceHeatmapAxes,
 } from '@/lib/matrix-expression-slice'
@@ -24,6 +25,10 @@ export type MatrixExpressionSliceState = {
   error: string
   loadingMore: boolean
   hasMore: boolean
+  /** More feature rows exist than the current cap shows. */
+  hasMoreFeatures: boolean
+  /** More biosample columns exist than the current cap shows. */
+  hasMoreBiosamples: boolean
   loadMore: () => void
   retry: () => void
 }
@@ -33,9 +38,11 @@ type UseMatrixExpressionSliceInput = {
   order: 'asc' | 'desc'
   minValue?: number
   maxValue?: number
-  filters: UiFilter[]
   featureIDList?: string
   biosampleIDList?: string
+  /** Visible axis caps; raise them to reveal more of the ranked cells. */
+  featureCap?: number
+  biosampleCap?: number
   enabled?: boolean
 }
 
@@ -43,13 +50,15 @@ export function useMatrixExpressionSlice(
   input: UseMatrixExpressionSliceInput
 ): MatrixExpressionSliceState {
   const enabled = input.enabled !== false
-  const filtersKey = input.filters.map((filter) => filterKey(filter)).join('|')
+  const featureCap = input.featureCap ?? SLICE_FEATURE_CAP
+  const biosampleCap = input.biosampleCap ?? SLICE_BIOSAMPLE_CAP
+  const capsRef = useRef({ featureCap, biosampleCap })
+  capsRef.current = { featureCap, biosampleCap }
   const requestKey = JSON.stringify({
     matrixId: input.matrixId,
     order: input.order,
     minValue: input.minValue ?? null,
     maxValue: input.maxValue ?? null,
-    filtersKey,
     featureIDList: input.featureIDList ?? '',
     biosampleIDList: input.biosampleIDList ?? '',
   })
@@ -70,9 +79,6 @@ export function useMatrixExpressionSlice(
   const cellsRef = useRef<ExpressionValue[]>([])
   nextPageRef.current = nextPage
   cellsRef.current = cells
-
-  const filtersRef = useRef(input.filters)
-  filtersRef.current = input.filters
 
   useEffect(() => {
     if (!enabled) {
@@ -101,7 +107,6 @@ export function useMatrixExpressionSlice(
       order: input.order,
       minValue: input.minValue,
       maxValue: input.maxValue,
-      filters: filtersRef.current,
       featureIDList: input.featureIDList,
       biosampleIDList: input.biosampleIDList,
       signal: controller.signal,
@@ -138,21 +143,43 @@ export function useMatrixExpressionSlice(
     requestKey,
   ])
 
-  const axes = useMemo(() => deriveSliceHeatmapAxes(cells), [cells])
+  const axes = useMemo(
+    () => deriveSliceHeatmapAxes(cells, featureCap, biosampleCap),
+    [cells, featureCap, biosampleCap]
+  )
+  const distinct = useMemo(() => sliceDistinctCounts(cells), [cells])
+  const settled = requestKeyState === requestKey
 
   const hasMore =
     Boolean(nextPage) &&
-    requestKeyState === requestKey &&
-    sliceAxesCanExtend(axes.featureIds.length, axes.biosampleIds.length)
+    settled &&
+    sliceAxesCanExtend(
+      axes.featureIds.length,
+      axes.biosampleIds.length,
+      featureCap,
+      biosampleCap
+    )
+  const hasMoreFeatures =
+    settled && (distinct.features > axes.featureIds.length || Boolean(nextPage))
+  const hasMoreBiosamples =
+    settled &&
+    (distinct.biosamples > axes.biosampleIds.length || Boolean(nextPage))
 
   const loadMore = useCallback(() => {
     const token = nextPageRef.current?.trim()
     if (!enabled || !token || moreRef.current) return
-    const currentAxes = deriveSliceHeatmapAxes(cellsRef.current)
+    const caps = capsRef.current
+    const currentAxes = deriveSliceHeatmapAxes(
+      cellsRef.current,
+      caps.featureCap,
+      caps.biosampleCap
+    )
     if (
       !sliceAxesCanExtend(
         currentAxes.featureIds.length,
-        currentAxes.biosampleIds.length
+        currentAxes.biosampleIds.length,
+        caps.featureCap,
+        caps.biosampleCap
       )
     ) {
       return
@@ -167,16 +194,23 @@ export function useMatrixExpressionSlice(
       order: input.order,
       minValue: input.minValue,
       maxValue: input.maxValue,
-      filters: filtersRef.current,
       featureIDList: input.featureIDList,
       biosampleIDList: input.biosampleIDList,
       signal: controller.signal,
     })
       .then((page) => {
         if (controller.signal.aborted) return
-        const before = deriveSliceHeatmapAxes(cellsRef.current)
+        const before = deriveSliceHeatmapAxes(
+          cellsRef.current,
+          caps.featureCap,
+          caps.biosampleCap
+        )
         const merged = [...cellsRef.current, ...page.results]
-        const after = deriveSliceHeatmapAxes(merged)
+        const after = deriveSliceHeatmapAxes(
+          merged,
+          caps.featureCap,
+          caps.biosampleCap
+        )
         setCells(merged)
         if (page.total != null) setTotal(page.total)
         // Stop when this page cannot grow capped axes (avoids unbounded paging).
@@ -207,6 +241,11 @@ export function useMatrixExpressionSlice(
     input.order,
   ])
 
+  // Raising a cap past what the loaded cells cover pulls the next ranked page.
+  useEffect(() => {
+    if (status === 'ready' && hasMore && !loadingMore) loadMore()
+  }, [status, hasMore, loadingMore, loadMore, featureCap, biosampleCap])
+
   const retry = useCallback(() => setAttempt((n) => n + 1), [])
 
   return {
@@ -217,6 +256,8 @@ export function useMatrixExpressionSlice(
     error,
     loadingMore,
     hasMore,
+    hasMoreFeatures,
+    hasMoreBiosamples,
     loadMore,
     retry,
   }

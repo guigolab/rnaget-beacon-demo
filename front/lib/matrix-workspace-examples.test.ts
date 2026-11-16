@@ -15,7 +15,7 @@ function allExamples(
 }
 
 const gtexFeatureTerms: FilteringTerm[] = [
-  { id: 'SO:0000704', type: 'SO', label: 'gene', scopes: ['genomicFeature', 'matrix'] },
+  { id: 'SO:0000704', type: 'SO', label: 'gene', scopes: ['genomicFeature'] },
   { id: 'SO:0001217', type: 'SO', label: 'protein_coding_gene', scopes: ['genomicFeature'] },
   {
     id: 'feature.biotypeFamily',
@@ -62,11 +62,7 @@ assert.ok(gtexFeatures.more.length >= 1)
 const gtexAll = allExamples(gtexFeatures)
 assert.deepEqual(
   gtexAll
-    .filter(
-      (example) =>
-        example.filter.kind === 'custom' &&
-        example.filter.id.toLowerCase().startsWith('symbol:')
-    )
+    .filter((example) => example.filter.kind === 'symbol')
     .map((example) => example.label),
   ['MT-ND4', 'MT-CO3', 'MT-ND2', 'MT-CO1']
 )

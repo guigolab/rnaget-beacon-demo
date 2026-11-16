@@ -1,4 +1,4 @@
-import { FEATURE_BIOTYPE_FAMILY_ID } from '@/lib/beacon/filters'
+import { FEATURE_BIOTYPE_FAMILY_ID, symbolFilter } from '@/lib/beacon/filters'
 import {
   isTissueOrCellType,
   ONTOLOGY_CORE_TISSUES,
@@ -76,7 +76,7 @@ export function matrixHeatmapFeatureExamples(
       candidates,
       {
         label: symbol,
-        filter: { kind: 'custom', id: `symbol:${symbol}`, label: symbol },
+        filter: symbolFilter(symbol),
       },
       seen
     )

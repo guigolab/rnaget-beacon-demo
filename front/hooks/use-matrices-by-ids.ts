@@ -37,7 +37,7 @@ export function useMatricesByIds(matrixIds: string[]) {
           if (cancelled || fetchGenRef.current !== gen) return
           try {
             const matrix = await getMatrix(id)
-            if (matrix?.matrixId) matrixCache.set(matrix.matrixId, matrix)
+            if (matrix?.id) matrixCache.set(matrix.id, matrix)
           } catch {
             /* skip single matrix failure */
           }

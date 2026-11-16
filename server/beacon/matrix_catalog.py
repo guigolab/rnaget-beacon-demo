@@ -12,9 +12,14 @@ from beacon.filters import (
 from beacon.matrix_catalog_seed import load_matrix_seed_terms, merge_filtering_terms
 
 # Beacon matrix defaultSchema properties only (no info / packaging extras).
+# Internally the data package keys matrices by ``matrixId``; the public
+# document exposes it as ``id`` (see ``public_matrix_doc``).
 MATRIX_SCHEMA_KEYS = frozenset(
     {
-        "matrixId",
+        "id",
+        "source",
+        "biotypes",
+        "biosampleTypes",
         "createDateTime",
         "description",
         "downloadUrl",
@@ -33,11 +38,19 @@ MATRIX_SCHEMA_KEYS = frozenset(
 
 def public_matrix_doc(matrix: Dict[str, Any]) -> Dict[str, Any]:
     """Return a schema-true matrix document for API responses."""
-    return {
+    doc = {
         key: matrix[key]
         for key in MATRIX_SCHEMA_KEYS
         if key in matrix and matrix[key] is not None
     }
+    mid = matrix.get("id") or matrix.get("matrixId")
+    if mid is not None:
+        doc["id"] = mid
+    # Schema: biotypes / biosampleTypes are optional but minItems 1.
+    for key in ("biotypes", "biosampleTypes"):
+        if key in doc and not doc[key]:
+            del doc[key]
+    return doc
 
 
 def list_matrices_filtered(
@@ -67,7 +80,6 @@ def build_matrix_filtering_terms(
     assemblies: Set[str] = set()
     profile_sources: Set[str] = set()
     assay_terms: Dict[str, str] = {}
-    feature_types: Dict[str, str] = {}
 
     for m in matrices:
         uas = m.get("expressionUnitAndScale") or {}
@@ -86,12 +98,6 @@ def build_matrix_filtering_terms(
         assay = m.get("assayType") or {}
         if isinstance(assay, dict) and assay.get("id"):
             assay_terms[str(assay["id"])] = str(assay.get("label") or assay["id"])
-        raw_ft = m.get("featureTypes")
-        if raw_ft is None:
-            raw_ft = m.get("featureType") or []
-        for ft in raw_ft or []:
-            if isinstance(ft, dict) and ft.get("id"):
-                feature_types[str(ft["id"])] = str(ft.get("label") or ft["id"])
 
     terms: List[Dict[str, Any]] = []
     from beacon.filter_display import (
@@ -99,7 +105,6 @@ def build_matrix_filtering_terms(
         matrix_assembly_label,
         matrix_profile_source_label,
         matrix_unit_label,
-        so_display_label,
     )
 
     if units:
@@ -141,20 +146,11 @@ def build_matrix_filtering_terms(
                 "scopes": ["matrix"],
             }
         )
-    for oid, label in sorted(feature_types.items()):
-        terms.append(
-            {
-                "type": "SO",
-                "id": oid,
-                "label": so_display_label(label, fallback_id=oid),
-                "scopes": ["matrix"],
-            }
-        )
     if profile_sources:
         terms.append(
             {
-                "type": "custom",
-                "id": "matrix.profileSource",
+                "type": "alphanumeric",
+                "id": "matrix.source",
                 "label": matrix_profile_source_label(),
                 "scopes": ["matrix"],
                 # Machine values (encode/geo/gtex); UI pretty-prints for display.
@@ -165,13 +161,6 @@ def build_matrix_filtering_terms(
     terms = merge_filtering_terms(terms, load_matrix_seed_terms())
 
     resources = [
-        {
-            "id": "so",
-            "name": "Sequence Ontology",
-            "nameSpacePrefix": "SO",
-            "iriPrefix": "http://purl.obolibrary.org/obo/SO_",
-            "url": "http://purl.obolibrary.org/obo/so.obo",
-        },
         {
             "id": "obi",
             "name": "Ontology for Biomedical Investigations",

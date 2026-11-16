@@ -2,13 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  filterKey,
   isAbortError,
   iterateExpressionValues,
   type Biosample,
   type ExpressionValue,
   type Feature,
-  type UiFilter,
 } from '@/lib/beacon'
 import { mapPool } from '@/lib/async-pool'
 import { planCellWindowRequests, type CellWindowRequest } from '@/lib/matrix-cell-window'
@@ -55,7 +53,6 @@ async function fetchWindowRequest(
   request: CellWindowRequest,
   minValue: number | undefined,
   maxValue: number | undefined,
-  filters: UiFilter[] | undefined,
   signal: AbortSignal
 ): Promise<ExpressionValue[]> {
   const rows: ExpressionValue[] = []
@@ -67,7 +64,6 @@ async function fetchWindowRequest(
     biosampleIDList: request.biosampleIds.join(','),
     minValue,
     maxValue,
-    filters,
     order: 'desc',
     signal,
   })) {
@@ -85,12 +81,12 @@ export function useMatrixCellValues(input: {
   biosamples: Biosample[]
   minValue?: number
   maxValue?: number
-  filters?: UiFilter[]
+  /** Cells already known (for example from the ranked slice); never re-fetched. */
+  seed?: ReadonlyMap<string, number>
   enabled?: boolean
 }) {
   const enabled = input.enabled !== false && input.features.length > 0 && input.biosamples.length > 0
-  const filtersKey = (input.filters ?? []).map((filter) => filterKey(filter)).join('|')
-  const dataKey = `${input.matrixId}\u0000${input.minValue ?? ''}\u0000${input.maxValue ?? ''}\u0000${filtersKey}`
+  const dataKey = `${input.matrixId}\u0000${input.minValue ?? ''}\u0000${input.maxValue ?? ''}`
   const windowKey = `${input.features.map((feature) => feature.id).join('|')}::${input.biosamples
     .map((sample) => sample.id)
     .join('|')}`
@@ -100,8 +96,19 @@ export function useMatrixCellValues(input: {
     values: new Map(),
     loaded: new Set(),
   })
+  const seedRef = useRef<ReadonlyMap<string, number> | undefined>(undefined)
   if (cacheRef.current.dataKey !== dataKey) {
     cacheRef.current = { dataKey, values: new Map(), loaded: new Set() }
+    seedRef.current = undefined
+  }
+
+  if (input.seed && seedRef.current !== input.seed) {
+    seedRef.current = input.seed
+    for (const [key, value] of input.seed) {
+      if (cacheRef.current.loaded.has(key)) continue
+      cacheRef.current.values.set(key, value)
+      cacheRef.current.loaded.add(key)
+    }
   }
 
   const [tick, setTick] = useState(0)
@@ -171,7 +178,6 @@ export function useMatrixCellValues(input: {
           request,
           input.minValue,
           input.maxValue,
-          input.filters,
           controller.signal
         )
       )
@@ -202,8 +208,6 @@ export function useMatrixCellValues(input: {
     attempt,
     dataKey,
     enabled,
-    filtersKey,
-    input.filters,
     input.matrixId,
     input.maxValue,
     input.minValue,

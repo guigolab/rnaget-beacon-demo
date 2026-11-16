@@ -292,6 +292,17 @@ def package_has_tissue_feature_summary(package: Path) -> bool:
     return (package / "tissue_feature_summary.parquet").is_file()
 
 
+def package_has_tissue_percentile_wide(package: Path) -> bool:
+    """True when the gene x tissue percentile matrix exists and is registered."""
+    manifest_path = package / "manifest.json"
+    if not (package / "tissue_percentile_wide.parquet").is_file():
+        return False
+    if not manifest_path.is_file():
+        return False
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return bool(manifest.get("tissuePercentileWide"))
+
+
 def _print_summary(package: Path) -> None:
     manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
     print("\nPackage summary")
@@ -342,6 +353,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     if matrices_need_catalog_sync(out):
         print("Syncing matrix featureTypes / biotypes / biosampleTypes…")
         sync_matrix_catalogs(out)
+        # Sync may have projected biotypes into features.parquet; refresh indexes.
+        from build_feature_indexes import build_indexes
+
+        print("Rebuilding feature indexes after matrix sync…")
+        build_indexes(out)
     else:
         print("Reusing shipped matrix catalogs (biotypes / biosampleTypes)")
 
@@ -379,16 +395,32 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         print("Reusing shipped tissue feature summary")
 
+    # Explore asks per-feature Beacon questions (symbol = <feature id>); make sure
+    # every feature, including symbol-less genes, has its own id as a lookup key.
+    print("Completing gene_lookup feature ids…")
+    from complete_gene_lookup import build_package as complete_gene_lookup
+
+    complete_gene_lookup(out)
+
+    # Derived from the summary above; rebuild whenever the summary was rebuilt.
+    if args.force_stats or not package_has_tissue_percentile_wide(out):
+        print("Building tissue percentile wide table…")
+        from build_tissue_percentile_wide import build_package as build_tissue_wide
+
+        build_tissue_wide(out)
+    else:
+        print("Reusing shipped tissue percentile wide table")
+
     # Percentiles are fetch-time only (too large for the 2 GiB release asset).
     print("Building expression percentiles…")
     from build_expression_percentiles import build_package as build_percentiles
 
     build_percentiles(out)
-    # Rebuild so expression.percentileIn* / tissueHigh|Specific terms appear.
-    print("Building filtering_terms catalogs…")
-    from build_matrix_filtering_terms import build_all_filtering_terms
+    # Rebuild root filtering_terms (expression.percentile / tissue terms).
+    print("Building filtering_terms catalog…")
+    from build_filtering_terms import build_catalog, write_catalog
 
-    build_all_filtering_terms(out)
+    write_catalog(out, build_catalog(out))
     _print_summary(out)
     print(f"\nSet DATA_PACKAGE_PATH={out} for the API.")
     return 0

@@ -1,24 +1,22 @@
 DEMO
-
-add sort expression values in matrices/id 
+move custom to alphanumeric
+add sort expression values in matrices/?matrix= workspace 
 rewire top 1% genes 
 improve ui of api-drawer
-remove gene expression input from matrices
 double check home examples, some are off.
 remove featureIDs param from get /features
-filtering_terms are not consistent between home and other pages
 fix queries in /explore, for instance we can directly do SO:XXX and tissueTop in the same query of /features
 the explore heatmap is off
-some redirects of matrices (when clicking on a matrix id link) are off.
-remove featureIDs param from get /features
-
-
+update /explore logic (use new biosampleTypes of matrices)
+drop matrixIdlist, biosampleIdlist and featureIDList from /matrices and /matrices/id/...
 
 BEACON-v2
 add biotypes to genomicFeature
 add biotypes and biosample ontologies to matrices (add more ontologies in matrices)
 matrices add profileSource
 refer to skip and limit from common in proposed models
+
+DOUBTS:
 
 move e_value to common and add scoped id??
 
@@ -29,10 +27,34 @@ EX: {
     }
 
 
+not sure about requiring annotation, assembly and feature types if matrix is not reproducible:
+
+    "required": [
+        "matrixId",
+        "expressionUnitAndScale",
+        "featureTypes",
+        "annotation",
+        "assembly",
+        "reproducible"
+    ],
 
 
+expressionValues does not contain root endpoints but it is contained in matrix (first beacon case of raw data without handover?)
 
+possible fix (or addition) would be expression_stats entity with a combination of tissue/cell ontologies x feature_type (feature-centered) + matrix_id
+this will easily produce dense matrices and collapse cells/biosamples to their ontology
+ex: {   
+        matrixId:
+        featureId:
+        biosampleTypes:[{id:,label:,}]
+        stats: {
+            mean:
+            median:
+            qXX:
+            n:
+                }
 
+    }
 
 
 

@@ -50,6 +50,6 @@ export DATA_PACKAGE_PATH=/data/rnaget-demo
 
 ## Filtering terms
 
-Catalogs ship as package-root `filtering_terms.json` and per-matrix files under `filtering_terms/by_matrix/`. They are built from ontology facets on features and biosamples plus expression stats during the GitHub Action, then rebuilt after fetch so percentile terms appear. Clients discover them at `GET /filtering_terms` and `GET|POST /matrices/{id}/filtering_terms`.
+Catalogs ship as package-root `filtering_terms.json`. They are built from ontology facets on features and biosamples plus expression stats during the GitHub Action, then rebuilt after fetch so percentile terms appear. Clients discover them at root `GET /filtering_terms` only.
 
 → [Filtering terms](docs/filtering-terms.md)

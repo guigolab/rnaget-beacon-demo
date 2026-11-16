@@ -16,11 +16,8 @@ import {
   probeExploreTissueBands,
   tissueBandPairKey,
   type FeatureTissueBandMap,
+  type TissueBandProbe,
 } from '@/lib/explore-tissue-bands'
-import {
-  partitionExploreBiosampleFilters,
-  resolveExploreTissueColumns,
-} from '@/lib/explore-tissue-columns'
 import { tissueOntologyIdsFromBiosampleFilters } from '@/lib/explore-lens'
 import { featureDisplayLabel } from '@/lib/gene-lens'
 import {
@@ -47,7 +44,6 @@ type ExploreHeatmapProps = {
   terms: FilteringTerm[]
   biosampleFilters: UiFilter[]
   featureFilters: UiFilter[]
-  selectedFeatureId: string | null
   /** When set (e.g. single biosample tissue), sort/focus that column. */
   seedFocusOntologyId?: string | null
   /** Ontology (lower) → matrixId[] for local tissuePresent. */
@@ -119,27 +115,16 @@ function ColumnHeaderButton({
   )
 }
 
-function SkeletonColumnHeader({ width }: { width: number }) {
-  return (
-    <th
-      aria-hidden
-      className="sticky top-0 z-[20] box-border border-b border-border bg-muted px-0.5 py-1 text-center"
-      style={{ width, minWidth: width, maxWidth: width }}
-    >
-      <span className="mx-auto block h-3 w-[70%] animate-pulse rounded-sm bg-muted-foreground/25" />
-    </th>
-  )
-}
-
 const SIZE_EPSILON_PX = 2
-const SKELETON_COLUMN_COUNT = 7
+const SCROLL_PROBE_DEBOUNCE_MS = 150
+/** Every probed cell is one Beacon request: probe little beyond the viewport. */
+const PROBE_OVERSCAN = 1
 
 export function ExploreHeatmap({
   features,
   terms,
   biosampleFilters,
   featureFilters,
-  selectedFeatureId,
   seedFocusOntologyId = null,
   ontologyMatrixIndex = null,
   ontologyIndexReady = true,
@@ -157,15 +142,23 @@ export function ExploreHeatmap({
   useEffect(() => {
     if (seedFocusOntologyId) setFocusOntologyId(seedFocusOntologyId)
   }, [seedFocusOntologyId])
+  const focusRef = useRef(focusOntologyId)
+  focusRef.current = focusOntologyId
   const scrollRef = useRef<HTMLDivElement>(null)
   const [scrollLeft, setScrollLeft] = useState(0)
+  const [probeScrollLeft, setProbeScrollLeft] = useState(0)
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
+    },
+    []
+  )
   const [viewportW, setViewportW] = useState(0)
   // Fixed column width — do not measure from layout (w-full stretch would inflate it).
   const colWidth = HEATMAP_COL_FALLBACK_PX
 
   const [columns, setColumns] = useState<TissueColumn[]>([])
-  const [columnsLoading, setColumnsLoading] = useState(false)
-  const [columnsError, setColumnsError] = useState('')
   const [bandMap, setBandMap] = useState<FeatureTissueBandMap>(() => new Map())
   const [probedPairs, setProbedPairs] = useState<Set<string>>(() => new Set())
   const [bandsLoading, setBandsLoading] = useState(false)
@@ -193,56 +186,24 @@ export function ExploreHeatmap({
   }, [prefilledBands, prefilledProbedPairs])
 
   useEffect(() => {
-    const controller = new AbortController()
-    const { constraintFilters } = partitionExploreBiosampleFilters(
-      biosampleFilters
-    )
-    const sync = exploreTissueColumnUniverse(terms, biosampleFilters)
-
-    // No constraint probes: apply sync narrow immediately.
-    if (!constraintFilters.length) {
-      setColumns(sync)
-      setColumnsLoading(false)
-      setColumnsError('')
-      return () => controller.abort()
-    }
-
-    // Keep previous columns while counts refine. The first paint still uses
-    // the catalog universe so band probes are not blocked on n= requests.
-    setColumns((prev) => (prev.length ? prev : sync))
-    setColumnsLoading(true)
-    setColumnsError('')
-    resolveExploreTissueColumns({
-      terms,
-      biosampleFilters,
-      signal: controller.signal,
-    })
-      .then((next) => {
-        if (controller.signal.aborted) return
-        setColumns(next)
-      })
-      .catch((err: unknown) => {
-        if (isAbortError(err) || controller.signal.aborted) return
-        setColumnsError(
-          err instanceof Error ? err.message : 'Failed to update tissue columns'
-        )
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setColumnsLoading(false)
-      })
-    return () => controller.abort()
+    setColumns(exploreTissueColumnUniverse(terms, biosampleFilters))
   }, [terms, biosampleFilters])
 
   const columnById = useMemo(
     () => new Map(columns.map((c) => [c.ontologyId, c])),
     [columns]
   )
+  // Rows are re-sorted only when the list/focus changes or probing settles, not
+  // on every streamed band, so rows do not jump while cells fill in.
+  const bandMapRef = useRef(bandMap)
+  bandMapRef.current = bandMap
   const sortedFeatures = useMemo(() => {
     if (!focusOntologyId) return features
     return sortFeaturesByTissueBand(features, focusOntologyId, (feature) =>
-      bandsForFeature(bandMap, feature.id)
+      bandsForFeature(bandMapRef.current, feature.id)
     )
-  }, [features, focusOntologyId, bandMap])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- bandMap read via ref on purpose
+  }, [features, focusOntologyId, bandsLoading, prefilledBands])
   const featureById = useMemo(
     () => new Map(sortedFeatures.map((f) => [f.id, f])),
     [sortedFeatures]
@@ -256,10 +217,21 @@ export function ExploreHeatmap({
     few: false,
   })
   const visibleColumns = columns.slice(start, end)
+  // Probe window follows the scroll position only after scrolling settles, so a
+  // fast scroll does not enqueue requests for columns that fly past.
+  const probeWindow = heatmapColumnWindow({
+    columnCount: columns.length,
+    scrollLeft: probeScrollLeft,
+    viewportW,
+    colWidth,
+    few: false,
+    overscan: PROBE_OVERSCAN,
+  })
+  const probeColumns = columns.slice(probeWindow.start, probeWindow.end)
   const tableWidthPx = `calc(9rem + ${columns.length * colWidth}px)`
   const featureIdsKey = features.map((f) => f.id).join('|')
   const columnsKey = columns.map((c) => c.ontologyId).join('|')
-  const visibleKey = visibleColumns.map((c) => c.ontologyId).join('|')
+  const probeKey = probeColumns.map((c) => c.ontologyId).join('|')
   const assumePresentOntologyIds = useMemo(
     () => tissueOntologyIdsFromBiosampleFilters(biosampleFilters),
     [biosampleFilters]
@@ -329,14 +301,14 @@ export function ExploreHeatmap({
     })
 
     const missing = features.some((feature) =>
-      visibleColumns.some(
+      probeColumns.some(
         (column) =>
           feature.id &&
           column.ontologyId &&
           !activePairs.has(tissueBandPairKey(feature.id, column.ontologyId))
       )
     )
-    if (!features.length || !visibleColumns.length || !missing) {
+    if (!features.length || !probeColumns.length || !missing) {
       setBandsLoading(false)
       return () => controller.abort()
     }
@@ -350,16 +322,46 @@ export function ExploreHeatmap({
 
     setBandsLoading(true)
     setBandsError('')
+    // Stream cells into state (one commit per animation frame).
+    let buffered: TissueBandProbe = { bands: new Map(), probedPairs: new Set() }
+    let raf: number | null = null
+    const flush = () => {
+      raf = null
+      if (controller.signal.aborted) return
+      const { bands, probedPairs: pairs } = buffered
+      buffered = { bands: new Map(), probedPairs: new Set() }
+      if (bands.size) setBandMap((prev) => mergeTissueBandMaps(prev, bands))
+      if (pairs.size) {
+        setProbedPairs((prev) => {
+          const next = new Set(prev)
+          for (const key of pairs) next.add(key)
+          return next
+        })
+      }
+    }
     probeExploreTissueBands({
       features,
-      columns: visibleColumns,
+      columns: probeColumns,
       skipPairs: activePairs,
       assumePresentOntologyIds,
       ontologyMatrixIndex,
+      priorityOntologyIds: focusRef.current
+        ? [focusRef.current, ...assumePresentOntologyIds]
+        : assumePresentOntologyIds,
       signal: controller.signal,
+      onProgress: (delta) => {
+        for (const [fid, bands] of delta.bands) {
+          buffered.bands.set(fid, { ...buffered.bands.get(fid), ...bands })
+        }
+        for (const key of delta.probedPairs) buffered.probedPairs.add(key)
+        if (raf == null) raf = requestAnimationFrame(flush)
+      },
     })
       .then((result) => {
         if (controller.signal.aborted) return
+        if (raf != null) cancelAnimationFrame(raf)
+        raf = null
+        buffered = { bands: new Map(), probedPairs: new Set() }
         setBandMap((prev) => mergeTissueBandMaps(prev, result.bands))
         if (!result.probedPairs.size) return
         setProbedPairs((prev) => {
@@ -377,15 +379,18 @@ export function ExploreHeatmap({
       .finally(() => {
         if (!controller.signal.aborted) setBandsLoading(false)
       })
-    return () => controller.abort()
-    // featureIdsKey / columnsKey / visibleKey / assumePresentKey identify the
+    return () => {
+      if (raf != null) cancelAnimationFrame(raf)
+      controller.abort()
+    }
+    // featureIdsKey / columnsKey / probeKey / assumePresentKey identify the
     // probe inputs. probedPairs is read from this render and must not
     // re-trigger the effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional keys
   }, [
     featureIdsKey,
     columnsKey,
-    visibleKey,
+    probeKey,
     assumePresentKey,
     ontologyMatrixIndex,
     ontologyIndexReady,
@@ -408,6 +413,11 @@ export function ExploreHeatmap({
     const el = scrollRef.current
     if (!el) return
     setScrollLeft(el.scrollLeft)
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
+    scrollTimerRef.current = setTimeout(
+      () => setProbeScrollLeft(el.scrollLeft),
+      SCROLL_PROBE_DEBOUNCE_MS
+    )
   }, [])
 
   function openInspect(next: Inspect) {
@@ -442,8 +452,7 @@ export function ExploreHeatmap({
         )
       : undefined
 
-  const shellBusy = columnsLoading || bandsLoading
-  const showColumnsSkeleton = columnsLoading && columns.length === 0
+  const shellBusy = bandsLoading
   const emptyColumnsMessage = biosampleFilters.some(
     (f) => f.kind === 'ontology' && /^UBERON:|^EFO:/i.test(f.id)
   )
@@ -455,8 +464,6 @@ export function ExploreHeatmap({
         )
       ? 'Current sample filters do not match any tissue/cell columns.'
       : 'No tissue/cell ontology terms in the filtering catalog yet.'
-
-  const skeletonWidthPx = `calc(9rem + ${SKELETON_COLUMN_COUNT * colWidth}px)`
 
   return (
     <div className="relative space-y-3">
@@ -520,15 +527,7 @@ export function ExploreHeatmap({
               onViewBandChange={setViewBand}
               className="min-w-0 flex-1"
             />
-            {columnsLoading && (
-              <span
-                className="shrink-0 text-[11px] text-muted-foreground"
-                aria-live="polite"
-              >
-                Updating columns…
-              </span>
-            )}
-            {!columnsLoading && bandsLoading && (
+            {bandsLoading && (
               <span
                 className="shrink-0 text-[11px] text-muted-foreground"
                 aria-live="polite"
@@ -536,69 +535,12 @@ export function ExploreHeatmap({
                 Updating bands…
               </span>
             )}
-            {columnsError && (
-              <span className="text-[11px] text-destructive">{columnsError}</span>
-            )}
             {bandsError && (
               <span className="text-[11px] text-destructive">{bandsError}</span>
             )}
           </div>
         </div>
-        {showColumnsSkeleton ? (
-          <div className="overflow-x-auto" aria-busy>
-            <table
-              className="table-fixed border-collapse text-xs"
-              style={{ width: skeletonWidthPx, minWidth: skeletonWidthPx }}
-            >
-              <thead>
-                <tr>
-                  <th
-                    className={`sticky left-0 top-0 z-[30] border-b border-r border-border bg-muted px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${HEATMAP_FEATURE_COL_CLASS}`}
-                  >
-                    Feature
-                  </th>
-                  {Array.from({ length: SKELETON_COLUMN_COUNT }, (_, i) => (
-                    <SkeletonColumnHeader key={i} width={colWidth} />
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {features.map((feature) => {
-                  const rowSelected = feature.id === selectedFeatureId
-                  return (
-                    <tr key={feature.id} className="group/row">
-                      <th
-                        scope="row"
-                        className={`sticky left-0 z-[25] border-r border-border px-1 py-0.5 text-left font-normal ${
-                          rowSelected
-                            ? 'bg-[var(--scope-genomicFeature-bg)]'
-                            : 'bg-card group-hover/row:bg-muted/30'
-                        } ${HEATMAP_FEATURE_COL_CLASS}`}
-                      >
-                        <span className="block max-w-[10rem] truncate px-2 py-2 text-left text-sm font-medium text-foreground">
-                          {featureDisplayLabel(feature)}
-                        </span>
-                      </th>
-                      {Array.from({ length: SKELETON_COLUMN_COUNT }, (_, i) => (
-                        <td
-                          key={i}
-                          className="box-border border-b border-border/60 p-0.5"
-                          style={{
-                            width: colWidth,
-                            minWidth: colWidth,
-                            maxWidth: colWidth,
-                          }}
-                        >
-                          <HeatmapMatrixCellLoading ariaLabel="Loading tissue band" />
-                        </td>
-                      ))}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : columns.length === 0 ? (
+        {columns.length === 0 ? (
           <p className="px-3 py-4 text-xs text-muted-foreground">
             {emptyColumnsMessage}
           </p>
@@ -624,7 +566,6 @@ export function ExploreHeatmap({
                   )}
                   {visibleColumns.map((col) => {
                     const headerBusy =
-                      columnsLoading ||
                       (bandsLoading &&
                         features.some(
                           (feature) =>
@@ -673,15 +614,12 @@ export function ExploreHeatmap({
               </thead>
               <tbody>
                 {sortedFeatures.map((feature) => {
-                  const rowSelected = feature.id === selectedFeatureId
                   return (
                     <tr key={feature.id} className="group/row">
                       <th
                         scope="row"
                         className={`sticky left-0 z-[25] border-r border-border px-1 py-0.5 text-left font-normal ${
-                          rowSelected
-                            ? 'bg-[var(--scope-genomicFeature-bg)]'
-                            : 'bg-card group-hover/row:bg-muted/30'
+                          'bg-card group-hover/row:bg-muted/30'
                         } ${HEATMAP_FEATURE_COL_CLASS}`}
                       >
                         <Popover.Trigger

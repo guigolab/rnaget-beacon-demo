@@ -31,7 +31,7 @@ export function QueryExamplesSection({ terms }: QueryExamplesSectionProps) {
       .then((page) => {
         if (controller.signal.aborted) return
         const ids = page.results
-          .map((m) => m.matrixId)
+          .map((m) => m.id)
           .filter((id): id is string => Boolean(id?.trim()))
         if (ids.length) setMatrixIds(ids)
       })
@@ -54,8 +54,7 @@ export function QueryExamplesSection({ terms }: QueryExamplesSectionProps) {
           Query examples
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Runnable Beacon requests against the four demo models, plus Explore
-          deep links that compose those same filters.
+          Real questions answered by the four Beacon v2 models (genomic features, biosamples, matrices and expression values). Each card is a runnable request.
         </p>
         <div className="mt-1">
           <LensMutedEndpoints
@@ -63,7 +62,10 @@ export function QueryExamplesSection({ terms }: QueryExamplesSectionProps) {
               'GET or POST /matrices',
               'GET or POST /features',
               'GET or POST /biosamples',
-              'POST /matrices/{id}/expression_values',
+              'GET or POST /matrices/{id}/expression_values',
+              'GET or POST /matrices/{id}',
+              'GET or POST /features/{id}/matrices',
+              'GET or POST /biosamples/{id}/matrices',
             ]}
           />
         </div>
@@ -85,6 +87,9 @@ export function QueryExamplesSection({ terms }: QueryExamplesSectionProps) {
               )}
             >
               {item.label}
+              <span className="ml-1.5 tabular-nums opacity-60">
+                {examplesForTab(examples, item.id).length}
+              </span>
             </button>
           )
         })}

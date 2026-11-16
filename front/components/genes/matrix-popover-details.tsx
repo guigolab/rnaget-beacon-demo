@@ -34,7 +34,7 @@ export function MatrixPopoverDetails({
   const { min, max } = matrix.expressionValueRange ?? {}
   const unit = matrix.expressionUnitAndScale?.unit
   const scale = matrix.expressionUnitAndScale?.scale
-  const matrixId = matrix.matrixId ?? ''
+  const matrixId = matrix.id ?? ''
   const href = matrixViewHref(matrixId, feature ?? null)
 
   const biosamples = matrix.dimensions?.biosamples

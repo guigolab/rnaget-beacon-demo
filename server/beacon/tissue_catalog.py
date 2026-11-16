@@ -25,6 +25,11 @@ TISSUE_SPECIFIC_PREFIX = "tissueSpecific:"
 TISSUE_TOP_PREFIX = "tissueTop:"
 # Any row in tissue summary for oid (catalogued on genomicFeature; Explore bands).
 TISSUE_PRESENT_PREFIX = "tissuePresent:"
+# Internal form of the alphanumeric term ``tissue.percentile:<ontologyId>``
+# (operator/value carried on the filter). Not a request id.
+TISSUE_PERCENTILE_PREFIX = "tissuePercentile:"
+# Alphanumeric request id prefix: ``tissue.percentile:UBERON:0002107 >= 99``.
+TISSUE_PERCENTILE_FIELD_PREFIX = "tissue.percentile:"
 MATRIX_PSEUDO_PREFIX = "matrix:"
 
 

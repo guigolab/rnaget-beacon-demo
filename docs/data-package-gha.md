@@ -124,9 +124,9 @@ It also sets `expressionValueRange` on each matrix in `matrices.json`. These sta
 
 **Percentiles (fetch-time only):** omitted from CI because they roughly double package size (2 GiB Release limit). After extract/merge, fetch runs `build_expression_percentiles.py`, then rebuilds filtering_terms so `expression.percentileIn*` terms appear.
 
-### 8. Build filtering terms catalogs
+### 8. Build filtering terms catalog
 
-`scripts/build_matrix_filtering_terms.py --with-root` emits Beacon-shaped `filtering_terms.json` and per-matrix catalogs under `filtering_terms/by_matrix/` (SO/GO/UBERON/EFO facets, `expression.percentile`, matrix assay facets, and related customs). See [filtering-terms.md](filtering-terms.md).
+`scripts/build_filtering_terms.py` emits Beacon-shaped root `filtering_terms.json` (SO/GO/UBERON/EFO facets, `expression.percentile`, matrix assay facets, and related customs). See [filtering-terms.md](filtering-terms.md). Nested per-matrix catalogs are not built.
 
 ### 9. Disk usage log
 

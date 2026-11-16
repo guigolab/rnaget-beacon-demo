@@ -78,23 +78,12 @@ def load_matrix_seed_terms(
                     "scopes": ["matrix"],
                 },
             )
-        for type_, oid, label in _feature_type_entries(profile.get("feature_type")):
-            terms_by_id.setdefault(
-                oid,
-                {
-                    "type": type_,
-                    "id": oid,
-                    "label": label,
-                    "scopes": ["matrix"],
-                },
-            )
-
     terms = list(terms_by_id.values())
     if profile_sources:
         terms.append(
             {
-                "type": "custom",
-                "id": "matrix.profileSource",
+                "type": "alphanumeric",
+                "id": "matrix.source",
                 "label": "Data source",
                 "scopes": ["matrix"],
                 "values": sorted(profile_sources),

@@ -111,7 +111,7 @@ export function BiosampleOntologyMatrixHeatmap({
   const [inspect, setInspect] = useState<OntologyHeatmapInspect | null>(null)
 
   const matrixById = useMemo(
-    () => new Map(matrices.map((m) => [m.matrixId ?? '', m])),
+    () => new Map(matrices.map((m) => [m.id ?? '', m])),
     [matrices]
   )
   const rowById = useMemo(

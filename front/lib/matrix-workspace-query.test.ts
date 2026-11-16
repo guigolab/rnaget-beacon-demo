@@ -96,7 +96,7 @@ assert.equal(featureIdListCsv({ genes: ['TP53'], featureIds: ['ENSG00000141510']
 
 const cytosolIndex = buildFilterScopeIndex([
   { id: 'GO:0005829', type: 'GO', label: 'cytosol', scopes: ['biosample'] },
-  { id: 'SO:0000704', type: 'SO', label: 'gene', scopes: ['genomicFeature', 'matrix'] },
+  { id: 'SO:0000704', type: 'SO', label: 'gene', scopes: ['genomicFeature'] },
 ])
 const scoped = parseMatrixWorkspaceQuery(
   new URLSearchParams('filters=GO:0005829,SO:0000704'),
@@ -118,10 +118,10 @@ const pctTerms: FilteringTerm[] = [
 assert.equal(catalogHasTopExpressedSeed(pctTerms), true)
 assert.equal(catalogHasTopExpressedSeed([]), false)
 
+// Clearing no longer seeds a percentile cohort: the ranked slice shows top cells.
 const seeded = clearedMatrixWorkspaceQuery(pctTerms)
-assert.equal(seeded.featureFilters.length, 1)
-assert.equal(expressionPercentileValue(seeded.featureFilters), '99')
-assert.equal(matrixFeatureSideUnconstrained(seeded), false)
+assert.equal(seeded.featureFilters.length, 0)
+assert.equal(matrixFeatureSideUnconstrained(seeded), true)
 
 const emptyCleared = clearedMatrixWorkspaceQuery([])
 assert.equal(emptyCleared.featureFilters.length, 0)
@@ -146,9 +146,14 @@ const legacySort = parseMatrixWorkspaceQuery(
 assert.equal(legacySort.sort, 'expression.min')
 const legacyWritten = matrixWorkspaceSearchParams(legacySort)
 assert.equal(legacyWritten.get('sort'), null)
-assert.equal(legacyWritten.get('order'), null)
+assert.equal(legacySort.order, 'asc')
+assert.equal(legacyWritten.get('order'), 'asc')
+assert.equal(matrixWorkspaceSearchParams(clearedMatrixWorkspaceQuery()).get('order'), null)
 
-const topParams = matrixWorkspaceSearchParams(seeded)
+const topParams = matrixWorkspaceSearchParams({
+  ...seeded,
+  featureFilters: [topExpressedPercentileFilter('99')],
+})
 assert.match(topParams.get('filters') ?? '', /expression\.percentile:>=:99/)
 
 console.log('matrix-workspace-query.test.ts ok')

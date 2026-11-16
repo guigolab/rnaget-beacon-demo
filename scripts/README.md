@@ -159,7 +159,7 @@ Runs **after** `build_feature_indexes`. Writes a small Beacon-shaped `filtering_
 - **Fields:** alphanumeric `sex` (not every symbol value)
 - **Resources:** `so`, `uberon`, `efo`, plus `hgnc` / `ncbigene` / `ensembl` namespaces — **never** one filteringTerm per HGNC/NCBIGene
 
-CI order: `export_parquet` → `hydrate_genes` → `sync_matrix_feature_types` → **`enrich_gene_annotations`** → **`build_feature_indexes`** → `build_expression_stats` → **`build_matrix_filtering_terms`** → `verify`.
+CI order: `export_parquet` → `hydrate_genes` → `sync_matrix_feature_types` → **`enrich_gene_annotations`** → **`build_feature_indexes`** → `build_expression_stats` → **`build_filtering_terms`** → `verify`.
 
 Curated biosample maps: `scripts/data/geo_biosample_status.json`, `scripts/data/biosample_measurements.json` (plus existing `geo_biosample_ontology.json`).
 

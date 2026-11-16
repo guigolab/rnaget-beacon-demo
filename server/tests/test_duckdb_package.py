@@ -11,10 +11,12 @@ import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 SERVER_DIR = Path(__file__).resolve().parents[1]
+TESTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SERVER_DIR.parent
 
 
@@ -29,6 +31,10 @@ FRAMEWORK_JSON = _framework_json_dir()
 ENVELOPE_SCHEMA = FRAMEWORK_JSON / "responses" / "beaconResultsetsResponse.json"
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
+
+from beacon_test_helpers import BEACON_META, with_meta
 
 _SAVED_DATA_PACKAGE = os.environ.get("DATA_PACKAGE_PATH")
 
@@ -162,7 +168,7 @@ def _matrix_doc(
         "dimensions": {"features": n_feat, "biosamples": n_bio},
     }
     if profile_source:
-        doc["info"] = {"profileSource": profile_source}
+        doc["source"] = profile_source
     return doc
 
 
@@ -495,7 +501,7 @@ def _build_package(root: Path) -> None:
                         "type": "SO",
                         "id": "SO:0001217",
                         "label": "protein_coding_gene",
-                        "scopes": ["genomicFeature", "matrix"],
+                        "scopes": ["genomicFeature"],
                     },
                     {
                         "type": "UBERON",
@@ -504,8 +510,8 @@ def _build_package(root: Path) -> None:
                         "scopes": ["biosample"],
                     },
                     {
-                        "type": "custom",
-                        "id": "matrix.profileSource",
+                        "type": "alphanumeric",
+                        "id": "matrix.source",
                         "label": "Data source",
                         "scopes": ["matrix"],
                         "values": ["encode", "geo", "gtex"],
@@ -637,31 +643,14 @@ class DuckDBPackageTest(unittest.TestCase):
             os.environ.pop("DATA_PACKAGE_PATH", None)
         cls._tmp.cleanup()
 
-    def test_dense_cohort_does_not_500(self) -> None:
+    def test_dense_matrix_features_list_ok(self) -> None:
+        """Nested features listing has no filters; list by featureIDList instead."""
         r = self.client.get(
             "/matrices/M_DENSE/features",
-            params={"filters": "UBERON:0000178", "limit": 10},
+            params={"limit": 10},
         )
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["responseSummary"]["numTotalResults"], 2)
-
-    def test_sparse_cohort_keeps_features_with_values(self) -> None:
-        blood = self.client.get(
-            "/matrices/M_SPARSE/features",
-            params={"filters": "UBERON:0000178", "limit": 10},
-        )
-        self.assertEqual(blood.status_code, 200, blood.text)
-        ids = {
-            row["featureIdentifier"]["id"]
-            for row in blood.json()["response"]["resultSets"][0]["results"]
-        }
-        self.assertEqual(ids, {"ENSG00000141510.18"})
-        liver = self.client.get(
-            "/matrices/M_SPARSE/features",
-            params={"filters": "UBERON:0002107", "limit": 10},
-        )
-        self.assertEqual(liver.status_code, 200, liver.text)
-        self.assertEqual(liver.json()["responseSummary"]["numTotalResults"], 0)
+        self.assertGreaterEqual(r.json()["responseSummary"]["numTotalResults"], 2)
 
     def test_feature_list_skip_is_not_capped_at_100k(self) -> None:
         r = self.client.get("/features", params={"skip": 100001, "limit": 1})
@@ -688,7 +677,7 @@ class DuckDBPackageTest(unittest.TestCase):
     def test_include_resultset_responses(self) -> None:
         hit = self.client.post(
             "/features/does-not-exist",
-            json={"query": {"includeResultsetResponses": "HIT", "requestedGranularity": "record"}},
+            json=with_meta({"query": {"includeResultsetResponses": "HIT", "requestedGranularity": "record"}}),
         )
         self.assertEqual(hit.status_code, 200, hit.text)
         self.assertEqual(hit.json()["response"]["resultSets"], [])
@@ -698,12 +687,12 @@ class DuckDBPackageTest(unittest.TestCase):
         )
         none = self.client.post(
             "/features",
-            json={
+            json=with_meta({
                 "query": {
                     "includeResultsetResponses": "NONE",
                     "pagination": {"limit": 5},
                 }
-            },
+            }),
         )
         self.assertEqual(none.status_code, 200, none.text)
         self.assertEqual(none.json()["response"]["resultSets"], [])
@@ -711,7 +700,7 @@ class DuckDBPackageTest(unittest.TestCase):
     def test_numeric_alphanumeric_filter(self) -> None:
         r = self.client.post(
             "/biosamples",
-            json={"query": {"filters": [{"id": "rin", "operator": ">", "value": 7}]}},
+            json=with_meta({"query": {"filters": [{"id": "rin", "operator": ">", "value": 7}]}}),
         )
         self.assertEqual(r.status_code, 200, r.text)
         ids = {row["id"] for row in r.json()["response"]["resultSets"][0]["results"]}
@@ -780,7 +769,8 @@ class DuckDBPackageTest(unittest.TestCase):
         body = desc.json()
         rp = body["meta"]["receivedRequestSummary"]["requestParameters"]
         self.assertNotIn("sort", rp)
-        self.assertEqual(rp["order"], "desc")
+        self.assertNotIn("order", rp)
+        self.assertEqual(rp["expressionValue"]["order"], "desc")
         values = [
             row["value"]
             for row in body["response"]["resultSets"][0]["results"]
@@ -804,7 +794,7 @@ class DuckDBPackageTest(unittest.TestCase):
         self.assertEqual(asc_values, sorted(asc_values))
         self.assertEqual(asc_values, list(reversed(values)))
 
-        # Default order is ascending by cell value.
+        # Default order is descending by cell value (model default).
         default_order = self.client.get(
             "/matrices/M_DENSE/expression_values",
             params={"biosampleIDList": "B1", "limit": 10},
@@ -817,7 +807,7 @@ class DuckDBPackageTest(unittest.TestCase):
         )
         default_rows = default_body["response"]["resultSets"][0]["results"]
         default_values = [row["value"] for row in default_rows]
-        self.assertEqual(default_values, sorted(default_values))
+        self.assertEqual(default_values, sorted(default_values, reverse=True))
 
         # ``sort`` was removed; any value is rejected.
         rejected = self.client.get(
@@ -939,19 +929,39 @@ class DuckDBPackageTest(unittest.TestCase):
 
         listed = self.client.post(
             "/matrices",
-            json={
+            json=with_meta({
                 "query": {
                     "filters": [{"id": "matrix.profileSource:gtex"}],
                     "pagination": {"skip": 0, "limit": 10},
                 }
-            },
+            }),
         )
         self.assertEqual(listed.status_code, 200, listed.text)
         ids = {
-            row["matrixId"]
+            row["id"]
             for row in listed.json()["response"]["resultSets"][0]["results"]
         }
         self.assertEqual(ids, {"M_DENSE", "M_OTHER"})
+
+        listed_src = self.client.post(
+            "/matrices",
+            json=with_meta({
+                "query": {
+                    "filters": [
+                        {"id": "matrix.source", "operator": "=", "value": "gtex"}
+                    ],
+                    "pagination": {"skip": 0, "limit": 10},
+                }
+            }),
+        )
+        self.assertEqual(listed_src.status_code, 200, listed_src.text)
+        self.assertEqual(
+            {
+                row["id"]
+                for row in listed_src.json()["response"]["resultSets"][0]["results"]
+            },
+            {"M_DENSE", "M_OTHER"},
+        )
 
         detail = self.client.get("/matrices/M_DENSE")
         self.assertEqual(detail.status_code, 200, detail.text)
@@ -959,8 +969,8 @@ class DuckDBPackageTest(unittest.TestCase):
         self.assertNotIn("info", row)
         self.assertNotIn("info", detail.json())
 
-    def test_axis_filtering_terms_cover_ontology(self) -> None:
-        r = self.client.get("/matrices/M_DENSE/filtering_terms")
+    def test_root_filtering_terms_cover_feature_ontology(self) -> None:
+        r = self.client.get("/filtering_terms")
         self.assertEqual(r.status_code, 200, r.text)
         ids = {term["id"] for term in r.json()["response"]["filteringTerms"]}
         self.assertIn("SO:0001217", ids)
@@ -1095,7 +1105,7 @@ class BuiltPackageSmokeTest(unittest.TestCase):
             self.assertEqual(matrices.status_code, 200, matrices.text)
             self.assertGreater(matrices.json()["responseSummary"]["numTotalResults"], 0)
             mid = matrices.json()["response"]["resultSets"][0]["results"][0]["matrixId"]
-            features = client.get(f"/matrices/{mid}/features", params={"limit": 1, "filters": "UBERON:0000178"})
+            features = client.get(f"/matrices/{mid}/features", params={"limit": 1})
             self.assertEqual(features.status_code, 200, features.text)
             info = client.get("/service-info")
             self.assertEqual(info.status_code, 200, info.text)

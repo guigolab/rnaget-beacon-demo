@@ -18,7 +18,7 @@ import type { FilteringTerm, UiFilter } from '@/lib/beacon/types'
 import { isTissueOrCellOntologyId } from '@/lib/biosample-ontology-grid'
 import { featureDisplayLabel } from '@/lib/gene-lens'
 
-export const TISSUE_HIGH_PREFIX = 'tissueHigh:'
+export const TISSUE_PERCENTILE_TERM_PREFIX = 'tissue.percentile:'
 export const MATRIX_PSEUDO_PREFIX = 'matrix:'
 
 /** Explore discrete cell band (not Features' absent/none vocabulary). */
@@ -42,15 +42,15 @@ export function parseTissueTermLabel(label: string | undefined): {
   return { name: match[1].trim(), nBiosamples: Number(match[2]) }
 }
 
-export function tissueOntologyFromHighId(id: string): string | null {
+export function tissueOntologyFromTermId(id: string): string | null {
   const text = id.trim()
-  if (!text.startsWith(TISSUE_HIGH_PREFIX)) return null
-  const rest = text.slice(TISSUE_HIGH_PREFIX.length).trim()
+  if (!text.startsWith(TISSUE_PERCENTILE_TERM_PREFIX)) return null
+  const rest = text.slice(TISSUE_PERCENTILE_TERM_PREFIX.length).trim()
   return rest || null
 }
 
-export function tissueHighFilterId(ontologyId: string): string {
-  return `${TISSUE_HIGH_PREFIX}${ontologyId}`
+export function tissuePercentileTermId(ontologyId: string): string {
+  return `${TISSUE_PERCENTILE_TERM_PREFIX}${ontologyId}`
 }
 
 export function isMatrixPseudoOntologyId(ontologyId: string): boolean {
@@ -63,13 +63,13 @@ export function matrixIdFromPseudoOntology(ontologyId: string): string | null {
   return mid || null
 }
 
-/** Legacy columns from catalogued ``tissueHigh:`` terms (may be empty). */
+/** Columns from catalogued ``tissue.percentile:<ontologyId>`` terms (may be empty). */
 export function tissueColumnsFromTerms(terms: FilteringTerm[]): TissueColumn[] {
   const out: TissueColumn[] = []
   const seen = new Set<string>()
   for (const term of terms) {
-    if (term.type !== 'custom') continue
-    const oid = tissueOntologyFromHighId(term.id)
+    if (term.type !== 'alphanumeric') continue
+    const oid = tissueOntologyFromTermId(term.id)
     if (!oid || seen.has(oid)) continue
     if (!(term.scopes?.includes('genomicFeature') ?? false)) continue
     seen.add(oid)

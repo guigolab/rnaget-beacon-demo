@@ -12,12 +12,13 @@ import {
 } from '@/components/shared/filtering-term-browser'
 import {
   browsableTerms,
+  isFacetFilteringTerm,
   isHiddenFilteringTerm,
 } from '@/lib/lens-catalog'
 import {
-  customFacetAsGroup,
+  facetAsGroup,
   filterTypeChipStyle,
-  groupCustomTermsForChips,
+  groupFacetTermsForChips,
   type FilterTermType,
 } from '@/lib/filter-type-theme'
 import {
@@ -115,7 +116,7 @@ export function FilteringTermNamespaceChips({
         (group) =>
           group.scope === scope &&
           group.namespaceType !== 'alphanumeric' &&
-          group.namespaceType !== 'custom' &&
+          group.namespaceType !== 'facet' &&
           ontologyGroupChipCount(group) >= minChoices
       ),
     [minChoices, scope, visible]
@@ -126,29 +127,30 @@ export function FilteringTermNamespaceChips({
       visible.filter(
         (term) =>
           term.type === 'alphanumeric' &&
+          !isFacetFilteringTerm(term) &&
           (term.scopes?.includes(scope) ?? false) &&
           (term.values?.length ?? 0) >= minChoices
       ),
     [minChoices, scope, visible]
   )
 
-  const customTerms = useMemo(
+  const facetTerms = useMemo(
     () =>
       visible.filter(
         (term) =>
-          term.type === 'custom' &&
+          isFacetFilteringTerm(term) &&
           !isHiddenFilteringTerm(term) &&
           (term.scopes?.includes(scope) ?? false)
       ),
     [scope, visible]
   )
 
-  const customFacets = useMemo(() => {
-    return groupCustomTermsForChips(scope, customTerms).filter((facet) => {
-      const group = customFacetAsGroup(scope, facet)
+  const facets = useMemo(() => {
+    return groupFacetTermsForChips(scope, facetTerms).filter((facet) => {
+      const group = facetAsGroup(scope, facet)
       return ontologyGroupChipCount(group) >= minChoices
     })
-  }, [customTerms, minChoices, scope])
+  }, [facetTerms, minChoices, scope])
 
   const resourceByPrefix = useMemo(() => {
     const map = new Map<string, FilteringResource>()
@@ -173,7 +175,7 @@ export function FilteringTermNamespaceChips({
   const empty =
     ontologyGroups.length === 0 &&
     alphanumericTerms.length === 0 &&
-    customFacets.length === 0
+    facets.length === 0
 
   if (empty) {
     return (
@@ -239,15 +241,15 @@ export function FilteringTermNamespaceChips({
           </NamespaceChipPopover>
         )
       })}
-      {customFacets.map((facet) => {
-        const group = customFacetAsGroup(scope, facet)
+      {facets.map((facet) => {
+        const group = facetAsGroup(scope, facet)
         const count = ontologyGroupChipCount(group)
         return (
           <NamespaceChipPopover
             key={facet.key}
             label={facet.label}
             count={count}
-            termType="custom"
+            termType="alphanumeric"
             open={openKey === facet.key}
             onOpenChange={(next) => setOpenKey(next ? facet.key : null)}
           >

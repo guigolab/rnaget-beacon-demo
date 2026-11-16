@@ -39,6 +39,8 @@ MATRIX_ALPHANUMERIC_FIELDS = frozenset(
         "matrix.annotation.version",
         "matrix.assembly.name",
         "matrix.reproducible",
+        # Catalog/request id; also accepted after translate to matrix.profileSource:…
+        "matrix.source",
     }
 )
 MATRIX_PROFILE_SOURCE_ID = "matrix.profileSource"
@@ -79,7 +81,13 @@ TISSUE_HIGH_PREFIX = "tissueHigh:"
 TISSUE_SPECIFIC_PREFIX = "tissueSpecific:"
 TISSUE_TOP_PREFIX = "tissueTop:"
 TISSUE_PRESENT_PREFIX = "tissuePresent:"
+TISSUE_PERCENTILE_PREFIX = "tissuePercentile:"
+TISSUE_PERCENTILE_FIELD_PREFIX = "tissue.percentile:"
+FEATURE_SYMBOL_FIELD_ID = "symbol"
+MATRIX_SOURCE_FIELD_ID = "matrix.source"
+_TISSUE_PERCENTILE_OPS = (">=", ">", "<=", "<", "=")
 TISSUE_FEATURE_CUSTOM_PREFIXES: tuple[str, ...] = (
+    TISSUE_PERCENTILE_PREFIX,
     TISSUE_HIGH_PREFIX,
     TISSUE_SPECIFIC_PREFIX,
     TISSUE_TOP_PREFIX,
@@ -88,21 +96,10 @@ TISSUE_FEATURE_CUSTOM_PREFIXES: tuple[str, ...] = (
 
 
 def matrix_profile_source(doc: Dict[str, Any]) -> Optional[str]:
-    """Internal packaging profile source (not a matrix schema property).
-
-    Reads side-channel metadata kept for filtering/catalogs. Prefer explicit
-    top-level ``_profileSource`` (set when sanitizing API docs), then legacy
-    ``info.profileSource`` / ``info.catalogSource`` on raw package records.
-    """
-    raw = doc.get("_profileSource")
+    """Matrix ``source`` (beacon-v2 matrix model property), e.g. encode | geo | gtex."""
+    raw = doc.get("source")
     if raw is not None and str(raw).strip():
         return str(raw).strip()
-    info = doc.get("info") or {}
-    if isinstance(info, dict):
-        for key in ("profileSource", "catalogSource"):
-            val = info.get(key)
-            if val is not None and str(val).strip():
-                return str(val).strip()
     return None
 
 
@@ -218,6 +215,10 @@ def normalize_filters(raw: Optional[Sequence[Any]]) -> List[NormalizedFilter]:
                 raise ValueError(f"unsupported alphanumeric operator: {op}")
             if d.get("value") is None:
                 raise ValueError(f"alphanumeric filter {fid!r} requires value")
+            translated = _translate_alphanumeric_term(fid, op, str(d["value"]), d)
+            if translated is not None:
+                out.append(translated)
+                continue
             out.append(
                 NormalizedFilter(
                     kind="alphanumeric",
@@ -269,6 +270,54 @@ def normalize_filters(raw: Optional[Sequence[Any]]) -> List[NormalizedFilter]:
     return out
 
 
+def _translate_alphanumeric_term(
+    fid: str, op: str, value: str, raw: Dict[str, Any]
+) -> Optional["NormalizedFilter"]:
+    """Map RNAget alphanumeric terms onto the internal matching forms.
+
+    These terms are not properties of the model schemas; they are plain
+    alphanumeric filters (id, operator, value) on the collection roots:
+
+    - ``tissue.percentile:<ontologyId>`` ``>=`` ``99``  (gene × tissue cell)
+    - ``symbol`` ``=`` ``TP53``                         (gene symbol)
+    - ``matrix.source`` ``=`` ``gtex``                  (matrix source)
+    """
+    scope = str(raw["scope"]) if raw.get("scope") else None
+    if fid.startswith(TISSUE_PERCENTILE_FIELD_PREFIX):
+        oid = fid[len(TISSUE_PERCENTILE_FIELD_PREFIX) :].strip()
+        if not oid or ":" not in oid:
+            raise ValueError(
+                f"{TISSUE_PERCENTILE_FIELD_PREFIX}<ontologyId> requires an ontology id "
+                f"(e.g. {TISSUE_PERCENTILE_FIELD_PREFIX}UBERON:0002107): {fid}"
+            )
+        if op not in _TISSUE_PERCENTILE_OPS:
+            raise ValueError(f"unsupported operator for {fid}: {op}")
+        try:
+            float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"filter {fid} requires a numeric value") from None
+        return NormalizedFilter(
+            kind="custom",
+            id=f"{TISSUE_PERCENTILE_PREFIX}{oid}",
+            operator=op,
+            value=value,
+            scope=scope,
+        )
+    if fid == FEATURE_SYMBOL_FIELD_ID:
+        if op != "=" or not value.strip():
+            raise ValueError("symbol requires operator '=' and a value")
+        return NormalizedFilter(kind="custom", id=f"symbol:{value.strip()}", scope=scope)
+    if fid == MATRIX_SOURCE_FIELD_ID:
+        if op != "=" or not value.strip():
+            raise ValueError("matrix.source requires operator '=' and a value")
+        return NormalizedFilter(
+            kind="custom",
+            id=f"{MATRIX_PROFILE_SOURCE_PREFIX}{value.strip()}",
+            scope=scope,
+        )
+    return None
+
+
 _GET_FILTER_OPS = (">=", "<=", "!=", "=", "!", ">", "<")
 
 
@@ -292,7 +341,11 @@ def _token_to_raw_filter(token: str) -> Dict[str, Any]:
         if marker not in token:
             continue
         left, right = token.split(marker, 1)
-        if left in known and right != "":
+        if (
+            left in known
+            or left in (FEATURE_SYMBOL_FIELD_ID, MATRIX_SOURCE_FIELD_ID)
+            or left.startswith(TISSUE_PERCENTILE_FIELD_PREFIX)
+        ) and right != "":
             return {
                 "id": left,
                 "operator": "!" if op == "!=" else op,
@@ -945,6 +998,17 @@ def feature_doc_matches(doc: Dict[str, Any], filters: Sequence[NormalizedFilter]
                         except (TypeError, ValueError):
                             band_val = None
                         break
+            if kind == "percentile":
+                try:
+                    want = float(f.value or "")
+                except ValueError:
+                    return False
+                # Fixture docs only carry coarse bands (99 = top, 0 = present).
+                if f.operator in (">=", ">") and band_val == 99 and want <= 99:
+                    continue
+                if f.operator in (">=", ">") and want <= 0 and band_val is not None:
+                    continue
+                return False
             if kind == "top":
                 if band_val == 99:
                     continue
@@ -1069,6 +1133,8 @@ def matrix_matches(
                 actual = (doc.get("annotation") or {}).get("version")
             elif f.id == "matrix.assembly.name":
                 actual = (doc.get("assembly") or {}).get("name")
+            elif f.id == "matrix.source":
+                actual = matrix_profile_source(doc)
             elif f.id == "matrix.reproducible":
                 actual = doc.get("reproducible")
                 val = str(val).lower() in ("1", "true", "yes")

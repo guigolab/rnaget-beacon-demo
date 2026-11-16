@@ -28,11 +28,11 @@ def _emit_expression_support_terms(
     *,
     matrix_scoped: bool = False,
 ) -> None:
-    """Emit expression.percentile (custom) from support.
+    """Emit expression.percentile (alphanumeric) from support.
 
-    Catalog ``type`` is custom: median percentile is not a genomicFeature schema
-    field (Beacon filteringTermsSchema). Request wire stays alphanumeric
-    ``id`` + operator + value. Biosample presets are not catalogued.
+    Median percentile is not a genomicFeature schema field, so it is advertised
+    as an alphanumeric term (``id`` + operator + value). Biosample presets are
+    not catalogued.
     """
     from beacon.expression_filter_maps import (
         EXPRESSION_PERCENTILE_ID,
@@ -50,7 +50,7 @@ def _emit_expression_support_terms(
         )
         _add_term(
             terms,
-            type_="custom",
+            type_="alphanumeric",
             id_=EXPRESSION_PERCENTILE_ID,
             label=expression_percentile_label(matrix_scoped=matrix_scoped),
             scopes=["genomicFeature"],
@@ -94,11 +94,11 @@ def _append_expression_root_terms(
 def _append_biotype_family_terms(
     terms: Dict[str, Dict[str, Any]],
 ) -> None:
-    """Emit custom feature.biotypeFamily with present family keys as values.
+    """Emit alphanumeric feature.biotypeFamily with present family keys as values.
 
-    Catalog ``type`` is custom: biotype family is a rollup, not a genomicFeature
-    schema field (schema uses ontology ``featureType``). Request wire stays
-    alphanumeric ``id`` + ``=`` + value.
+    Biotype family is a rollup, not a genomicFeature schema field (schema uses
+    ontology ``featureType``), so it is advertised as an alphanumeric term
+    (``id`` + ``=`` + value).
     """
     from beacon.biotype_families import families_present_in
     from beacon.filters import FEATURE_BIOTYPE_FAMILY_ID
@@ -115,7 +115,7 @@ def _append_biotype_family_terms(
         return
     _add_term(
         terms,
-        type_="custom",
+        type_="alphanumeric",
         id_=FEATURE_BIOTYPE_FAMILY_ID,
         label=biotype_family_catalog_label(),
         scopes=["genomicFeature"],
@@ -138,7 +138,7 @@ def _pretty_so_term_labels(terms: Dict[str, Dict[str, Any]]) -> None:
 def _append_tissue_explore_terms(
     package: Path, terms: Dict[str, Dict[str, Any]]
 ) -> None:
-    """Advertise tissueTop / tissuePresent customs from tissue_feature_summary."""
+    """Advertise tissue.percentile:<ontologyId> terms from tissue_feature_summary."""
     try:
         from beacon.tissue_explore_catalog import tissue_explore_filtering_terms_for_package
     except ImportError:
@@ -149,10 +149,11 @@ def _append_tissue_explore_terms(
             continue
         _add_term(
             terms,
-            type_=str(term.get("type") or "custom"),
+            type_=str(term.get("type") or "alphanumeric"),
             id_=tid,
             label=term.get("label"),
             scopes=list(term.get("scopes") or ["genomicFeature"]),
+            values=list(term.get("values") or []) or None,
         )
 
 
@@ -331,7 +332,7 @@ def _register_ontology_term(
     if pref == "NCBIGENE":
         resource_key = "ncbigene"
     # Biosample catalogs only advertise UBERON/EFO; other prefixes here are for
-    # genomicFeature / matrix (SO, GO, OBI, …).
+    # genomicFeature (SO, GO, …) and matrix (OBI / matrix.* alphanumerics).
     if pref in ("UBERON", "EFO", "OBI", "MONDO", "HP", "GO", "NCIT", "SO"):
         if "biosample" in scopes and pref not in ("UBERON", "EFO"):
             return
@@ -516,8 +517,7 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                                 str(ft_label) if ft_label else None,
                                 fallback_id=ft_s,
                             ),
-                            # Dual-scope: feature lens + matrices listing (featureTypes).
-                            scopes=["genomicFeature", "matrix"],
+                            scopes=["genomicFeature"],
                         )
                 bt_id = g.get("biotype_id")
                 if bt_id:
@@ -535,8 +535,7 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                                 else None,
                                 fallback_id=bt_s,
                             ),
-                            # Dual-scope: feature lens + matrices listing (biotypes).
-                            scopes=["genomicFeature", "matrix"],
+                            scopes=["genomicFeature"],
                         )
                 for term in g.get("ontology_terms") or []:
                     if not isinstance(term, dict):
@@ -556,7 +555,7 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                             needed_resources,
                             oid=tid_s,
                             label=str(term["label"]) if term.get("label") else None,
-                            scopes=["genomicFeature", "matrix"],
+                            scopes=["genomicFeature"],
                         )
                     elif pref == "GO":
                         _register_ontology_term(
@@ -622,7 +621,7 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                             type_="SO",
                             id_=ft_s,
                             label=so_display_label(raw_label, fallback_id=ft_s),
-                            scopes=["genomicFeature", "matrix"],
+                            scopes=["genomicFeature"],
                         )
                     bt_id = row.get("biotype_id")
                     if bt_id and _prefix_of(str(bt_id)) == "SO":
@@ -639,7 +638,7 @@ def build_catalog(package: Path) -> Dict[str, Any]:
                                 else None,
                                 fallback_id=bt_s,
                             ),
-                            scopes=["genomicFeature", "matrix"],
+                            scopes=["genomicFeature"],
                         )
                     _emit_resource_term(
                         terms, row.get("resource"), scopes=["genomicFeature"]
@@ -653,7 +652,7 @@ def build_catalog(package: Path) -> Dict[str, Any]:
         elif pref in ("ENSEMBL", "ENSG"):
             needed_resources.add("ensembl")
 
-    # Symbol is a lookup namespace (custom filter id ``symbol:TP53``); no term dump.
+    # Symbol is a lookup namespace (alphanumeric filter id ``symbol``); no term dump.
     if genes_path.is_file() or any(
         (package / "matrices" / (e.get("dir") or "") / "features.parquet").is_file()
         for e in (manifest.get("matrices") or [])

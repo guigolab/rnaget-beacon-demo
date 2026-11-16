@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Build per-matrix filtering_terms catalogs under filtering_terms/by_matrix/.
+"""Legacy helpers for per-matrix filtering_terms under filtering_terms/by_matrix/.
 
-Reads only the facet columns needed, in Arrow batches, so full gene/biosample
-tables are never materialized as Python dicts.
+Nested matrix filtering_terms are retired (root GET /filtering_terms only).
+`build_all_filtering_terms` rebuilds the root catalog; `write_matrix_catalogs`
+remains for ad-hoc/debug use and is not part of the fetch pipeline.
 """
 
 from __future__ import annotations
@@ -520,12 +521,11 @@ def write_matrix_catalogs(
 
 
 def build_all_filtering_terms(package: Path) -> None:
-    """Build root filtering_terms.json and per-matrix catalogs."""
+    """Build root filtering_terms.json only (nested by_matrix catalogs retired)."""
     from build_filtering_terms import build_catalog, write_catalog
 
     catalog = build_catalog(package)
     write_catalog(package, catalog)
-    write_matrix_catalogs(package, root_catalog=catalog)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

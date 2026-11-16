@@ -1,4 +1,4 @@
-"""Unit tests for tissueTop / tissuePresent filtering_terms catalog helpers."""
+"""Unit tests for tissue.percentile:<ontologyId> filtering_terms catalog helpers."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from beacon.tissue_explore_catalog import build_tissue_explore_filtering_terms
 
 
 class TissueExploreCatalogTest(unittest.TestCase):
-    def test_emits_top_and_present_for_uberon(self) -> None:
+    def test_emits_percentile_term_for_uberon(self) -> None:
         terms = build_tissue_explore_filtering_terms(
             [
                 {
@@ -19,18 +19,13 @@ class TissueExploreCatalogTest(unittest.TestCase):
             ]
         )
         by_id = {t["id"]: t for t in terms}
-        self.assertEqual(
-            set(by_id),
-            {"tissueTop:UBERON:0002107", "tissuePresent:UBERON:0002107"},
-        )
-        top = by_id["tissueTop:UBERON:0002107"]
-        self.assertEqual(top["type"], "custom")
-        self.assertEqual(top["scopes"], ["genomicFeature"])
-        self.assertIn("Top 1%", top["label"])
-        self.assertIn("liver", top["label"])
-        self.assertIn("235", top["label"])
-        present = by_id["tissuePresent:UBERON:0002107"]
-        self.assertIn("Present in", present["label"])
+        self.assertEqual(set(by_id), {"tissue.percentile:UBERON:0002107"})
+        term = by_id["tissue.percentile:UBERON:0002107"]
+        self.assertEqual(term["type"], "alphanumeric")
+        self.assertEqual(term["scopes"], ["genomicFeature"])
+        self.assertEqual(term["values"], ["90", "95", "99"])
+        self.assertIn("liver", term["label"])
+        self.assertIn("235", term["label"])
 
     def test_skips_matrix_pseudo_and_non_catalog_oids(self) -> None:
         terms = build_tissue_explore_filtering_terms(
@@ -41,10 +36,7 @@ class TissueExploreCatalogTest(unittest.TestCase):
             ]
         )
         ids = {t["id"] for t in terms}
-        self.assertEqual(
-            ids,
-            {"tissueTop:EFO:0004167", "tissuePresent:EFO:0004167"},
-        )
+        self.assertEqual(ids, {"tissue.percentile:EFO:0004167"})
 
     def test_dedupes_ontology_ids(self) -> None:
         terms = build_tissue_explore_filtering_terms(
@@ -53,7 +45,7 @@ class TissueExploreCatalogTest(unittest.TestCase):
                 {"ontology_id": "UBERON:0000955", "label": "brain", "n_biosamples": 99},
             ]
         )
-        self.assertEqual(len(terms), 2)
+        self.assertEqual(len(terms), 1)
 
 
 if __name__ == "__main__":

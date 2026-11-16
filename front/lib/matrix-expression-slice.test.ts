@@ -8,6 +8,7 @@ import {
   sliceAxesCanExtend,
   sliceAxesGrew,
   stubBiosamplesFromIds,
+  sliceDistinctCounts,
   stubFeaturesFromIds} from '@/lib/matrix-expression-slice'
 
 function cell(
@@ -46,9 +47,13 @@ assert.deepEqual(empty.featureIds, [])
 assert.deepEqual(empty.biosampleIds, [])
 assert.equal(empty.values.size, 0)
 
-assert.equal(sliceAxesCanExtend(12, 24), false)
-assert.equal(sliceAxesCanExtend(12, 23), true)
-assert.equal(sliceAxesCanExtend(11, 24), true)
+assert.equal(sliceAxesCanExtend(20, 20), false)
+assert.equal(sliceAxesCanExtend(20, 19), true)
+assert.equal(sliceAxesCanExtend(19, 20), true)
+assert.deepEqual(sliceDistinctCounts([cell('F1', 'B1', 1), cell('F1', 'B2', 2)]), {
+  features: 1,
+  biosamples: 2,
+})
 
 const beforeGrow = deriveSliceHeatmapAxes([cell('F1', 'B1', 1)], 12, 24)
 const afterGrow = deriveSliceHeatmapAxes(

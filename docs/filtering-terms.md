@@ -3,9 +3,10 @@
 Beacon clients discover which filters this beacon accepts through the `/filtering_terms` informational endpoint. Catalogs are built into the [data package](data-package.md) and served at:
 
 - `GET /filtering_terms` — all scopes (`genomicFeature`, `biosample`, `matrix`); clients filter by `scopes`
-- `GET|POST /matrices/{id}/filtering_terms` — terms observed on that matrix’s features and biosamples
 
-Filter kinds follow the Beacon framework (`ontology` | `alphanumeric` | `custom`). Filters are AND-only across separate ids.
+Nested `/matrices/{id}/filtering_terms` is not part of the model or this demo.
+
+Filter kinds are `ontology` and `alphanumeric`; nothing is advertised as `custom` any more. Filters are AND-only across separate ids.
 
 Request shapes and live OpenAPI: [api.md](api.md). Id-by-id match rules and labels: [custom-filtering-terms.md](custom-filtering-terms.md).
 
@@ -15,9 +16,9 @@ Request shapes and live OpenAPI: [api.md](api.md). Id-by-id match rules and labe
 
 | Area | Terms |
 |---|---|
-| Genomic features | SO and GO ontology facets; custom **`expression.percentile`** (Top expressed); custom **`feature.biotypeFamily`** (Gene type); alphanumeric **`feature.resource`** (Annotation resource); custom **`tissueTop:{ontologyId}`** / **`tissuePresent:{ontologyId}`** (Explore tissue bands; one term per UBERON/EFO column) |
+| Genomic features | SO and GO ontology facets; alphanumeric **`expression.percentile`** (Top expressed); **`feature.biotypeFamily`** (Gene type); **`feature.resource`** (Annotation resource); **`tissue.percentile:{ontologyId}`** (Explore tissue bands; one term per UBERON/EFO column; `>= 99` is the top 1%, `>= 0` is present in the tissue) |
 | Biosamples | UBERON / EFO tissue and cell-type facets |
-| Matrices | alphanumeric **`matrix.unit`**, **`matrix.annotation`**, **`matrix.assembly.name`**; custom **`matrix.profileSource`** (Data source: encode / geo / gtex); matrix OBI assay ontology |
+| Matrices | alphanumeric **`matrix.unit`**, **`matrix.annotation`**, **`matrix.assembly.name`**; **`matrix.source`** (Data source: encode / geo / gtex); matrix OBI assay ontology. Sequence Ontology (SO) is **not** matrix-scoped — use the features lens. |
 
 **Not catalogued** (and not matched for schema-true biosamples): `sex`, `condition`, `age_bracket`, `timepoint`, `biosample.preset:`.
 
@@ -36,11 +37,10 @@ build_tissue_expression_stats.py   → per-matrix tissue ranks
 build_tissue_feature_summary.py    → package-level gene×tissue summary
         │
         ▼
-build_matrix_filtering_terms.py --with-root
+build_filtering_terms.py
         → filtering_terms.json
-        → filtering_terms/by_matrix/{matrixId}.json
         │
-        ▼  (CI packs base catalogs; no percentiles yet)
+        ▼  (CI packs base catalog; no percentiles yet)
 fetch_data_package.py
         → build_expression_percentiles.py
         → rebuild filtering_terms (adds percentileIn* terms)
@@ -50,8 +50,8 @@ fetch_data_package.py
 2. **Hydrate / enrich** attach gene symbols, SO biotypes, cross-references, and GO slim terms used as ontology facets.
 3. **Expression stats** (`scripts/build_expression_stats.py`) compute per-gene / per-sample min/max/mean/median and `median_percentile`, which back `expression.percentile` and related continuous facets.
 4. **Tissue stats** support Explore heatmap bands and tissue-scoped customs.
-5. **Catalog emit** (`scripts/build_matrix_filtering_terms.py --with-root`) writes Beacon-shaped catalogs during the GitHub Action.
-6. **Fetch rebuild** always runs percentiles (omitted from the release for size), then rebuilds catalogs so `expression.percentileIn*` terms appear locally.
+5. **Catalog emit** (`scripts/build_filtering_terms.py`) writes the root Beacon-shaped catalog during the GitHub Action.
+6. **Fetch rebuild** always runs percentiles (omitted from the release for size), then rebuilds the root catalog so `expression.percentileIn*` terms appear locally.
 
 ## Applying filters
 

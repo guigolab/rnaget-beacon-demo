@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Sync matrices.json catalogs from per-matrix feature/biosample parquet.
 
+Also ensures the beacon-v2 matrix model fields: ``id``, top-level ``source``
+(from manifest.json), projects missing feature biotypes from ``genes.parquet``
+into each ``features.parquet``, and drops the legacy ``info`` / ``package`` bags
+(packaging metadata lives in manifest.json).
+
 Rewrites:
   - featureTypes  ← distinct feature_type_id / feature_type_label
   - biotypes      ← distinct biotype_id / biotype_label (when present)
@@ -92,6 +97,72 @@ def _distinct_biosample_types(biosamples_path: Path) -> List[Dict[str, str]]:
     )
 
 
+def _sql_path(path: Path) -> str:
+    return str(path).replace("'", "''")
+
+
+def project_biotypes_from_genes(package: Path, features_path: Path) -> int:
+    """Fill missing feature biotype_id/label from the package ``genes.parquet``.
+
+    Hydration can leave matrix feature rows without a biotype (for example
+    NCBI-annotated GEO matrices, or older releases) although ``genes.parquet``
+    has it for the same (resource, feature_id). Project it into
+    ``features.parquet`` so the matrix ``biotypes`` catalog and the feature
+    index see it. Returns the number of rows filled (0 = file left untouched).
+    """
+    import duckdb
+
+    genes_path = package / "genes.parquet"
+    if not genes_path.is_file() or not features_path.is_file():
+        return 0
+    con = duckdb.connect()
+    try:
+        cols = {
+            r[0]
+            for r in con.execute(
+                f"describe select * from read_parquet('{_sql_path(features_path)}')"
+            ).fetchall()
+        }
+        f_id = "f.biotype_id" if "biotype_id" in cols else "NULL::VARCHAR"
+        f_label = "f.biotype_label" if "biotype_label" in cols else "NULL::VARCHAR"
+        genes = (
+            "(select feature_id, resource, any_value(biotype_id) biotype_id, "
+            "any_value(biotype_label) biotype_label "
+            f"from read_parquet('{_sql_path(genes_path)}') "
+            "where biotype_id is not null group by feature_id, resource)"
+        )
+        joined = (
+            f"from read_parquet('{_sql_path(features_path)}') f "
+            f"left join {genes} g on g.feature_id = f.feature_id "
+            "and g.resource = f.resource"
+        )
+        fillable = con.execute(
+            f"select count(*) {joined} where {f_id} is null and g.biotype_id is not null"
+        ).fetchone()[0]
+        if not fillable:
+            return 0
+        keep = ", ".join(
+            f'f."{c}"'
+            for c in [
+                r[0]
+                for r in con.execute(
+                    f"describe select * from read_parquet('{_sql_path(features_path)}')"
+                ).fetchall()
+            ]
+            if c not in ("biotype_id", "biotype_label")
+        )
+        tmp = features_path.with_suffix(".tmp.parquet")
+        con.execute(
+            f"copy (select {keep}, coalesce({f_id}, g.biotype_id) as biotype_id, "
+            f"coalesce({f_label}, g.biotype_label) as biotype_label {joined}) "
+            f"to '{_sql_path(tmp)}' (format parquet, compression zstd)"
+        )
+    finally:
+        con.close()
+    tmp.replace(features_path)
+    return int(fillable)
+
+
 def _format_terms(terms: List[Dict[str, str]]) -> str:
     return ", ".join(
         f"{t['id']}" + (f" ({t['label']})" if t.get("label") else "") for t in terms
@@ -99,7 +170,12 @@ def _format_terms(terms: List[Dict[str, str]]) -> str:
 
 
 def matrices_need_catalog_sync(package: Path) -> bool:
-    """True when any matrix lacks biotypes or biosampleTypes (fetch backfill)."""
+    """True when matrices.json still needs the model fields (fetch backfill).
+
+    Flags a missing ``id``/``source``, a leftover ``info``/``package`` bag, or
+    missing ``biotypes``/``biosampleTypes`` on a matrix whose features carry
+    biotypes after projection (so a settled package is not re-synced).
+    """
     matrices_path = package / "matrices.json"
     if not matrices_path.is_file():
         return False
@@ -110,9 +186,64 @@ def matrices_need_catalog_sync(package: Path) -> bool:
     for doc in matrices:
         if not isinstance(doc, dict):
             continue
-        if "biotypes" not in doc or "biosampleTypes" not in doc:
+        if "biosampleTypes" not in doc:
+            return True
+        if not doc.get("id") or not doc.get("source"):
+            return True
+        if "info" in doc or "package" in doc:
+            return True
+    return _features_missing_biotypes(package, matrices)
+
+
+def _features_missing_biotypes(package: Path, matrices: List[Dict[str, Any]]) -> bool:
+    """True when a matrix lacks ``biotypes`` although genes.parquet could supply them."""
+    manifest_path = package / "manifest.json"
+    genes_path = package / "genes.parquet"
+    if not manifest_path.is_file() or not genes_path.is_file():
+        return False
+    with manifest_path.open(encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    dirs = {
+        str(e.get("matrix_id")): str(e.get("dir"))
+        for e in manifest.get("matrices") or []
+        if e.get("matrix_id") and e.get("dir")
+    }
+    for doc in matrices:
+        if not isinstance(doc, dict) or doc.get("biotypes"):
+            continue
+        dirname = dirs.get(str(doc.get("matrixId") or doc.get("id") or ""))
+        if not dirname:
+            continue
+        feat = package / "matrices" / dirname / "features.parquet"
+        if feat.is_file() and (
+            _distinct_biotypes(feat) or _projectable(package, feat)
+        ):
             return True
     return False
+
+
+def _projectable(package: Path, features_path: Path) -> bool:
+    import duckdb
+
+    con = duckdb.connect()
+    try:
+        cols = {
+            r[0]
+            for r in con.execute(
+                f"describe select * from read_parquet('{_sql_path(features_path)}')"
+            ).fetchall()
+        }
+        f_id = "f.biotype_id" if "biotype_id" in cols else "NULL::VARCHAR"
+        n = con.execute(
+            f"select count(*) from read_parquet('{_sql_path(features_path)}') f "
+            f"join (select feature_id, resource from read_parquet("
+            f"'{_sql_path(package / 'genes.parquet')}') where biotype_id is not null) g "
+            f"on g.feature_id = f.feature_id and g.resource = f.resource "
+            f"where {f_id} is null"
+        ).fetchone()[0]
+        return bool(n)
+    finally:
+        con.close()
 
 
 def sync_package(package: Path) -> int:
@@ -132,11 +263,14 @@ def sync_package(package: Path) -> int:
         manifest = json.load(fh)
 
     dir_by_id: Dict[str, str] = {}
+    source_by_id: Dict[str, str] = {}
     for entry in manifest.get("matrices") or []:
         mid = entry.get("matrix_id")
         dirname = entry.get("dir")
         if mid and dirname:
             dir_by_id[str(mid)] = str(dirname)
+        if mid and entry.get("source"):
+            source_by_id[str(mid)] = str(entry["source"])
 
     updated = 0
     for doc in matrices:
@@ -155,15 +289,37 @@ def sync_package(package: Path) -> int:
         elif "featureType" in doc:
             doc.pop("featureType", None)
 
+        changed = False
+        # beacon-v2 matrix model: ``id`` identifier and top-level ``source``.
+        if doc.get("id") != mid:
+            doc["id"] = mid
+            changed = True
+        if not doc.get("source"):
+            src = source_by_id.get(mid) or (doc.get("info") or {}).get("profileSource")
+            if src:
+                doc["source"] = str(src)
+                changed = True
+                print(f"{mid}: source → {src}")
+        # Packaging metadata lives in manifest.json, not in the matrix document.
+        for legacy in ("info", "package"):
+            if legacy in doc:
+                doc.pop(legacy)
+                changed = True
+
         dirname = dir_by_id.get(mid)
         if not dirname:
+            if changed:
+                updated += 1
             continue
         matrix_dir = package / "matrices" / dirname
         feat_path = matrix_dir / "features.parquet"
         bio_path = matrix_dir / "biosamples.parquet"
-        changed = False
 
         if feat_path.is_file():
+            filled = project_biotypes_from_genes(package, feat_path)
+            if filled:
+                changed = True
+                print(f"{mid}: projected biotype onto {filled} feature rows from genes.parquet")
             derived_ft = _distinct_feature_types(feat_path)
             if derived_ft and doc.get("featureTypes") != derived_ft:
                 doc["featureTypes"] = derived_ft
@@ -190,7 +346,7 @@ def sync_package(package: Path) -> int:
         json.dump(matrices, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
     print(
-        f"Synced featureTypes/biotypes/biosampleTypes for "
+        f"Synced id/source/featureTypes/biotypes/biosampleTypes for "
         f"{updated}/{len(matrices)} matrices → {matrices_path}"
     )
     return 0

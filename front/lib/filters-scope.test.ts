@@ -13,7 +13,7 @@ import {
 import type { FilteringTerm, UiFilter } from '@/lib/beacon/types'
 
 function ontologyId(f: UiFilter): string | undefined {
-  return f.kind === 'ontology' || f.kind === 'custom' ? f.id : undefined
+  return f.kind === 'ontology' ? f.id : undefined
 }
 
 const featureGo: FilteringTerm = {
@@ -95,11 +95,12 @@ const mergedSo = mergeFilterScopeIndexes(
   merged
 )
 const soFilter: UiFilter = { kind: 'ontology', id: 'SO:0000704' }
-console.assert(isMatrixLensFilter(soFilter, mergedSo) === true)
+console.assert(isMatrixLensFilter(soFilter, mergedSo) === false)
 
 const profileSource: UiFilter = {
-  kind: 'custom',
-  id: 'matrix.profileSource:gtex',
+  kind: 'alphanumeric',
+  id: 'matrix.source',
+  value: 'gtex',
   label: 'GTEx',
 }
 console.assert(scopeOf(profileSource) === 'matrix')
@@ -109,7 +110,7 @@ const dualSo: FilteringTerm = {
   id: 'SO:0000704',
   label: 'gene',
   type: 'SO',
-  scopes: ['genomicFeature', 'matrix'],
+  scopes: ['genomicFeature'],
 }
 const geoSample: FilteringTerm = {
   id: 'GEO:sample',
@@ -123,8 +124,9 @@ const roundTrip = mergeFilterScopeIndexes(
   buildFilterScopeIndex([matrixObi])
 )
 const soBoth: UiFilter = { kind: 'ontology', id: 'SO:0000704', label: 'gene' }
-console.assert(scopeOf(soBoth, roundTrip) === 'matrix')
+console.assert(scopeOf(soBoth, roundTrip) === 'feature')
 console.assert(isFeatureLensFilter(soBoth, roundTrip) === true)
+console.assert(isMatrixLensFilter(soBoth, roundTrip) === false)
 
 const featureWritten = geneLensSearchParams({ filters: [soBoth], index: roundTrip })
 const featureRead = parseGeneLensSearch(featureWritten, roundTrip)

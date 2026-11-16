@@ -46,15 +46,15 @@ export function RelatedMatricesSection({
         {matrices
           ? matrices.map((matrix) => (
               <Link
-                key={matrix.matrixId}
-                href={matrixHref(matrix.matrixId ?? '', cohortQuery)}
+                key={matrix.id}
+                href={matrixHref(matrix.id ?? '', cohortQuery)}
                 className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm hover:bg-muted/50"
               >
                 <span className="block font-medium text-foreground">
-                  {matrix.name ?? matrix.matrixId}
+                  {matrix.name ?? matrix.id}
                 </span>
                 <span className="font-mono text-[11px] text-muted-foreground">
-                  {matrix.matrixId}
+                  {matrix.id}
                 </span>
               </Link>
             ))

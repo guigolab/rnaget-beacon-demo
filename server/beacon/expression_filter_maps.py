@@ -10,7 +10,7 @@ PERCENTILE_THRESHOLDS = frozenset({90, 95, 99})
 PERCENTILE_CATALOG_VALUES = ("90", "95", "99")
 EXPRESSION_PERCENTILE_ID = "expression.percentile"
 
-TissueKind = Literal["high", "specific", "top", "present"]
+TissueKind = Literal["high", "specific", "top", "present", "percentile"]
 
 
 def parse_biosample_preset(fid: str) -> Optional[Tuple[str, str]]:
@@ -40,6 +40,7 @@ def parse_tissue_feature_filter(fid: str) -> Optional[Tuple[TissueKind, str]]:
     from beacon.tissue_catalog import (
         MATRIX_PSEUDO_PREFIX,
         TISSUE_HIGH_PREFIX,
+        TISSUE_PERCENTILE_PREFIX,
         TISSUE_PRESENT_PREFIX,
         TISSUE_SPECIFIC_PREFIX,
         TISSUE_TOP_PREFIX,
@@ -47,7 +48,10 @@ def parse_tissue_feature_filter(fid: str) -> Optional[Tuple[TissueKind, str]]:
 
     kind: Optional[TissueKind] = None
     rest = ""
-    if fid.startswith(TISSUE_HIGH_PREFIX):
+    if fid.startswith(TISSUE_PERCENTILE_PREFIX):
+        kind = "percentile"
+        rest = fid[len(TISSUE_PERCENTILE_PREFIX) :].strip()
+    elif fid.startswith(TISSUE_HIGH_PREFIX):
         kind = "high"
         rest = fid[len(TISSUE_HIGH_PREFIX) :].strip()
     elif fid.startswith(TISSUE_SPECIFIC_PREFIX):

@@ -15,14 +15,10 @@ export function filterChipDisplay(
   filter: UiFilter,
   catalog: Map<string, string>
 ): { text: string; tooltip?: string } {
-  if (filter.kind === 'ontology' || filter.kind === 'custom') {
+  if (filter.kind === 'ontology') {
     const fromCatalog = catalog.get(filter.id.toLowerCase())
     const text = filter.label?.trim() || fromCatalog || filter.id
-    const tooltip =
-      filter.kind === 'custom' && filter.id.toLowerCase().startsWith('symbol:')
-        ? 'Gene symbol'
-        : filter.id
-    return { text, tooltip }
+    return { text, tooltip: filter.id }
   }
   if (filter.kind === 'symbol') {
     return { text: filter.value, tooltip: 'Gene symbol' }

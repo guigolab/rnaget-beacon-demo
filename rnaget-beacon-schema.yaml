@@ -17,26 +17,76 @@ paths:
       - Informational endpoints
       summary: Get Info
       operationId: getBeaconInfoRoot
+      parameters:
+      - name: requestedSchema
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Beacon requestedSchema. Only the default schema of each entry
+            type is served; the value is accepted and otherwise ignored.
+          title: Requestedschema
+        description: Beacon requestedSchema. Only the default schema of each entry
+          type is served; the value is accepted and otherwise ignored.
       responses:
         '200':
           description: Beacon informational response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BeaconInformationalResponse'
+                $ref: '#/components/schemas/BeaconInfoResponse'
+        '400':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /:
     get:
       tags:
       - Informational endpoints
       summary: Get Info
       operationId: getBeaconRoot
+      parameters:
+      - name: requestedSchema
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Beacon requestedSchema. Only the default schema of each entry
+            type is served; the value is accepted and otherwise ignored.
+          title: Requestedschema
+        description: Beacon requestedSchema. Only the default schema of each entry
+          type is served; the value is accepted and otherwise ignored.
       responses:
         '200':
           description: Beacon informational response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BeaconInformationalResponse'
+                $ref: '#/components/schemas/BeaconInfoResponse'
+        '400':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /service-info:
     get:
       tags:
@@ -49,7 +99,8 @@ paths:
           description: Successful Response
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/ServiceInfo'
   /configuration:
     get:
       tags:
@@ -62,7 +113,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BeaconInformationalResponse'
+                $ref: '#/components/schemas/BeaconConfigurationResponse'
+        '400':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
   /map:
     get:
       tags:
@@ -75,7 +132,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BeaconInformationalResponse'
+                $ref: '#/components/schemas/BeaconMapResponse'
+        '400':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
   /entry_types:
     get:
       tags:
@@ -88,7 +151,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BeaconInformationalResponse'
+                $ref: '#/components/schemas/BeaconEntryTypesResponse'
+        '400':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
   /filtering_terms:
     get:
       tags:
@@ -124,6 +193,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BeaconFilteringTermsResponse'
+        '400':
+          description: Beacon error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BeaconErrorResponse'
         '422':
           description: Validation Error
           content:
@@ -175,6 +250,30 @@ paths:
         description: 'Comma-separated Beacon filters (RNAget GET convention). POST
           uses query.filters as a JSON array. symbol: filters match aliases/symbols
           with exact case (Alb ≠ ALB).'
+      - name: includeResultsetResponses
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Beacon includeResultsetResponses: ALL (default), HIT, MISS
+            or NONE.'
+          title: Includeresultsetresponses
+        description: 'Beacon includeResultsetResponses: ALL (default), HIT, MISS or
+          NONE.'
+      - name: requestedSchema
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Beacon requestedSchema. Only the default schema of each entry
+            type is served; the value is accepted and otherwise ignored.
+          title: Requestedschema
+        description: Beacon requestedSchema. Only the default schema of each entry
+          type is served; the value is accepted and otherwise ignored.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -374,30 +473,18 @@ paths:
           - type: string
           - type: 'null'
           title: Requestedgranularity
-      - name: filters
+      - name: requestedSchema
         in: query
         required: false
         schema:
           anyOf:
           - type: string
           - type: 'null'
-          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array. symbol: filters match aliases/symbols
-            with exact case (Alb ≠ ALB).'
-          title: Filters
-        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array. symbol: filters match aliases/symbols
-          with exact case (Alb ≠ ALB).'
-      - name: matrixIDList
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          description: 'RNAget extension: comma-separated matrix IDs.'
-          title: Matrixidlist
-        description: 'RNAget extension: comma-separated matrix IDs.'
+          description: Beacon requestedSchema. Only the default schema of each entry
+            type is served; the value is accepted and otherwise ignored.
+          title: Requestedschema
+        description: Beacon requestedSchema. Only the default schema of each entry
+          type is served; the value is accepted and otherwise ignored.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -517,16 +604,30 @@ paths:
         description: 'Comma-separated Beacon filters (RNAget GET convention). POST
           uses query.filters as a JSON array. symbol: filters match aliases/symbols
           with exact case (Alb ≠ ALB).'
-      - name: featureIDList
+      - name: includeResultsetResponses
         in: query
         required: false
         schema:
           anyOf:
           - type: string
           - type: 'null'
-          description: Comma-separated feature IDs.
-          title: Featureidlist
-        description: Comma-separated feature IDs.
+          description: 'Beacon includeResultsetResponses: ALL (default), HIT, MISS
+            or NONE.'
+          title: Includeresultsetresponses
+        description: 'Beacon includeResultsetResponses: ALL (default), HIT, MISS or
+          NONE.'
+      - name: requestedSchema
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Beacon requestedSchema. Only the default schema of each entry
+            type is served; the value is accepted and otherwise ignored.
+          title: Requestedschema
+        description: Beacon requestedSchema. Only the default schema of each entry
+          type is served; the value is accepted and otherwise ignored.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -726,30 +827,18 @@ paths:
           - type: string
           - type: 'null'
           title: Requestedgranularity
-      - name: filters
+      - name: requestedSchema
         in: query
         required: false
         schema:
           anyOf:
           - type: string
           - type: 'null'
-          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array. symbol: filters match aliases/symbols
-            with exact case (Alb ≠ ALB).'
-          title: Filters
-        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array. symbol: filters match aliases/symbols
-          with exact case (Alb ≠ ALB).'
-      - name: matrixIDList
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          description: 'RNAget extension: comma-separated matrix IDs.'
-          title: Matrixidlist
-        description: 'RNAget extension: comma-separated matrix IDs.'
+          description: Beacon requestedSchema. Only the default schema of each entry
+            type is served; the value is accepted and otherwise ignored.
+          title: Requestedschema
+        description: Beacon requestedSchema. Only the default schema of each entry
+          type is served; the value is accepted and otherwise ignored.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -869,6 +958,30 @@ paths:
         description: 'Comma-separated Beacon filters (RNAget GET convention). POST
           uses query.filters as a JSON array. symbol: filters match aliases/symbols
           with exact case (Alb ≠ ALB).'
+      - name: includeResultsetResponses
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Beacon includeResultsetResponses: ALL (default), HIT, MISS
+            or NONE.'
+          title: Includeresultsetresponses
+        description: 'Beacon includeResultsetResponses: ALL (default), HIT, MISS or
+          NONE.'
+      - name: requestedSchema
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Beacon requestedSchema. Only the default schema of each entry
+            type is served; the value is accepted and otherwise ignored.
+          title: Requestedschema
+        description: Beacon requestedSchema. Only the default schema of each entry
+          type is served; the value is accepted and otherwise ignored.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1068,30 +1181,18 @@ paths:
           - type: string
           - type: 'null'
           title: Requestedgranularity
-      - name: filters
+      - name: requestedSchema
         in: query
         required: false
         schema:
           anyOf:
           - type: string
           - type: 'null'
-          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array. symbol: filters match aliases/symbols
-            with exact case (Alb ≠ ALB).'
-          title: Filters
-        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array. symbol: filters match aliases/symbols
-          with exact case (Alb ≠ ALB).'
-      - name: featureIDList
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          description: Comma-separated feature IDs.
-          title: Featureidlist
-        description: Comma-separated feature IDs.
+          description: Beacon requestedSchema. Only the default schema of each entry
+            type is served; the value is accepted and otherwise ignored.
+          title: Requestedschema
+        description: Beacon requestedSchema. Only the default schema of each entry
+          type is served; the value is accepted and otherwise ignored.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1166,97 +1267,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /matrices/{id}/filtering_terms:
-    post:
-      tags:
-      - Matrices
-      summary: Matrix Scoped Filtering Terms
-      operationId: postOneMatrixFilteringTerms
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Id
-      - name: skip
-        in: query
-        required: false
-        schema:
-          type: integer
-          minimum: 0
-          description: Number of terms to skip.
-          default: 0
-          title: Skip
-        description: Number of terms to skip.
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: integer
-          minimum: 0
-          description: Max terms to return; 0 means the server maximum (1000).
-          default: 0
-          title: Limit
-        description: Max terms to return; 0 means the server maximum (1000).
-      responses:
-        '200':
-          description: Beacon filtering terms response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    get:
-      tags:
-      - Matrices
-      summary: Matrix Scoped Filtering Terms
-      operationId: getOneMatrixFilteringTerms
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Id
-      - name: skip
-        in: query
-        required: false
-        schema:
-          type: integer
-          minimum: 0
-          description: Number of terms to skip.
-          default: 0
-          title: Skip
-        description: Number of terms to skip.
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: integer
-          minimum: 0
-          description: Max terms to return; 0 means the server maximum (1000).
-          default: 0
-          title: Limit
-        description: Max terms to return; 0 means the server maximum (1000).
-      responses:
-        '200':
-          description: Beacon filtering terms response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BeaconFilteringTermsResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /matrices/{id}/biosamples:
     get:
       tags:
@@ -1294,30 +1304,18 @@ paths:
           - type: string
           - type: 'null'
           title: Requestedgranularity
-      - name: filters
+      - name: requestedSchema
         in: query
         required: false
         schema:
           anyOf:
           - type: string
           - type: 'null'
-          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array. symbol: filters match aliases/symbols
-            with exact case (Alb ≠ ALB).'
-          title: Filters
-        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array. symbol: filters match aliases/symbols
-          with exact case (Alb ≠ ALB).'
-      - name: biosampleIDList
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          description: Comma-separated biosample IDs.
-          title: Biosampleidlist
-        description: Comma-separated biosample IDs.
+          description: Beacon requestedSchema. Only the default schema of each entry
+            type is served; the value is accepted and otherwise ignored.
+          title: Requestedschema
+        description: Beacon requestedSchema. Only the default schema of each entry
+          type is served; the value is accepted and otherwise ignored.
       responses:
         '200':
           description: Beacon success response (boolean, count, or resultSets by granularity)
@@ -1449,20 +1447,6 @@ paths:
           description: Comma-separated biosample IDs.
           title: Biosampleidlist
         description: Comma-separated biosample IDs.
-      - name: filters
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          description: 'Comma-separated Beacon filters (RNAget GET convention). POST
-            uses query.filters as a JSON array. symbol: filters match aliases/symbols
-            with exact case (Alb ≠ ALB).'
-          title: Filters
-        description: 'Comma-separated Beacon filters (RNAget GET convention). POST
-          uses query.filters as a JSON array. symbol: filters match aliases/symbols
-          with exact case (Alb ≠ ALB).'
       - name: minValue
         in: query
         required: false
@@ -1488,9 +1472,21 @@ paths:
         required: false
         schema:
           $ref: '#/components/schemas/AxisOrder'
-          description: 'Order by value: asc | desc.'
-          default: asc
-        description: 'Order by value: asc | desc.'
+          description: 'Order by value: asc | desc (default desc).'
+          default: desc
+        description: 'Order by value: asc | desc (default desc).'
+      - name: requestedSchema
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Beacon requestedSchema. Only the default schema of each entry
+            type is served; the value is accepted and otherwise ignored.
+          title: Requestedschema
+        description: Beacon requestedSchema. Only the default schema of each entry
+          type is served; the value is accepted and otherwise ignored.
       - name: pageToken
         in: query
         required: false
@@ -1611,7 +1607,63 @@ components:
       - asc
       - desc
       title: AxisOrder
-      description: Order expression_values by cell quantification.
+      description: 'Order expression_values by cell quantification (model default:
+        desc).'
+    BeaconConfigurationBody:
+      additionalProperties: true
+      properties:
+        $schema:
+          title: $Schema
+          type: string
+        maturityAttributes:
+          title: Maturityattributes
+          type: object
+        securityAttributes:
+          anyOf:
+          - type: object
+          - type: 'null'
+          default: null
+          title: Securityattributes
+        entryTypes:
+          title: Entrytypes
+          type: object
+      required:
+      - $schema
+      - maturityAttributes
+      - entryTypes
+      title: BeaconConfigurationBody
+      type: object
+    BeaconConfigurationResponse:
+      properties:
+        meta:
+          $ref: '#/components/schemas/InformationalMeta'
+        response:
+          $ref: '#/components/schemas/BeaconConfigurationBody'
+      required:
+      - meta
+      - response
+      title: BeaconConfigurationResponse
+      type: object
+    BeaconEntryTypesBody:
+      properties:
+        entryTypes:
+          title: Entrytypes
+          type: object
+      required:
+      - entryTypes
+      title: BeaconEntryTypesBody
+      type: object
+    BeaconEntryTypesResponse:
+      properties:
+        meta:
+          $ref: '#/components/schemas/InformationalMeta'
+        response:
+          $ref: '#/components/schemas/BeaconEntryTypesBody'
+      required:
+      - meta
+      - response
+      title: BeaconEntryTypesResponse
+      type: object
     BeaconErrorBody:
       properties:
         errorCode:
@@ -1639,7 +1691,7 @@ components:
     BeaconFilteringTermsResponse:
       properties:
         meta:
-          $ref: '#/components/schemas/ResponseMeta'
+          $ref: '#/components/schemas/InformationalMeta'
         response:
           $ref: '#/components/schemas/FilteringTermsPayload'
       required:
@@ -1647,17 +1699,86 @@ components:
       - response
       title: BeaconFilteringTermsResponse
       type: object
-    BeaconInformationalResponse:
+    BeaconInfoBody:
+      additionalProperties: true
+      properties:
+        id:
+          title: Id
+          type: string
+        name:
+          title: Name
+          type: string
+        apiVersion:
+          title: Apiversion
+          type: string
+        environment:
+          title: Environment
+          type: string
+        organization:
+          $ref: '#/components/schemas/BeaconOrganization'
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+      required:
+      - id
+      - name
+      - apiVersion
+      - environment
+      - organization
+      title: BeaconInfoBody
+      type: object
+    BeaconInfoResponse:
       properties:
         meta:
-          $ref: '#/components/schemas/ResponseMeta'
+          $ref: '#/components/schemas/InformationalMeta'
         response:
-          title: Response
-          type: object
+          $ref: '#/components/schemas/BeaconInfoBody'
       required:
       - meta
       - response
-      title: BeaconInformationalResponse
+      title: BeaconInfoResponse
+      type: object
+    BeaconMapBody:
+      additionalProperties: true
+      properties:
+        $schema:
+          title: $Schema
+          type: string
+        endpointSets:
+          title: Endpointsets
+          type: object
+      required:
+      - $schema
+      - endpointSets
+      title: BeaconMapBody
+      type: object
+    BeaconMapResponse:
+      properties:
+        meta:
+          $ref: '#/components/schemas/InformationalMeta'
+        response:
+          $ref: '#/components/schemas/BeaconMapBody'
+      required:
+      - meta
+      - response
+      title: BeaconMapResponse
+      type: object
+    BeaconOrganization:
+      additionalProperties: true
+      properties:
+        id:
+          title: Id
+          type: string
+        name:
+          title: Name
+          type: string
+      required:
+      - id
+      - name
+      title: BeaconOrganization
       type: object
     BeaconQuery:
       properties:
@@ -1703,24 +1824,23 @@ components:
     BeaconRequestBody:
       properties:
         meta:
-          anyOf:
-          - $ref: '#/components/schemas/BeaconRequestMeta'
-          - type: 'null'
+          $ref: '#/components/schemas/BeaconRequestMeta'
         query:
           anyOf:
           - $ref: '#/components/schemas/BeaconQuery'
           - type: 'null'
       additionalProperties: false
       type: object
+      required:
+      - meta
       title: BeaconRequestBody
     BeaconRequestMeta:
       properties:
         apiVersion:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
           title: Apiversion
+          type: string
+      required:
+      - apiVersion
       title: BeaconRequestMeta
       type: object
     BeaconRequestParameters:
@@ -1728,11 +1848,39 @@ components:
       description: 'RNAget requestParameters under query.requestParameters.
 
 
-        Route-specific: nested matrix features → featureIDList only; nested
+        Beacon framework requires each additional property to be an object.
 
-        biosamples → biosampleIDList only; expression_values → both ID lists,
+        Nest leaf slice fields under an entry-type key. Only ``expressionValue``
 
-        minValue/maxValue, and order (by cell value). Cross-links use matrixIDList.'
+        is defined (matrices/requestParameters.yaml); the other entry types define
+
+        no request parameters.'
+      properties:
+        expressionValue:
+          anyOf:
+          - $ref: '#/components/schemas/ExpressionValueRequestParameters'
+          - type: 'null'
+          default: null
+      title: BeaconRequestParameters
+      type: object
+    CustomFilter:
+      properties:
+        id:
+          title: Id
+          type: string
+        scope:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Scope
+      required:
+      - id
+      title: CustomFilter
+      type: object
+    ExpressionValueRequestParameters:
+      additionalProperties: false
+      description: Leaf params under query.requestParameters.expressionValue.
       properties:
         featureIDList:
           anyOf:
@@ -1748,13 +1896,6 @@ components:
           default: null
           description: Comma-separated biosample IDs.
           title: Biosampleidlist
-        matrixIDList:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          description: Comma-separated matrix IDs (cross-link listings).
-          title: Matrixidlist
         minValue:
           anyOf:
           - type: number
@@ -1774,56 +1915,112 @@ components:
           - type: string
           - type: 'null'
           default: null
-          description: 'Order expression_values by cell value: asc | desc.'
+          description: 'Order expression_values by cell value: asc | desc (default
+            desc).'
           title: Order
-      title: BeaconRequestParameters
-      type: object
-    CustomFilter:
-      properties:
-        id:
-          title: Id
-          type: string
-        scope:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Scope
-      required:
-      - id
-      title: CustomFilter
+      title: ExpressionValueRequestParameters
       type: object
     ExpressionValuesRequestBody:
       properties:
         meta:
-          anyOf:
-          - $ref: '#/components/schemas/BeaconRequestMeta'
-          - type: 'null'
+          $ref: '#/components/schemas/BeaconRequestMeta'
         query:
           anyOf:
           - $ref: '#/components/schemas/BeaconQuery'
           - type: 'null'
       additionalProperties: false
       type: object
+      required:
+      - meta
       title: ExpressionValuesRequestBody
       description: 'POST body for matrix expression_values.
 
 
-        Slice params under ``query.requestParameters``:
+        Slice params under ``query.requestParameters.expressionValue``:
 
         featureIDList, biosampleIDList, minValue, maxValue, order (by value).
 
         Top-level sibling fields and ``sort`` are not accepted.'
+    FilteringResource:
+      additionalProperties: true
+      properties:
+        id:
+          title: Id
+          type: string
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Name
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Url
+        nameSpacePrefix:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Namespaceprefix
+        iriPrefix:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Iriprefix
+      required:
+      - id
+      title: FilteringResource
+      type: object
+    FilteringTermItem:
+      additionalProperties: true
+      properties:
+        id:
+          title: Id
+          type: string
+        type:
+          title: Type
+          type: string
+        label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Label
+        scopes:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Scopes
+        values:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Values
+      required:
+      - id
+      - type
+      title: FilteringTermItem
+      type: object
     FilteringTermsPayload:
       properties:
         filteringTerms:
           items:
-            type: object
+            $ref: '#/components/schemas/FilteringTermItem'
           title: Filteringterms
           type: array
         resources:
           items:
-            type: object
+            $ref: '#/components/schemas/FilteringResource'
           title: Resources
           type: array
       title: FilteringTermsPayload
@@ -1852,25 +2049,45 @@ components:
       - NONE
       title: IncludeResultsetResponses
       type: string
+    InformationalMeta:
+      description: Beacon response meta for informational endpoints.
+      properties:
+        apiVersion:
+          title: Apiversion
+          type: string
+        beaconId:
+          title: Beaconid
+          type: string
+        returnedSchemas:
+          items:
+            additionalProperties:
+              type: string
+            type: object
+          title: Returnedschemas
+          type: array
+      required:
+      - apiVersion
+      - beaconId
+      - returnedSchemas
+      title: InformationalMeta
+      type: object
     MatrixAxisRequestBody:
       properties:
         meta:
-          anyOf:
-          - $ref: '#/components/schemas/BeaconRequestMeta'
-          - type: 'null'
+          $ref: '#/components/schemas/BeaconRequestMeta'
         query:
           anyOf:
           - $ref: '#/components/schemas/BeaconQuery'
           - type: 'null'
       additionalProperties: false
       type: object
+      required:
+      - meta
       title: MatrixAxisRequestBody
       description: 'POST body for nested matrix features / biosamples listings.
 
 
-        Under ``query.requestParameters``: features accept ``featureIDList`` only;
-
-        biosamples accept ``biosampleIDList`` only.'
+        These listings define no ``requestParameters`` in the model.'
     OntologyFilter:
       properties:
         id:
@@ -1934,7 +2151,34 @@ components:
           title: Previouspage
       title: Pagination
       type: object
+    ReceivedRequestSummary:
+      additionalProperties: true
+      description: Beacon receivedRequestSummary (extra echo fields allowed).
+      properties:
+        apiVersion:
+          title: Apiversion
+          type: string
+        requestedSchemas:
+          items:
+            additionalProperties:
+              type: string
+            type: object
+          title: Requestedschemas
+          type: array
+        pagination:
+          title: Pagination
+          type: object
+        requestedGranularity:
+          $ref: '#/components/schemas/Granularity'
+      required:
+      - apiVersion
+      - requestedSchemas
+      - pagination
+      - requestedGranularity
+      title: ReceivedRequestSummary
+      type: object
     ResponseMeta:
+      description: Beacon response meta for query results and errors.
       properties:
         apiVersion:
           title: Apiversion
@@ -1942,11 +2186,6 @@ components:
         beaconId:
           title: Beaconid
           type: string
-        returnedGranularity:
-          anyOf:
-          - $ref: '#/components/schemas/Granularity'
-          - type: 'null'
-          default: null
         returnedSchemas:
           items:
             additionalProperties:
@@ -1954,16 +2193,84 @@ components:
             type: object
           title: Returnedschemas
           type: array
+        returnedGranularity:
+          $ref: '#/components/schemas/Granularity'
         receivedRequestSummary:
-          anyOf:
-          - type: object
-          - type: 'null'
-          default: null
-          title: Receivedrequestsummary
+          $ref: '#/components/schemas/ReceivedRequestSummary'
       required:
       - apiVersion
       - beaconId
+      - returnedSchemas
+      - returnedGranularity
+      - receivedRequestSummary
       title: ResponseMeta
+      type: object
+    ServiceInfo:
+      additionalProperties: true
+      description: GA4GH service-info (bare object, not a Beacon envelope).
+      properties:
+        id:
+          title: Id
+          type: string
+        name:
+          title: Name
+          type: string
+        type:
+          $ref: '#/components/schemas/ServiceInfoType'
+        organization:
+          $ref: '#/components/schemas/ServiceInfoOrganization'
+        version:
+          title: Version
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Description
+        environment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Environment
+      required:
+      - id
+      - name
+      - type
+      - organization
+      - version
+      title: ServiceInfo
+      type: object
+    ServiceInfoOrganization:
+      properties:
+        name:
+          title: Name
+          type: string
+        url:
+          title: Url
+          type: string
+      required:
+      - name
+      - url
+      title: ServiceInfoOrganization
+      type: object
+    ServiceInfoType:
+      properties:
+        group:
+          title: Group
+          type: string
+        artifact:
+          title: Artifact
+          type: string
+        version:
+          title: Version
+          type: string
+      required:
+      - group
+      - artifact
+      - version
+      title: ServiceInfoType
       type: object
     ValidationError:
       properties:
@@ -2089,157 +2396,27 @@ components:
         Beacon. Cell-level values are represented as expressionValue entries (or retrieved
         via matrix expression_values endpoints); this object describes how those values
         and feature identifiers should be interpreted.
+      if:
+        properties:
+          reproducible:
+            const: true
+        required:
+        - reproducible
       properties:
-        matrixId:
-          description: Unique identifier of the matrix entry within the Beacon.
-          examples:
-          - matrix-gene-expression-001
-          type: string
-        createDateTime:
-          description: The time the matrix was created (ISO 8601 format).
-          format: date-time
-          type: string
-          examples:
-          - '2017-01-17T20:33:40Z'
-        description:
-          description: Description of the matrix.
-          examples:
-          - This matrix provides examples of the actual data in this Beacon instance.
-          type: string
-        downloadUrl:
-          description: Optional URL to download the full matrix (RFC 3986). Bulk download
-            is not required when sliced expression values are served via the API.
-          examples:
-          - https://example.org/matrices/matrix.csv
-          type: string
-        reproducible:
-          type: boolean
-          description: Whether this Beacon provides enough provenance to regenerate
-            the quantification matrix (annotation source, version and file, assembly,
-            units/scale, and analysis/protocol information). true means that information
-            is available; false means provenance is incomplete and the matrix should
-            not be treated as independently reproducible from Beacon metadata alone.
-          examples:
-          - true
-          - false
-        assayType:
-          type: object
-          additionalProperties: true
-          properties:
-            id:
-              type: string
-            label:
-              type: string
-          required:
-          - id
-          description: Type of RNA-seq assay (e.g. bulk vs single-cell).
-          examples:
-          - id: OBI:0002631
-            label: single-cell RNA sequencing assay
-          - id: OBI:0003090
-            label: bulk RNA-seq assay
-        info:
-          type: object
-          additionalProperties: true
-          description: Optional free-form metadata bag.
-        name:
-          description: Human-readable name of the matrix.
-          examples:
-          - Gene expression matrix
-          type: string
-        dimensions:
-          description: Number of features (rows) and biosamples (columns) in the matrix.
-          type: object
-          properties:
-            features:
-              type: integer
-              description: Number of genomic feature rows.
-            biosamples:
-              type: integer
-              description: Number of biosample columns.
-          required:
-          - features
-          - biosamples
-        featureTypes:
-          description: Sequence Ontology terms for the class(es) of genomic feature
-            rows in this matrix. Homogeneous matrices list one term (e.g. gene or
-            mRNA). Matrices that mix genes and transcripts (or other feature classes)
-            MUST list every class present. Each feature in the matrix MUST have a
-            featureType that appears in this array. Values from SO (Sequence Ontology)
-            are recommended.
-          type: array
-          minItems: 1
-          items:
-            type: object
-            additionalProperties: true
-            properties:
-              id:
-                type: string
-              label:
-                type: string
-            required:
-            - id
-          examples:
-          - - id: SO:0000704
-              label: gene
-          - - id: SO:0000234
-              label: mRNA
-          - - id: SO:0000704
-              label: gene
-            - id: SO:0000234
-              label: mRNA
-        expressionUnitAndScale:
-          description: Unit and numeric scale of expression values in this matrix.
-            Applies to all expressionValue.value entries that reference this matrixId.
-          type: object
-          required:
-          - unit
-          - scale
-          properties:
-            unit:
-              enum:
-              - raw
-              - TPM
-              - FPKM
-              - RPKM
-              - CPM
-              - RPM
-              default: raw
-              description: Quantification unit of the expression values.
-            scale:
-              enum:
-              - linear
-              - log2
-              - log10
-              default: linear
-              description: Whether values are linear or log-transformed. If not provided,
-                it is assumed to be linear.
-        expressionValueRange:
-          type: object
-          description: Global minimum and maximum of expressionValue.value across
-            this matrix. Uses the same unit and scale as expressionUnitAndScale. Optional;
-            when present, clients may use it for colour scales without scanning all
-            cells.
-          required:
-          - min
-          - max
-          properties:
-            min:
-              type: number
-              description: Minimum expression value observed in the matrix.
-            max:
-              type: number
-              description: Maximum expression value observed in the matrix.
         annotation:
           description: Annotation catalog used to define feature identifiers in this
             matrix. source SHOULD use the same identifiers.org-style prefix vocabulary
             as featureIdentifier.resource (e.g. ensembl, gencode). version is the
             annotation release; it is not the same as an Ensembl object version suffix
             (e.g. .18).
-          type: object
           properties:
-            source:
+            file:
+              description: URL to the annotation file.
               type: string
+            md5Checksum:
+              description: MD5 checksum of the annotation file.
+              type: string
+            source:
               description: Identifier namespace / annotation catalog. An identifiers.org
                 prefix is recommended.
               examples:
@@ -2247,29 +2424,40 @@ components:
               - gencode
               - refseq
               - ncbigene
-            version:
               type: string
+            version:
               description: Annotation release or build version string.
               examples:
               - '109'
               - '49'
               - '109.20190905'
-            file:
               type: string
-              description: URL to the annotation file.
-            md5Checksum:
-              type: string
-              description: MD5 checksum of the annotation file.
           required:
           - source
           - version
+          type: object
+        assayType:
+          additionalProperties: true
+          description: Type of RNA-seq assay (e.g. bulk vs single-cell).
+          examples:
+          - id: OBI:0002631
+            label: single-cell RNA sequencing assay
+          - id: OBI:0003090
+            label: bulk RNA-seq assay
+          properties:
+            id:
+              type: string
+            label:
+              type: string
+          required:
+          - id
+          type: object
         assembly:
           description: Reference genome assembly used to map reads and define genomic
             coordinates for features in this matrix.
           examples:
           - accession: GCA_000001405.29
             name: GRCh38.p14
-          type: object
           properties:
             accession:
               description: Assembly accession (e.g. INSDC GCA_/GCF_).
@@ -2280,13 +2468,200 @@ components:
           required:
           - accession
           - name
+          type: object
+        biosampleTypes:
+          description: Ontology terms for tissue, cell type, or cell line present
+            on biosample columns of this matrix. Prefer UBERON for anatomical tissue,
+            CL for cell type, and CLO or BTO for cell lines. Each listed term MUST
+            appear on a linked biosample (e.g. sampleOriginDetail). Distinct from
+            assayType.
+          examples:
+          - - id: UBERON:0002190
+              label: subcutaneous adipose tissue
+          - - id: UBERON:0000964
+              label: cornea
+            - id: UBERON:0001777
+              label: sclera
+          - - id: CL:0000236
+              label: B cell
+          items:
+            additionalProperties: true
+            properties:
+              id:
+                type: string
+              label:
+                type: string
+            required:
+            - id
+            type: object
+          minItems: 1
+          type: array
+        biotypes:
+          description: Sequence Ontology biotypes present on genomic feature rows
+            of this matrix (e.g. protein_coding_gene, lncRNA_gene). Distinct from
+            featureTypes (structural class). Each listed term MUST appear as some
+            feature's biotype in this matrix. Values from SO (Sequence Ontology) are
+            recommended.
+          examples:
+          - - id: SO:0001217
+              label: protein_coding_gene
+          - - id: SO:0001217
+              label: protein_coding_gene
+            - id: SO:0002127
+              label: lncRNA_gene
+          items:
+            additionalProperties: true
+            properties:
+              id:
+                type: string
+              label:
+                type: string
+            required:
+            - id
+            type: object
+          minItems: 1
+          type: array
+        createDateTime:
+          description: The time the matrix was created (ISO 8601 format).
+          examples:
+          - '2017-01-17T20:33:40Z'
+          format: date-time
+          type: string
+        description:
+          description: Description of the matrix.
+          examples:
+          - This matrix provides examples of the actual data in this Beacon instance.
+          type: string
+        dimensions:
+          description: Number of features (rows) and biosamples (columns) in the matrix.
+          properties:
+            biosamples:
+              description: Number of biosample columns.
+              type: integer
+            features:
+              description: Number of genomic feature rows.
+              type: integer
+          required:
+          - features
+          - biosamples
+          type: object
+        downloadUrl:
+          description: Optional URL to download the full matrix (RFC 3986). Bulk download
+            is not required when sliced expression values are served via the API.
+          examples:
+          - https://example.org/matrices/matrix.csv
+          type: string
+        expressionUnitAndScale:
+          description: Unit and numeric scale of expression values in this matrix.
+            Applies to all expressionValue.value entries that reference this matrix
+            id.
+          properties:
+            scale:
+              default: linear
+              description: Whether values are linear or log-transformed. If not provided,
+                it is assumed to be linear.
+              enum:
+              - linear
+              - log2
+              - log10
+            unit:
+              default: raw
+              description: Quantification unit of the expression values.
+              enum:
+              - raw
+              - TPM
+              - FPKM
+              - RPKM
+              - CPM
+              - RPM
+          required:
+          - unit
+          - scale
+          type: object
+        expressionValueRange:
+          description: Global minimum and maximum of expressionValue.value across
+            this matrix. Uses the same unit and scale as expressionUnitAndScale.
+          properties:
+            max:
+              description: Maximum expression value observed in the matrix.
+              type: number
+            min:
+              description: Minimum expression value observed in the matrix.
+              type: number
+          required:
+          - min
+          - max
+          type: object
+        featureTypes:
+          description: Sequence Ontology terms for the class(es) of genomic feature
+            rows in this matrix. Homogeneous matrices list one term (e.g. gene or
+            mRNA). Matrices that mix genes and transcripts (or other feature classes)
+            MUST list every class present. Each feature in the matrix MUST have a
+            featureType that appears in this array. Values from SO (Sequence Ontology)
+            are recommended.
+          examples:
+          - - id: SO:0000704
+              label: gene
+          - - id: SO:0000234
+              label: mRNA
+          - - id: SO:0000704
+              label: gene
+            - id: SO:0000234
+              label: mRNA
+          items:
+            additionalProperties: true
+            properties:
+              id:
+                type: string
+              label:
+                type: string
+            required:
+            - id
+            type: object
+          minItems: 1
+          type: array
+        id:
+          description: Unique identifier of the matrix entry within the Beacon. Referenced
+            as matrixId by expressionValue entries.
+          examples:
+          - matrix-gene-expression-001
+          type: string
+        info:
+          additionalProperties: true
+          description: Optional free-form metadata bag.
+          type: object
+        name:
+          description: Human-readable name of the matrix.
+          examples:
+          - Gene expression matrix
+          type: string
+        reproducible:
+          description: Whether this Beacon provides enough provenance to regenerate
+            the quantification matrix (annotation source, version and file, assembly,
+            units/scale, and analysis/protocol information). true means that information
+            is available; false means provenance is incomplete and the matrix should
+            not be treated as independently reproducible from Beacon metadata alone.
+          examples:
+          - true
+          - false
+          type: boolean
+        source:
+          description: Origin of the matrix data, i.e. the resource or pipeline the
+            quantification was obtained from.
+          examples:
+          - encode
+          - geo
+          - gtex
+          type: string
       required:
-      - matrixId
+      - id
       - expressionUnitAndScale
       - featureTypes
-      - annotation
-      - assembly
       - reproducible
+      then:
+        required:
+        - annotation
+        - assembly
       type: object
     Biosample:
       additionalProperties: true
@@ -2468,20 +2843,49 @@ components:
         used as a quantified row in RNA-seq expression matrices and/or as an annotated
         feature related to a genomic variant.
       properties:
-        id:
-          description: Internal feature ID.
+        aliases:
+          description: Human-readable names or symbols commonly used for this feature
+            (gene symbols, transcript names, or other aliases).
           examples:
-          - Feature12345
-          type: string
+          - TP53
+          - BRCA1
+          items:
+            type: string
+          type: array
+        biotype:
+          additionalProperties: true
+          description: Gene or transcript biotype from Sequence Ontology (e.g. protein_coding_gene).
+            Not the same as featureType (structural class such as gene, mRNA, or exon).
+            Prefer SO CURIEs over annotation-catalog strings such as Ensembl "protein_coding".
+          examples:
+          - id: SO:0001217
+            label: protein_coding_gene
+          - id: SO:0002127
+            label: lncRNA_gene
+          - id: SO:0000336
+            label: pseudogene
+          properties:
+            id:
+              type: string
+            label:
+              type: string
+          required:
+          - id
+          type: object
         featureIdentifier:
           description: Identifier of the genomic feature as it appears in the expression
             matrix (native accession), plus the identifier namespace. Gene symbols
             MUST NOT be stored here; use aliases instead. Annotation release (e.g.
             Ensembl 109) belongs on the matrix annotation, not on this object.
-          type: object
+          examples:
+          - id: ENSG00000141510.18
+            resource: ensembl
+          - id: ENST00000269305.9
+            resource: ensembl
+          - id: EXON:00004567
+            resource: local
           properties:
             id:
-              type: string
               description: Native accession of the genomic feature as used in the
                 matrix row (versioned when the matrix uses versioned IDs). Not a CURIE.
                 For anonymous or interval-derived features with no public accession,
@@ -2490,8 +2894,8 @@ components:
               - ENSG00000141510.18
               - ENST00000269305.9
               - EXON:00004567
-            resource:
               type: string
+            resource:
               description: Identifier namespace for id. An identifiers.org prefix
                 is recommended (e.g. ensembl, hgnc, ncbigene, refseq, gencode). Use
                 local for locally minted identifiers. Required because id is not a
@@ -2503,56 +2907,13 @@ components:
               - refseq
               - gencode
               - local
+              type: string
           required:
           - id
           - resource
-          examples:
-          - id: ENSG00000141510.18
-            resource: ensembl
-          - id: ENST00000269305.9
-            resource: ensembl
-          - id: EXON:00004567
-            resource: local
-        genomicInterval:
-          description: Genomic interval of the genomic feature, uses the VRS schema
-            for the coordinates and adds the strand
           type: object
-          properties:
-            location:
-              $ref: https://w3id.org/ga4gh/schema/vrs/1.3/vrs.json#/definitions/Location
-            strand:
-              type: string
-              enum:
-              - positive
-              - negative
-              default: positive
-        aliases:
-          description: Human-readable names or symbols commonly used for this feature
-            (gene symbols, transcript names, or other aliases).
-          examples:
-          - TP53
-          - BRCA1
-          type: array
-          items:
-            type: string
-        xrefs:
-          description: Cross-references of the genomic feature. CURIE format is recommended.
-          examples:
-          - HGNC:11998
-          - NCBIGene:7157
-          type: array
-          items:
-            type: string
         featureType:
-          type: object
           additionalProperties: true
-          properties:
-            id:
-              type: string
-            label:
-              type: string
-          required:
-          - id
           description: Ontology term that describes the type of genomic feature. Values
             from SO (Sequence Ontology) are recommended.
           examples:
@@ -2562,12 +2923,49 @@ components:
             label: mRNA
           - id: SO:0000147
             label: exon
-        ontologyTerms:
-          type: array
-          description: Ontology terms of the genomic feature like biological functions,
-            molecular effects, etc.
+          properties:
+            id:
+              type: string
+            label:
+              type: string
+          required:
+          - id
+          type: object
+        genomicInterval:
+          description: Genomic interval of the genomic feature, uses the VRS schema
+            for the coordinates and adds the strand
+          properties:
+            location:
+              $ref: https://w3id.org/ga4gh/schema/vrs/1.3/vrs.json#/definitions/Location
+            strand:
+              default: positive
+              enum:
+              - positive
+              - negative
+              type: string
+          type: object
+        id:
+          description: Internal feature ID.
+          examples:
+          - Feature12345
+          type: string
+        info:
+          additionalProperties: true
+          description: Optional free-form metadata bag.
+          type: object
+        matrixIds:
+          description: list of matrix ids
           items:
-            type: object
+            type: string
+          type: array
+        ontologyTerms:
+          description: Ontology terms for biological functions, molecular effects,
+            and similar annotations (e.g. GO). Biotype MUST use biotype, not this
+            array.
+          examples:
+          - id: GO:0048856
+            label: anatomical structure development
+          items:
             additionalProperties: true
             properties:
               id:
@@ -2576,15 +2974,22 @@ components:
                 type: string
             required:
             - id
-          examples:
-          - id: GO:0048856
-            label: anatomical structure development
+            type: object
+          type: array
         relationship:
-          type: object
           description: Hierarchical relationships of the genomic feature (gene ->
             transcript -> exon). parent and children MUST use the same native id form
             as featureIdentifier.id (not CURIEs).
           properties:
+            children:
+              description: Children of the genomic feature, usually a transcript or
+                exon. Values MUST match each child's featureIdentifier.id.
+              items:
+                examples:
+                - ENST00000269305.9
+                - EXON:00004567
+                type: string
+              type: array
             parent:
               description: Parent of the genomic feature, usually a gene or transcript.
                 Value MUST match the parent's featureIdentifier.id.
@@ -2592,52 +2997,32 @@ components:
               - ENSG00000141510.18
               - ENST00000269305.9
               type: string
-            children:
-              description: Children of the genomic feature, usually a transcript or
-                exon. Values MUST match each child's featureIdentifier.id.
-              type: array
-              items:
-                type: string
-                examples:
-                - ENST00000269305.9
-                - EXON:00004567
-        info:
           type: object
-          additionalProperties: true
-          description: Optional free-form metadata bag.
-        matrixIds:
+        xrefs:
+          description: Cross-references of the genomic feature. CURIE format is recommended.
+          examples:
+          - HGNC:11998
+          - NCBIGene:7157
           items:
             type: string
           type: array
-          description: list of matrix ids
       required:
       - id
       - featureIdentifier
       - featureType
-      title: GenomicFeature
+      title: Genomic feature
       type: object
     ExpressionValue:
       additionalProperties: true
       description: 'One quantified expression cell: the measured value of a specific
         genomic feature in a specific biosample within a specific matrix.'
       properties:
-        id:
-          description: Internal Beacon identifier for this expression value entry.
-          examples:
-          - expressionValue-001
-          type: string
         biosampleId:
           description: Reference to the biosample entry id that this value was measured
             in.
           examples:
           - 008dafdd-a3d1-4801-8c0a-8714e2b58e48
           type: string
-        value:
-          description: Numeric expression quantification for this feature in this
-            biosample. Units and scale are defined by the parent matrix (expressionUnitAndScale).
-          examples:
-          - 100
-          type: number
         featureId:
           description: Native accession of the quantified genomic feature as it appears
             in the matrix row. MUST equal featureIdentifier.id of the matching feature.
@@ -2646,11 +3031,22 @@ components:
           - ENSG00000141510.18
           - ENST00000269305.9
           type: string
+        id:
+          description: Internal Beacon identifier for this expression value entry.
+          examples:
+          - expressionValue-001
+          type: string
         matrixId:
           description: Reference to the matrix entry id that this value belongs to.
           examples:
           - matrix-gene-expression-001
           type: string
+        value:
+          description: Numeric expression quantification for this feature in this
+            biosample. Units and scale are defined by the parent matrix (expressionUnitAndScale).
+          examples:
+          - 100
+          type: number
       required:
       - biosampleId
       - value

@@ -11,6 +11,8 @@ import { LensMutedEndpoints } from '@/components/shared/lens-muted-endpoints'
 import {
   browsableTerms,
   catalogValueDisplayLabel,
+  filterForTermValue,
+  isFacetFilteringTerm,
   isHiddenFilteringTerm,
   termToUiFilter,
   valuedTermChips,
@@ -33,7 +35,7 @@ type FilteringTermBrowserProps = {
   variant?: 'sidebar' | 'embedded'
 }
 
-export function customNamespaceGroup(
+export function facetNamespaceGroup(
   scope: BeaconScope,
   terms: FilteringTerm[]
 ): NamespaceScopeGroup | null {
@@ -43,10 +45,10 @@ export function customNamespaceGroup(
       ? 'Expression and gene type'
       : scope === 'biosample'
         ? 'Sample filters'
-        : 'custom'
+        : 'facets'
   return {
-    key: `custom|${scope}`,
-    namespaceType: 'custom',
+    key: `facet|${scope}`,
+    namespaceType: 'facet',
     namespaceLabel,
     scope,
     terms,
@@ -200,10 +202,10 @@ export function OntologyTermPicker({
   )
   const title = (group.namespaceType || 'unknown').toUpperCase()
   const searchPlaceholder =
-    group.namespaceType === 'custom' ? 'Search terms…' : `Search ${title}…`
+    group.namespaceType === 'facet' ? 'Search terms…' : `Search ${title}…`
 
   const customRows = useMemo((): CustomChipRow[] | null => {
-    if (group.namespaceType !== 'custom') return null
+    if (group.namespaceType !== 'facet') return null
     const rows: CustomChipRow[] = []
     for (const term of sortedTerms) {
       const chips = valuedTermChips(term)
@@ -336,7 +338,7 @@ export function OntologyTermPicker({
 }
 
 export function ontologyGroupChipCount(group: NamespaceScopeGroup): number {
-  if (group.namespaceType !== 'custom') return group.count
+  if (group.namespaceType !== 'facet') return group.count
   let count = 0
   for (const term of group.terms) {
     const chips = valuedTermChips(term)
@@ -370,20 +372,7 @@ export function AlphanumericTermPicker({
 
   function selectValue(value: string) {
     const display = catalogValueDisplayLabel(term.id, value)
-    if (term.id === 'matrix.profileSource') {
-      onAddFilter({
-        kind: 'custom',
-        id: `matrix.profileSource:${value}`,
-        label: `${title} = ${display}`,
-      })
-      return
-    }
-    onAddFilter({
-      kind: 'alphanumeric',
-      id: term.id,
-      value,
-      label: `${title} = ${display}`,
-    })
+    onAddFilter(filterForTermValue(term, value, `${title} = ${display}`))
   }
 
   return (
@@ -406,19 +395,7 @@ export function AlphanumericTermPicker({
         }
         return filtered.map((value) => {
           const display = catalogValueDisplayLabel(term.id, value)
-          const filter: UiFilter =
-            term.id === 'matrix.profileSource'
-              ? {
-                  kind: 'custom',
-                  id: `matrix.profileSource:${value}`,
-                  label: `${title} = ${display}`,
-                }
-              : {
-                  kind: 'alphanumeric',
-                  id: term.id,
-                  value,
-                  label: `${title} = ${display}`,
-                }
+          const filter = filterForTermValue(term, value, `${title} = ${display}`)
           const selected = activeKeys.has(filterKey(filter))
           return (
             <li key={value} className="min-w-0">
@@ -528,7 +505,19 @@ export function FilteringTermBrowser({
   variant = 'sidebar',
 }: FilteringTermBrowserProps) {
   const fill = variant === 'sidebar'
-  const visible = useMemo(() => browsableTerms(terms), [terms])
+  const visible = useMemo(() => {
+    const browsable = browsableTerms(terms)
+    // Matrix lens: SO is genomicFeature-only (even if older packages dual-scope it).
+    if (scope !== 'matrix') return browsable
+    return browsable.filter((term) => {
+      const type = String(term.type || '').toUpperCase()
+      if (type === 'SO') return false
+      return !String(term.id || '')
+        .trim()
+        .toUpperCase()
+        .startsWith('SO:')
+    })
+  }, [scope, terms])
 
   const ontologyGroups = useMemo(
     () =>
@@ -536,7 +525,7 @@ export function FilteringTermBrowser({
         (group) =>
           group.scope === scope &&
           group.namespaceType !== 'alphanumeric' &&
-          group.namespaceType !== 'custom'
+          group.namespaceType !== 'facet'
       ),
     [scope, visible]
   )
@@ -546,17 +535,18 @@ export function FilteringTermBrowser({
       visible.filter(
         (term) =>
           term.type === 'alphanumeric' &&
+          !isFacetFilteringTerm(term) &&
           (term.scopes?.includes(scope) ?? false) &&
           (term.values?.length ?? 0) > 0
       ),
     [scope, visible]
   )
 
-  const customTerms = useMemo(
+  const facetTerms = useMemo(
     () =>
       visible.filter(
         (term) =>
-          term.type === 'custom' &&
+          isFacetFilteringTerm(term) &&
           !isHiddenFilteringTerm(term) &&
           (term.scopes?.includes(scope) ?? false)
       ),
@@ -564,8 +554,8 @@ export function FilteringTermBrowser({
   )
 
   const customGroup = useMemo(
-    () => customNamespaceGroup(scope, customTerms),
-    [customTerms, scope]
+    () => facetNamespaceGroup(scope, facetTerms),
+    [facetTerms, scope]
   )
 
   const resourceByPrefix = useMemo(() => {
@@ -576,8 +566,10 @@ export function FilteringTermBrowser({
     return map
   }, [resources])
 
+  // Prefer enumerated matrix facets (unit/source/…) before large ontology lists so
+  // the open panel stays usable and values stay clickable under fill layout.
   const defaultOpen =
-    ontologyGroups[0]?.key ?? alphanumericTerms[0]?.id ?? customGroup?.key ?? undefined
+    alphanumericTerms[0]?.id ?? ontologyGroups[0]?.key ?? customGroup?.key ?? undefined
 
   // Hooks must run before any early return (embedded loading/empty paths).
   const [openValue, setOpenValue] = useState<string[]>(() =>
@@ -655,6 +647,15 @@ export function FilteringTermBrowser({
           : 'border-t border-border'
       )}
     >
+      {alphanumericTerms.map((term) => (
+        <AlphanumericAccordionItem
+          key={term.id}
+          term={term}
+          activeFilters={activeFilters}
+          onAddFilter={onAddFilter}
+          fill={fill}
+        />
+      ))}
       {ontologyGroups.map((group) => (
         <OntologyAccordionItem
           key={group.key}
@@ -662,15 +663,6 @@ export function FilteringTermBrowser({
           activeFilters={activeFilters}
           onAddFilter={onAddFilter}
           resourceName={resourceByPrefix.get(group.namespaceType)?.name}
-          fill={fill}
-        />
-      ))}
-      {alphanumericTerms.map((term) => (
-        <AlphanumericAccordionItem
-          key={term.id}
-          term={term}
-          activeFilters={activeFilters}
-          onAddFilter={onAddFilter}
           fill={fill}
         />
       ))}

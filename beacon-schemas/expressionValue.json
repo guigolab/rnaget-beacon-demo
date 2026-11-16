@@ -1,29 +1,15 @@
 {
-    "$comment": "Synced from beacon-v2/models/json/.../expressionValues/defaultSchema.json (source YAML: models/src/.../expressionValues/defaultSchema.yaml)",
+    "$comment": "Synced from beacon-v2/models/json/.../expressionValues/defaultSchema.json (run scripts/sync_beacon_schemas.py); local $refs inlined for offline use",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": true,
     "description": "One quantified expression cell: the measured value of a specific genomic feature in a specific biosample within a specific matrix.",
     "properties": {
-        "id": {
-            "description": "Internal Beacon identifier for this expression value entry.",
-            "examples": [
-                "expressionValue-001"
-            ],
-            "type": "string"
-        },
         "biosampleId": {
             "description": "Reference to the biosample entry id that this value was measured in.",
             "examples": [
                 "008dafdd-a3d1-4801-8c0a-8714e2b58e48"
             ],
             "type": "string"
-        },
-        "value": {
-            "description": "Numeric expression quantification for this feature in this biosample. Units and scale are defined by the parent matrix (expressionUnitAndScale).",
-            "examples": [
-                100
-            ],
-            "type": "number"
         },
         "featureId": {
             "description": "Native accession of the quantified genomic feature as it appears in the matrix row. MUST equal featureIdentifier.id of the matching feature. Not a CURIE and not genomicFeatures.id.",
@@ -33,12 +19,26 @@
             ],
             "type": "string"
         },
+        "id": {
+            "description": "Internal Beacon identifier for this expression value entry.",
+            "examples": [
+                "expressionValue-001"
+            ],
+            "type": "string"
+        },
         "matrixId": {
             "description": "Reference to the matrix entry id that this value belongs to.",
             "examples": [
                 "matrix-gene-expression-001"
             ],
             "type": "string"
+        },
+        "value": {
+            "description": "Numeric expression quantification for this feature in this biosample. Units and scale are defined by the parent matrix (expressionUnitAndScale).",
+            "examples": [
+                100
+            ],
+            "type": "number"
         }
     },
     "required": [

@@ -290,14 +290,9 @@ def export_profile(
     )
     print(f"  expression rows={shard_info['rows']}")
 
-    matrix_doc = dict(normalized.matrix)
-    matrix_doc["package"] = {
-        "featuresPath": f"matrices/{_safe_matrix_dirname(matrix_id)}/features.parquet",
-        "biosamplesPath": f"matrices/{_safe_matrix_dirname(matrix_id)}/biosamples.parquet",
-        "expressionDir": f"matrices/{_safe_matrix_dirname(matrix_id)}/expression",
-        "shards": shard_info,
-    }
-    matrix_doc = normalize_matrix_document(matrix_doc, profile)
+    # Packaging paths and shard layout are recorded in manifest.json only; the
+    # matrix document carries the beacon-v2 model fields.
+    matrix_doc = normalize_matrix_document(dict(normalized.matrix), profile)
     return {
         "matrix": matrix_doc,
         "matrix_id": matrix_id,
@@ -326,6 +321,8 @@ def normalize_matrix_document(
     matrix_id = doc.get("matrixId") or profile.get("matrix_id")
     if not matrix_id:
         raise ValueError("matrix document missing matrixId")
+    # beacon-v2 matrix model: ``id`` is the identifier. ``matrixId`` is kept only
+    # as the internal package key (manifest, parquet dirs); the API drops it.
     doc["matrixId"] = matrix_id
     doc["id"] = matrix_id
     doc["createDateTime"] = create_date_time or _utc_now_z()
@@ -361,17 +358,13 @@ def normalize_matrix_document(
         raise ValueError(f"matrix {matrix_id}: featureTypes must be a non-empty array")
     doc.pop("featureType", None)
 
-    info = dict(doc.get("info") or {})
     profile_source = profile.get("source")
     if profile_source:
-        info["profileSource"] = str(profile_source)
-    quant_md5 = (profile.get("download") or {}).get("md5")
-    if quant_md5:
-        info["quantFileMd5"] = quant_md5
-    # Keep package paths discoverable under info as well as top-level.
-    if "package" in doc and "package" not in info:
-        info["package"] = doc["package"]
-    doc["info"] = info
+        doc["source"] = str(profile_source)
+    # Parser provenance (``info``) and packaging (``package``) are not part of
+    # the exported matrix document.
+    doc.pop("info", None)
+    doc.pop("package", None)
 
     if "reproducible" not in doc:
         doc["reproducible"] = bool(profile.get("reproducible", False))
@@ -393,7 +386,7 @@ def validate_matrices(matrices: List[Dict[str, Any]]) -> None:
     validator = jsonschema.Draft202012Validator(schema, format_checker=FormatChecker())
     errors: List[str] = []
     for i, matrix in enumerate(matrices):
-        mid = matrix.get("matrixId") or f"index-{i}"
+        mid = matrix.get("id") or matrix.get("matrixId") or f"index-{i}"
         for err in sorted(validator.iter_errors(matrix), key=lambda e: list(e.path)):
             path = ".".join(str(p) for p in err.path) or "<root>"
             errors.append(f"{mid}: {path}: {err.message}")

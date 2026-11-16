@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from beacon.responses import build_resultsets_response
+from fastapi.responses import JSONResponse
+
+from beacon.responses import build_resultsets_response, error_json
 from beacon.schemas.envelopes import Granularity
 from routers.deps import MAX_PAGE_LIMIT, MAX_SKIP
 
@@ -14,6 +16,35 @@ FILTERS_CSV_QUERY_DESCRIPTION = (
     "POST uses query.filters as a JSON array. "
     "symbol: filters match aliases/symbols with exact case (Alb ≠ ALB)."
 )
+
+
+INCLUDE_RESULTSET_DESCRIPTION = (
+    "Beacon includeResultsetResponses: ALL (default), HIT, MISS or NONE."
+)
+REQUESTED_SCHEMA_DESCRIPTION = (
+    "Beacon requestedSchema. Only the default schema of each entry type is "
+    "served; the value is accepted and otherwise ignored."
+)
+_INCLUDE_RESULTSET_VALUES = ("ALL", "HIT", "MISS", "NONE")
+
+
+def include_resultset_summary(
+    value: Optional[str],
+    *,
+    received: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], Optional[JSONResponse]]:
+    """Validate GET ``includeResultsetResponses`` and return its summary entry."""
+    if value is None or value == "":
+        return {}, None
+    upper = str(value).upper()
+    if upper not in _INCLUDE_RESULTSET_VALUES:
+        return {}, error_json(
+            400,
+            "includeResultsetResponses must be one of: "
+            + ", ".join(_INCLUDE_RESULTSET_VALUES),
+            received=received,
+        )
+    return {"includeResultsetResponses": upper}, None
 
 
 def page_filtering_terms(

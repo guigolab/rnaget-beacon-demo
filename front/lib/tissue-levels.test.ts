@@ -8,8 +8,8 @@ import {
   tissueBandSortRank,
   tissueColumnsFromBiosampleOntologyTerms,
   tissueColumnsFromTerms,
-  tissueHighFilterId,
-  tissueOntologyFromHighId} from './tissue-levels'
+  tissuePercentileTermId,
+  tissueOntologyFromTermId} from './tissue-levels'
 
 const parsed = parseTissueTermLabel('High in liver (n=235)')
 console.assert(parsed.name === 'High in liver')
@@ -18,18 +18,18 @@ console.assert(parseTissueTermLabel('High in liver').nBiosamples === null)
 
 const terms: FilteringTerm[] = [
   {
-    id: tissueHighFilterId('UBERON:0002107'),
-    type: 'custom',
+    id: tissuePercentileTermId('UBERON:0002107'),
+    type: 'alphanumeric',
     label: 'High in liver (n=235)',
     scopes: ['genomicFeature']},
   {
-    id: 'tissueSpecific:UBERON:0002107',
-    type: 'custom',
+    id: 'tissue.other:UBERON:0002107',
+    type: 'alphanumeric',
     label: 'Specific to liver (n=235)',
     scopes: ['genomicFeature']},
   {
-    id: tissueHighFilterId('matrix:GSE107011'),
-    type: 'custom',
+    id: tissuePercentileTermId('matrix:GSE107011'),
+    type: 'alphanumeric',
     label: 'High in Unannotated (GSE107011) (n=114)',
     scopes: ['genomicFeature']},
 ]
@@ -81,12 +81,12 @@ const sorted = sortFeaturesByTissueBand(
 console.assert(sorted.map((f) => f.id).join(',') === 'b,a,c')
 
 console.assert(
-  tissueOntologyFromHighId('tissueHigh:UBERON:0002107') === 'UBERON:0002107'
+  tissueOntologyFromTermId('tissue.percentile:UBERON:0002107') === 'UBERON:0002107'
 )
 console.assert(
-  tissueOntologyFromHighId('tissueHigh:matrix:GSE107011') === 'matrix:GSE107011'
+  tissueOntologyFromTermId('tissue.percentile:matrix:GSE107011') === 'matrix:GSE107011'
 )
-console.assert(tissueOntologyFromHighId('tissueSpecific:UBERON:0002107') === null)
+console.assert(tissueOntologyFromTermId('tissue.other:UBERON:0002107') === null)
 
 const biosampleTerms: FilteringTerm[] = [
   {

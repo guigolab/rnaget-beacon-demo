@@ -81,14 +81,14 @@ export function useMatrixQueryState(matrixId: string, scopeIndex?: FilterScopeIn
       if (matrixWorkspaceQueryKey(next) === matrixWorkspaceQueryKey(queryRef.current)) return
       const params = matrixWorkspaceSearchParams(
         next,
-        new URLSearchParams(readLocationQuery())
+        new URLSearchParams(readLocationQuery()),
+        matrixId
       )
       const qs = params.toString()
       writtenRef.current = qs
       queryRef.current = next
       setQuery(next)
-      const path = `/matrices/${encodeURIComponent(matrixId)}/`
-      router.replace(qs ? `${path}?${qs}` : path, { scroll: false })
+      router.replace(qs ? `/matrices/?${qs}` : '/matrices/', { scroll: false })
     },
     [matrixId, router]
   )
@@ -104,7 +104,10 @@ export function useMatrixQueryState(matrixId: string, scopeIndex?: FilterScopeIn
 
   const clearFilters = useCallback(
     (terms?: readonly FilteringTerm[]) => {
-      replace(clearedMatrixWorkspaceQuery(terms))
+      replace({
+        ...clearedMatrixWorkspaceQuery(terms),
+        order: queryRef.current.order,
+      })
     },
     [replace]
   )

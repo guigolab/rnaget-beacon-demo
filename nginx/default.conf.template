@@ -65,7 +65,4 @@ server {
         try_files $uri $uri.html $uri/index.html ${BASE_PATH}/index.html;
     }
 
-    location = ${BASE_PATH} {
-        return 302 ${BASE_PATH}/;
-    }
 }

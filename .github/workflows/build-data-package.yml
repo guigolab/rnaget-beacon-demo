@@ -53,6 +53,15 @@ jobs:
             exit 1
           fi
 
+      - name: Assert model schema copies are in sync
+        # export_parquet.py validates matrices.json against the matrix model copy
+        # in scripts/schemas; it must match the one in beacon-schemas (synced from
+        # beacon-v2 with scripts/sync_beacon_schemas.py).
+        run: |
+          set -euo pipefail
+          cmp beacon-schemas/matrix.json scripts/schemas/matrix.beacon-v2.json \
+            || { echo "::error::scripts/schemas/matrix.beacon-v2.json differs from beacon-schemas/matrix.json — run python3 scripts/sync_beacon_schemas.py"; exit 1; }
+
       - name: Check free disk
         run: |
           set -euo pipefail
@@ -114,10 +123,11 @@ jobs:
       - name: Hydrate genes from GTF/GFF
         run: python scripts/hydrate_genes.py --package dist/data-package
 
-      - name: Sync matrix featureTypes / biotypes / biosampleTypes
+      - name: Sync matrix id / source / featureTypes / biotypes / biosampleTypes
         # Replace profile seeds with distinct catalogs from each matrix's
         # features.parquet (featureTypes, biotypes) and biosamples.parquet
-        # (biosampleTypes) after hydrate.
+        # (biosampleTypes) after hydrate; ensure model ``id`` and ``source``, project
+        # missing feature biotypes from genes.parquet, and drop legacy info/package.
         run: python scripts/sync_matrix_feature_types.py --package dist/data-package
 
       - name: Enrich gene xrefs and GO slim
@@ -142,11 +152,19 @@ jobs:
         # Package-level gene×tissue levels (Explore heatmap + root tissueHigh/Specific).
         run: python scripts/build_tissue_feature_summary.py --package dist/data-package
 
-      - name: Build filtering_terms catalogs
-        # Base catalogs shipped in the tarball (categorical + continuous expression.*
-        # from stats, plus tissueHigh/tissueSpecific). fetch_data_package.py rebuilds
-        # after percentiles so expression.percentileIn* terms appear locally.
-        run: python scripts/build_matrix_filtering_terms.py --with-root --package dist/data-package
+      - name: Complete gene_lookup feature ids
+        # Every feature must be addressable by its own id (per-cell Explore queries).
+        run: python scripts/complete_gene_lookup.py --package dist/data-package
+
+      - name: Build tissue percentile wide table
+        # Gene x tissue matrix for fast tissue.percentile queries (derived from the summary).
+        run: python scripts/build_tissue_percentile_wide.py --package dist/data-package
+
+      - name: Build filtering_terms catalog
+        # Root filtering_terms.json only (nested by_matrix catalogs retired).
+        # fetch_data_package.py rebuilds after percentiles so expression.percentileIn*
+        # terms appear locally.
+        run: python scripts/build_filtering_terms.py --package dist/data-package
 
       - name: Disk usage after hydrate
         run: |

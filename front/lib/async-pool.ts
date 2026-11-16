@@ -36,7 +36,7 @@ const exploreQueue: QueueJob[] = []
 let exploreActive = 0
 
 function pumpExploreQueue() {
-  while (exploreActive < EXPLORE_PROBE_CONCURRENCY && exploreQueue.length) {
+  while (exploreActive < EXPLORE_PROBE_CONCURRENCY) {
     const job = exploreQueue.shift()
     if (!job) return
     if (job.signal?.aborted) {
@@ -85,22 +85,4 @@ export function withExploreProbeLimit<T>(
     })
     pumpExploreQueue()
   })
-}
-
-/** Run items through the shared Explore limiter (order-preserving). */
-export async function exploreMapPool<T, R>(
-  items: T[],
-  fn: (item: T) => Promise<R>,
-  signal?: AbortSignal
-): Promise<R[]> {
-  if (!items.length) return []
-  return Promise.all(
-    items.map((item) => withExploreProbeLimit(() => fn(item), signal))
-  )
-}
-
-/** Test seam. */
-export function resetExploreProbeLimiter() {
-  exploreQueue.length = 0
-  exploreActive = 0
 }

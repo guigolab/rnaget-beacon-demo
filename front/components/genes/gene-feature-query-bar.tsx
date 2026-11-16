@@ -44,7 +44,7 @@ export function GeneFeatureQueryBar({
   function resolveText(raw: string): UiFilter | null {
     const typed = tokenToFilter(raw, 'feature', scopeIndex)
     if (!typed) return null
-    if (typed.kind === 'ontology' || typed.kind === 'custom') {
+    if (typed.kind === 'ontology') {
       return { ...typed, label: labelCatalog.get(typed.id.toLowerCase()) ?? typed.label }
     }
     return typed

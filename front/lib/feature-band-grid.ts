@@ -1,4 +1,4 @@
-import { listMatrixFeatures } from '@/lib/beacon/client'
+import { matrixFeaturesMatching } from '@/lib/beacon/client'
 import type { Feature } from '@/lib/beacon/types'
 import {
   BAND_MATRIX_WINDOW_MAX,
@@ -9,7 +9,7 @@ import {
   type BandCellValue,
   type FeaturePercentileThreshold,
 } from '@/lib/expression-band'
-import { featureTokens, nativeFeatureId } from '@/lib/heatmap-expression'
+import { featureTokens } from '@/lib/heatmap-expression'
 
 export { bandCellKey }
 
@@ -113,9 +113,10 @@ export function finalizeColumnUnmatched(
 }
 
 /**
- * Paint one matrix column for the current feature page via
- * `POST /matrices/{id}/features` + `featureIDList` + alphanumeric
- * `expression.percentile` (probes strongest first: 99 → 95 → 90).
+ * Paint one matrix column for the current feature page. The nested features
+ * route has no filters or ID list, so each threshold lists the `/features` root
+ * with alphanumeric `expression.percentile >= N` (strongest first: 99 → 95 → 90),
+ * narrowed to this matrix; page features are matched by id.
  */
 export async function loadFeatureBandColumn(
   matrixId: string,
@@ -129,24 +130,20 @@ export async function loadFeatureBandColumn(
 
   const claimed = new Set<string>()
   const byToken = featureLookupByToken(members)
-  const featureIDList = [
-    ...new Set(members.map((feature) => nativeFeatureId(feature))),
-  ].join(',')
-  const limit = Math.max(members.length, 1)
 
   for (const threshold of FEATURE_PERCENTILE_THRESHOLDS) {
     if (signal?.aborted) break
     if (claimed.size >= members.length) break
-    const page = await listMatrixFeatures(matrixId, 0, limit, {
-      featureIDList,
-      filters: [featurePercentileFilter(threshold)],
-      signal,
-    })
+    const hits = await matrixFeaturesMatching(
+      matrixId,
+      [featurePercentileFilter(threshold)],
+      signal
+    )
     applyColumnBandHits(
       cells,
       matrixId,
       threshold,
-      page.results ?? [],
+      hits,
       byToken,
       claimed
     )

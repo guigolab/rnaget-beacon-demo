@@ -66,7 +66,7 @@ export function FeatureMatrixHeatmap({
   const [inspect, setInspect] = useState<HeatmapPopoverInspect | null>(null)
 
   const matrixById = useMemo(
-    () => new Map(matrices.map((m) => [m.matrixId ?? '', m])),
+    () => new Map(matrices.map((m) => [m.id ?? '', m])),
     [matrices]
   )
   const featureById = useMemo(

@@ -53,7 +53,7 @@ export function ontologyCellKey(ontologyId: string, matrixId: string): string {
   return `${ontologyId}\0${matrixId}`
 }
 
-/** Tissue/cell ontology ids present in a matrix filtering_terms catalog. */
+/** Tissue/cell ontology ids present in filtering-term catalogs (label lookup). */
 export function tissueOntologyIds(terms: FilteringTerm[]): Set<string> {
   const ids = new Set<string>()
   for (const term of terms) {
@@ -146,8 +146,8 @@ export function probeFiltersForOntology(
 }
 
 /**
- * Seed absent cells from filtering_terms membership. Member cells stay unset
- * (pending) until count probes finish.
+ * Seed absent cells from ontology→matrix membership (biosampleTypes index).
+ * Member cells stay unset (pending) until count probes finish.
  */
 export function seedOntologyCells(
   cells: Map<string, OntologyGridCell>,

@@ -191,8 +191,8 @@ function FeaturesLensContent() {
             querySummary={querySummary}
             previewLimit={matches.length}
             previewCount={matches.length}
-            previewTruncatedSuffix="top-percentile heatmap via POST /matrices/{id}/features"
-            previewWhenShowing="Top-percentile bands from POST /matrices/{id}/features (featureIDList · expression.percentile:>=:99/95/90)"
+            previewTruncatedSuffix="top-percentile genes via POST /features (expression.percentile)"
+            previewWhenShowing="Top-percentile genes from POST /features (expression.percentile >= 99/95/90)"
             noMatchesMessage="No features match these filters."
             loadErrorTitle="Could not load features"
             searchError={list.error}

@@ -2,7 +2,11 @@
 
 import Link from 'next/link'
 import { useMemo } from 'react'
-import { NamespaceScopeChip } from '@/components/home/namespace-scope-chip'
+import {
+  NamespaceScopeChip,
+  namespaceTermType,
+} from '@/components/home/namespace-scope-chip'
+import { FilterTypeLegend } from '@/components/shared/filter-type-legend'
 import { MetaBadge } from '@/components/shared/detail/meta-badge'
 import { LensMutedEndpoints } from '@/components/shared/lens-muted-endpoints'
 import { buttonVariants } from '@/components/ui/button'
@@ -12,6 +16,7 @@ import type {
   FilteringTerm,
 } from '@/lib/beacon/types'
 import { cn } from '@/lib/utils'
+import { facetAsGroup, groupFacetTermsForChips } from '@/lib/filter-type-theme'
 import {
   entryTypeScope,
   groupHomeNamespaces,
@@ -46,6 +51,34 @@ type EntryTypeCardsProps = {
   entryTypes: EntryTypeInfo[]
   terms: FilteringTerm[]
   resources?: FilteringResource[]
+}
+
+/**
+ * Split a scope's namespace groups into ontology namespaces and one chip per
+ * alphanumeric facet (tissue percentiles collapse into a single chip, as in Explore).
+ */
+function splitNamespaceGroups(
+  scope: BeaconScope,
+  groups: NamespaceScopeGroup[]
+): { ontology: NamespaceScopeGroup[]; alphanumeric: NamespaceScopeGroup[] } {
+  const ontology: NamespaceScopeGroup[] = []
+  const alphanumeric: NamespaceScopeGroup[] = []
+  for (const group of groups) {
+    if (namespaceTermType(group) === 'ontology') {
+      ontology.push(group)
+      continue
+    }
+    for (const facet of groupFacetTermsForChips(scope, group.terms)) {
+      const chip = facetAsGroup(scope, facet)
+      // A single facet counts its precomputed values; a merged chip counts its terms.
+      if (facet.terms.length === 1) {
+        const n = facet.terms[0].values?.length ?? 0
+        if (n > 0) chip.count = n
+      }
+      alphanumeric.push(chip)
+    }
+  }
+  return { ontology, alphanumeric }
 }
 
 function EntryAccent({ entryId }: { entryId: string }) {
@@ -107,16 +140,21 @@ export function EntryTypeCards({
 
   return (
     <section id="entities" className="space-y-3">
-      <div>
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Entry types &amp; filtering terms
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Catalogued Beacon entry types with filtering-term namespaces for each
-          root scope.
-        </p>
-        <div className="mt-1">
-          <LensMutedEndpoints lines={['GET /entry_types', 'GET /filtering_terms']} />
+      <div className="flex items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Entry types &amp; filtering terms
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Catalogued Beacon entry types with filtering-term namespaces for each
+            root scope: ontology terms and alphanumeric filters.
+          </p>
+          <div className="mt-1">
+            <LensMutedEndpoints lines={['GET /entry_types', 'GET /filtering_terms']} />
+          </div>
+        </div>
+        <div className="shrink-0 pb-0.5">
+          <FilterTypeLegend />
         </div>
       </div>
 
@@ -127,7 +165,9 @@ export function EntryTypeCards({
           const nested = NESTED_MATRIX_TYPES.has(id)
           const root = ROOT_ENTRY_TYPES.has(id)
           const scope = entryTypeScope(id)
-          const chips = root ? (groupsByScope.get(scope) ?? []) : []
+          const { ontology: ontologyChips, alphanumeric: alphanumericChips } = root
+            ? splitNamespaceGroups(scope, groupsByScope.get(scope) ?? [])
+            : { ontology: [], alphanumeric: [] }
           const typeChip = entryTypeChip(entry)
           const version = entryVersionLabel(entry)
           const browseLabel = BROWSE_LABEL[id] ?? 'Browse'
@@ -162,14 +202,30 @@ export function EntryTypeCards({
                   </p>
                 )}
 
-                {root && chips.length > 0 && (
+                {root && ontologyChips.length > 0 && (
                   <div className="space-y-1.5">
                     <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Filtering terms{' '}
+                      Ontology terms{' '}
                       <span className="normal-case tracking-normal">({scope})</span>
                     </p>
                     <div className="flex flex-wrap gap-1">
-                      {chips.map((group) => (
+                      {ontologyChips.map((group) => (
+                        <NamespaceScopeChip key={group.key} group={group} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {root && alphanumericChips.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Alphanumeric filters{' '}
+                      <span className="normal-case tracking-normal">
+                        (id + operator + value)
+                      </span>
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {alphanumericChips.map((group) => (
                         <NamespaceScopeChip key={group.key} group={group} />
                       ))}
                     </div>

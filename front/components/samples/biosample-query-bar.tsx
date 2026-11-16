@@ -54,7 +54,7 @@ export function BiosampleQueryBar({
     const trimmed = raw.trim()
     if (!trimmed) return null
     const typed = tokenToFilter(trimmed, 'biosample', scopeIndex)
-    if (typed && (typed.kind === 'ontology' || typed.kind === 'custom')) {
+    if (typed && typed.kind === 'ontology') {
       const match = terms.find((term) => term.id.toLowerCase() === typed.id.toLowerCase())
       return { ...typed, label: match?.label ?? typed.label }
     }

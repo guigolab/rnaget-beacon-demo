@@ -6,6 +6,7 @@ import { DetailScrollBody } from '@/components/shared/detail/detail-scroll-body'
 import { DetailSurfaceHeader } from '@/components/shared/detail/detail-surface-header'
 import { isAbortError } from '@/lib/beacon/client'
 import type { Feature, Matrix } from '@/lib/beacon/types'
+import { tissueCellRequest } from '@/lib/explore-tissue-bands'
 import { matricesForFeatureTissue } from '@/lib/explore-tissue-matrices'
 import { featureDisplayLabel, matrixViewHref } from '@/lib/gene-lens'
 import {
@@ -62,6 +63,8 @@ export function ExploreTissueCellPopover({
   }, [featureKey, column.ontologyId, column.label])
 
   const geneLabel = featureDisplayLabel(feature)
+  const request = tissueCellRequest(feature, column.ontologyId)
+  const requestBody = JSON.stringify(request.body, null, 2)
 
   return (
     <div className="text-popover-foreground">
@@ -81,6 +84,17 @@ export function ExploreTissueCellPopover({
 
       <DetailScrollBody density="popover" className="max-h-[min(70vh,28rem)] space-y-2">
         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Beacon query
+        </p>
+        <p className="text-xs text-muted-foreground">
+          This cell is one boolean question:{' '}
+          <span className="font-mono text-foreground">exists: {band === 99 ? 'true' : 'false'}</span>
+          {band === 'none' ? ' (not asked: gene is not in this tissue)' : ''}
+        </p>
+        <pre className="max-h-48 overflow-auto rounded-md border border-border/70 bg-muted/40 p-2 font-mono text-[10px] leading-snug text-foreground">
+          {`${request.method} /features\n${requestBody}`}
+        </pre>
+        <p className="pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Matrices
         </p>
         {loading && (
@@ -95,7 +109,7 @@ export function ExploreTissueCellPopover({
         {matrices.length > 0 && (
           <ul className="space-y-1.5">
             {matrices.map((matrix) => {
-              const matrixId = matrix.matrixId ?? ''
+              const matrixId = matrix.id ?? ''
               return (
                 <li
                   key={matrixId}

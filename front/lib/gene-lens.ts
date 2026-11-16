@@ -1,7 +1,7 @@
 import {
   dedupeFilters,
   FEATURE_BIOTYPE_FAMILY_ID,
-  symbolCustomFilter,
+  symbolFilter,
 } from '@/lib/beacon/filters'
 import type { Feature, FilteringTerm, UiFilter } from '@/lib/beacon/types'
 
@@ -11,7 +11,7 @@ export function geneLensQueryExamples(
   terms: FilteringTerm[]
 ): Array<{ label: string; filter: UiFilter }> {
   const examples: Array<{ label: string; filter: UiFilter }> = [
-    { label: 'TP53', filter: symbolCustomFilter('TP53') },
+    { label: 'TP53', filter: symbolFilter('TP53') },
   ]
 
   const biotype = terms.find(
@@ -107,6 +107,8 @@ export function matrixCountForFeature(feature: Feature): number {
 /** Matrix workspace URL with optional feature row/cohort pre-selected. */
 export function matrixViewHref(matrixId: string, feature?: Feature | null): string {
   const params = new URLSearchParams()
+  const mid = matrixId.trim()
+  if (mid) params.set('matrix', mid)
   if (feature) {
     // Prefer native accession — matches expressionValue.featureId / slice stubs.
     const native =
@@ -115,9 +117,8 @@ export function matrixViewHref(matrixId: string, feature?: Feature | null): stri
     const gene = featureSymbol(feature)
     if (gene) params.set('genes', gene)
   }
-  const enc = encodeURIComponent(matrixId)
   const qs = params.toString()
-  return qs ? `/matrices/${enc}/?${qs}` : `/matrices/${enc}/`
+  return qs ? `/matrices/?${qs}` : '/matrices/'
 }
 
 export function resolveSelectedFeature(

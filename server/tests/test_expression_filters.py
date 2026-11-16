@@ -15,9 +15,15 @@ import unittest
 from pathlib import Path
 
 SERVER_DIR = Path(__file__).resolve().parents[1]
+TESTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SERVER_DIR.parent
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
+
+from beacon_test_helpers import BEACON_META, with_meta
+
 
 DEMO_PACKAGE = (REPO_ROOT / "data" / "rnaget-demo").resolve()
 HAS_DEMO_PACKAGE = (DEMO_PACKAGE / "manifest.json").is_file()
@@ -63,39 +69,43 @@ class ExpressionFiltersFixtureTest(unittest.TestCase):
     def test_matrix_only_filter_rejected_via_post(self) -> None:
         r = self.client.post(
             "/features",
-            json={
+            json=with_meta({
                 "query": {
                     "filters": [
                         {"id": "expression.mean", "operator": ">=", "value": "1"}
                     ],
                     "pagination": {"skip": 0, "limit": 5},
                 }
-            },
+            }),
         )
         self.assertEqual(r.status_code, 400, r.text)
 
-    def test_feature_matrices_with_matrix_id_list(self) -> None:
+    def test_feature_matrices_ignores_removed_matrix_id_list(self) -> None:
+        """matrixIDList is no longer part of the model for this route."""
+        full = self.client.get("/features/feature-tp53-gene/matrices")
         r = self.client.get(
             "/features/feature-tp53-gene/matrices",
             params={"matrixIDList": "matrix-gene-expression-001"},
         )
         self.assertEqual(r.status_code, 200, r.text)
-        results = r.json()["response"]["resultSets"][0]["results"]
-        self.assertEqual([m["matrixId"] for m in results], ["matrix-gene-expression-001"])
+        self.assertEqual(
+            r.json()["responseSummary"]["numTotalResults"],
+            full.json()["responseSummary"]["numTotalResults"],
+        )
 
-    def test_feature_matrices_post_with_matrix_id_list(self) -> None:
+    def test_feature_matrices_post_rejects_matrix_request_parameters(self) -> None:
         r = self.client.post(
             "/features/feature-tp53-gene/matrices",
-            json={
+            json=with_meta({
                 "query": {
-                    "requestParameters": {"matrixIDList": "GSE88557"},
+                    "requestParameters": {
+                        "matrix": {"matrixIDList": "GSE88557"},
+                    },
                     "pagination": {"skip": 0, "limit": 5},
                 }
-            },
+            }),
         )
-        self.assertEqual(r.status_code, 200, r.text)
-        results = r.json()["response"]["resultSets"][0]["results"]
-        self.assertEqual([m["matrixId"] for m in results], ["GSE88557"])
+        self.assertEqual(r.status_code, 400, r.text)
 
     def test_biosample_matrices_endpoint_still_works(self) -> None:
         r = self.client.get("/biosamples/sample-example-0001/matrices")
@@ -109,21 +119,19 @@ class ExpressionFiltersFixtureTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         rp = r.json()["meta"]["receivedRequestSummary"]["requestParameters"]
         self.assertNotIn("sort", rp)
-        self.assertEqual(rp.get("order"), "asc")
+        self.assertNotIn("order", rp)
+        self.assertEqual(rp.get("expressionValue", {}).get("order"), "desc")
         rows = r.json()["response"]["resultSets"][0]["results"]
         values = [row["value"] for row in rows]
-        self.assertEqual(values, sorted(values, key=lambda v: (v is None, v)))
+        self.assertEqual(values, sorted(values, key=lambda v: (v is None, v), reverse=True))
 
-    def test_expression_values_percentile_filter_empty_without_percentiles(
-        self,
-    ) -> None:
-        """Fixtures carry no percentile parquet: the filter yields zero rows."""
+    def test_expression_values_nested_get_ignores_filters_query(self) -> None:
+        """GET filters query param is not declared on nested routes (ignored by FastAPI)."""
         r = self.client.get(
             "/matrices/matrix-gene-expression-001/expression_values",
-            params={"filters": "expression.percentileInFeature:>=:90", "limit": 5},
+            params={"limit": 5},
         )
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["responseSummary"]["numTotalResults"], 0)
 
     def test_expression_values_page_token_roundtrip(self) -> None:
         page1 = self.client.get(
@@ -184,7 +192,7 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         term_ids = {t["id"] for t in terms}
         self.assertIn("expression.percentile", term_ids)
         pct = next(t for t in terms if t["id"] == "expression.percentile")
-        self.assertEqual(pct.get("type"), "custom")
+        self.assertEqual(pct.get("type"), "alphanumeric")
         self.assertEqual(set(pct.get("values") or []), {"90", "95", "99"})
         self.assertNotIn("expression.percentile:>=99%", term_ids)
         self.assertNotIn("expression.percentile:>=95%", term_ids)
@@ -206,7 +214,7 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         )
         self.assertIn("feature.biotypeFamily", term_ids)
         biotype = next(t for t in terms if t["id"] == "feature.biotypeFamily")
-        self.assertEqual(biotype.get("type"), "custom")
+        self.assertEqual(biotype.get("type"), "alphanumeric")
         self.assertIn("feature.resource", term_ids)
         resource = next(t for t in terms if t["id"] == "feature.resource")
         self.assertEqual(resource.get("type"), "alphanumeric")
@@ -215,7 +223,7 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
     def test_post_features_expression_percentile_top10(self) -> None:
         r = self.client.post(
             "/features",
-            json={
+            json=with_meta({
                 "query": {
                     "filters": [
                         {
@@ -226,7 +234,7 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
                     ],
                     "pagination": {"skip": 0, "limit": 5},
                 }
-            },
+            }),
         )
         self.assertEqual(r.status_code, 200, r.text)
         self.assertGreater(r.json()["responseSummary"]["numTotalResults"], 0)
@@ -245,10 +253,10 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         )
         self.assertEqual(old.status_code, 400, old.text)
 
-    def test_post_feature_matrices_with_percentile_and_matrix_id_list(self) -> None:
+    def test_post_feature_matrices_after_percentile_root_pick(self) -> None:
         picked = self.client.post(
             "/features",
-            json={
+            json=with_meta({
                 "query": {
                     "filters": [
                         {
@@ -259,7 +267,7 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
                     ],
                     "pagination": {"skip": 0, "limit": 1},
                 }
-            },
+            }),
         )
         self.assertEqual(picked.status_code, 200, picked.text)
         feature = picked.json()["response"]["resultSets"][0]["results"][0]
@@ -269,7 +277,12 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
 
         r = self.client.post(
             f"/features/{feature_id}/matrices",
-            json={
+            json=with_meta({"query": {"pagination": {"skip": 0, "limit": 20}}}),
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        rejected = self.client.post(
+            f"/features/{feature_id}/matrices",
+            json=with_meta({
                 "query": {
                     "filters": [
                         {
@@ -278,12 +291,15 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
                             "value": "90",
                         }
                     ],
-                    "requestParameters": {"matrixIDList": ",".join(matrix_ids)},
-                    "pagination": {"skip": 0, "limit": 20},
+                    "pagination": {"skip": 0, "limit": 5},
                 }
-            },
+            }),
         )
-        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(rejected.status_code, 400, rejected.text)
+        self.assertIn(
+            "filters are not accepted on nested",
+            rejected.json()["error"]["errorMessage"],
+        )
         results = r.json()["response"]["resultSets"][0]["results"]
         self.assertTrue(results)
         self.assertTrue(set(m["matrixId"] for m in results) <= set(matrix_ids))
@@ -303,12 +319,12 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
             self.skipTest("no biosample.preset terms in demo package")
         picked = self.client.post(
             "/biosamples",
-            json={
+            json=with_meta({
                 "query": {
                     "filters": [{"id": preset}],
                     "pagination": {"skip": 0, "limit": 1},
                 }
-            },
+            }),
         )
         self.assertEqual(picked.status_code, 200, picked.text)
         total = picked.json()["responseSummary"]["numTotalResults"]
@@ -369,61 +385,60 @@ class ExpressionFiltersDuckDBTest(unittest.TestCase):
         pair_back = [(r["featureId"], r["biosampleId"]) for r in rows_back]
         self.assertEqual(pair_back, [(r["featureId"], r["biosampleId"]) for r in rows1])
 
-    def test_expression_values_percentile_filter(self) -> None:
-        matrix_id = self._first_matrix_id_with_percentiles()
-        r = self.client.get(
-            f"/matrices/{matrix_id}/expression_values",
-            params={"filters": "expression.percentileInFeature:>=:90", "limit": 5},
+    def test_expression_values_percentile_via_root_features(self) -> None:
+        """Percentile filters live on collection-root /features, not nested EV."""
+        r = self.client.post(
+            "/features",
+            json=with_meta({
+                "query": {
+                    "filters": [
+                        {
+                            "id": "expression.percentile",
+                            "operator": ">=",
+                            "value": "90",
+                        }
+                    ],
+                    "pagination": {"skip": 0, "limit": 5},
+                }
+            }),
         )
         self.assertEqual(r.status_code, 200, r.text)
         self.assertGreater(r.json()["responseSummary"]["numTotalResults"], 0)
 
-    def test_expression_values_feature_filter_percentile(self) -> None:
+    def test_matrix_features_via_root_percentile_id_list(self) -> None:
+        """Resolve top genes at /features, then page nested with featureIDList."""
         matrix_id = self._first_matrix_id_with_percentiles()
-        r = self.client.get(
-            f"/matrices/{matrix_id}/expression_values",
-            params={"filters": "expression.percentile:>=:90", "limit": 5},
+        root = self.client.post(
+            "/features",
+            json=with_meta({
+                "query": {
+                    "filters": [
+                        {
+                            "id": "expression.percentile",
+                            "operator": ">=",
+                            "value": "99",
+                        }
+                    ],
+                    "pagination": {"skip": 0, "limit": 12},
+                }
+            }),
         )
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertGreaterEqual(r.json()["responseSummary"]["numTotalResults"], 0)
-
-    def test_matrix_features_top_expressed_percentile_pages(self) -> None:
-        """Nested features listing accepts expression.percentile (heatmap cohort)."""
-        matrix_id = self._first_matrix_id_with_percentiles()
+        self.assertEqual(root.status_code, 200, root.text)
+        rows = root.json()["response"]["resultSets"][0]["results"]
+        self.assertGreater(len(rows), 0)
+        id_csv = ",".join(row["id"] for row in rows)
         r = self.client.get(
             f"/matrices/{matrix_id}/features",
-            params={"filters": "expression.percentile:>=:99", "limit": 12},
+            params={"featureIDList": id_csv, "limit": 12},
         )
         self.assertEqual(r.status_code, 200, r.text)
-        total = r.json()["responseSummary"]["numTotalResults"]
-        self.assertGreater(total, 0)
-        rows = r.json()["response"]["resultSets"][0]["results"]
-        self.assertGreater(len(rows), 0)
-        self.assertLessEqual(len(rows), 12)
-        # Second page advances by skip without inventing sort params.
-        if total > 12:
-            page2 = self.client.get(
-                f"/matrices/{matrix_id}/features",
-                params={
-                    "filters": "expression.percentile:>=:99",
-                    "skip": 12,
-                    "limit": 12,
-                },
-            )
-            self.assertEqual(page2.status_code, 200, page2.text)
-            ids1 = {row["id"] for row in rows}
-            ids2 = {
-                row["id"]
-                for row in page2.json()["response"]["resultSets"][0]["results"]
-            }
-            self.assertTrue(ids2)
-            self.assertFalse(ids1 & ids2)
+        self.assertGreater(r.json()["responseSummary"]["numTotalResults"], 0)
 
     def test_expression_values_value_filter(self) -> None:
         matrix_id = self._first_matrix_id_with_percentiles()
         r = self.client.get(
             f"/matrices/{matrix_id}/expression_values",
-            params={"filters": "expression.value:>=:10", "limit": 3},
+            params={"minValue": 10, "limit": 3},
         )
         self.assertEqual(r.status_code, 200, r.text)
         rows = r.json()["response"]["resultSets"][0]["results"]

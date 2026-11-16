@@ -12,7 +12,6 @@ feature   ──matrices──▶ matrix
 matrix    ──biosamples──▶ biosample
 matrix    ──features──▶ feature
 matrix    ──expression_values──▶ expressionValue   (not a root collection)
-matrix    ──filtering_terms──▶ filtering terms (matrix-scoped)
 ROOT      ──filtering_terms──▶ filtering terms (all scopes)
 ```
 
@@ -89,13 +88,12 @@ friendlier labels: [custom-filtering-terms.md](custom-filtering-terms.md).
 Informational catalogs:
 
 - `GET /filtering_terms` — all scopes (`genomicFeature`, `biosample`, `matrix`); clients filter by `scopes` (GET only; optional `skip`/`limit`)
-- `GET|POST /matrices/{id}/filtering_terms` — terms observed on that matrix’s features and biosamples (both scopes)
 
-Dropped: `/features/filtering_terms`, `/biosamples/filtering_terms`, `/matrices/filtering_terms`, and `/matrices/{id}/{features|biosamples}/filtering_terms`.
+Dropped: `/matrices/{id}/filtering_terms`, `/features/filtering_terms`, `/biosamples/filtering_terms`, `/matrices/filtering_terms`, and `/matrices/{id}/{features|biosamples}/filtering_terms`.
 
-Catalogs are built by `scripts/fetch_data_package.py` (root `filtering_terms.json` plus `filtering_terms/by_matrix/{matrixId}.json`). They include SO/GO feature facets; UBERON/EFO/OBI/MONDO/HP/NCIT biosample facets; matrix assay facets; alphanumeric field ids; and `resources[]` for namespaces in use (`so`, `go`, `uberon`, `efo`, `obi`, `mondo`, `hp`, `ncit`, `hgnc`, `ncbigene`, `ensembl`, `symbol`). Individual HGNC/NCBIGene/ENSEMBL values and gene symbols are **not** listed as terms.
+Catalogs are built by `scripts/build_filtering_terms.py` / `scripts/fetch_data_package.py` into root `filtering_terms.json`. They include SO/GO feature facets (SO is **genomicFeature**-scoped only); UBERON/EFO biosample facets; matrix OBI assay + `matrix.*` alphanumeric facets; and `resources[]` for namespaces in use (`so`, `go`, `uberon`, `efo`, `obi`, `mondo`, `hp`, `ncit`, `hgnc`, `ncbigene`, `ensembl`, `symbol`). Individual HGNC/NCBIGene/ENSEMBL values and gene symbols are **not** listed as terms.
 
-Apply filters on list endpoints (`GET|POST /features`, `GET|POST /biosamples`):
+Apply filters on collection-root list endpoints only (`GET|POST /features`, `GET|POST /biosamples`, `GET|POST /matrices`). Nested relation routes (`/{entry}/{id}/…`) do not accept `filters`.
 
 | Filter | Example | Behavior |
 |---|---|---|
@@ -103,10 +101,10 @@ Apply filters on list endpoints (`GET|POST /features`, `GET|POST /biosamples`):
 | Ontology biosample | `{"id":"UBERON:0002107"}` | Match `sampleOriginDetail`, `biosampleStatus`, `sampleOriginType`, `sampleProcessing`, phenotype, or measurement assay id |
 | Ontology GO (features) | `{"id":"GO:0008150"}` | Match `featureType` or `ontologyTerms` |
 | Gene public id | `{"id":"HGNC:11998"}` | Resolve via `gene_lookup` / xrefs; miss → empty page |
-| Symbol (custom) | `{"id":"symbol:TP53"}` | Lookup via aliases / `gene_lookup`; miss → empty page |
+| Symbol (alphanumeric) | `{"id":"symbol","operator":"=","value":"TP53"}` | Lookup via aliases / `gene_lookup`; miss → empty page |
 | Unknown prefix / field | — | HTTP 400 |
 
-POST body: `{"query":{"filters":[…],"pagination":{"skip":0,"limit":10}}}`. GET ontology filters: `?filters=SO:0000704,HGNC:11998`. Alphanumeric filters need an operator, so GET uses `field:op:value` (for example `sex:=:female` or `rin:>=:7`). POST remains the general form.
+POST body: `{"meta":{"apiVersion":"v2.0.0"},"query":{"filters":[…],"pagination":{"skip":0,"limit":10}}}`. `meta` (with `apiVersion`) is required. GET ontology filters: `?filters=SO:0000704,HGNC:11998`. Alphanumeric filters need an operator, so GET uses `field:op:value` (for example `sex:=:female` or `rin:>=:7`). POST remains the general form.
 
 ## Request behavior
 
@@ -115,8 +113,9 @@ POST body: `{"query":{"filters":[…],"pagination":{"skip":0,"limit":10}}}`. GET
 - Expression value queries reject `skip` above 100000. Feature, biosample, and matrix listings do not use that cap.
 - `query.includeResultsetResponses` accepts `ALL`, `HIT`, `MISS`, or `NONE` (Beacon v2). It is echoed in `receivedRequestSummary`. `NONE` omits result sets; `HIT` includes the result set only when it exists; `MISS` includes it only when it does not.
 - Ontology filters match the term id exactly. `includeDescendantTerms` is not applied (the package has no ontology closure). Responses echo `includeDescendantTerms: false` and `similarity: "exact"`.
-- Nested `/matrices/{id}/features` accepts filters plus optional `featureIDList` only; `/matrices/{id}/biosamples` accepts filters plus optional `biosampleIDList` only (no `sort`/`order`/cross ID lists/value bounds). Cell retrieval is `/matrices/{id}/expression_values` (optional `featureIDList` / `biosampleIDList`, `minValue` / `maxValue`, `order` by cell value, and cell-scoped `expression.value` / percentile filters). There is no separate heatmap or expression_summary route.
-- `/features/{id}/matrices` accepts alphanumeric `expression.percentile` (e.g. `>=` / `90`) and optional `matrixIDList`.
+- Nested relation routes (`/matrices/{id}/features`, `/matrices/{id}/biosamples`, `/features/{id}/matrices`, `/biosamples/{id}/matrices`) accept no `filters` and no `requestParameters`. The only entry type with request parameters is `expressionValue`: `/matrices/{id}/expression_values` takes `featureIDList` / `biosampleIDList`, `minValue` / `maxValue` and `order` (`asc` | `desc`, default `desc`) under `query.requestParameters.expressionValue` (POST) or as query parameters (GET). Flat keys directly under `requestParameters` are rejected. There is no separate heatmap or expression_summary route.
+- GET collection roots accept `includeResultsetResponses` (`ALL|HIT|MISS|NONE`) and, with the informational root, `requestedSchema` (accepted; only the default schema is served).
+- Matrices are exposed with `id` (not `matrixId`), plus `source`, `biotypes` and `biosampleTypes` when available. `expressionValue.matrixId` is the reference back to a matrix `id`.
 - `biosampleStatus` is `EFO:0009654` (`reference sample`) when the source does not classify the sample. That includes GTEx post-mortem tissue.
 - `GET /service-info` returns a GA4GH Service Info document (no Beacon `meta` / `response` envelope).
 - `receivedRequestSummary.apiVersion` uses the same value as `meta.apiVersion` (including the `v` prefix).

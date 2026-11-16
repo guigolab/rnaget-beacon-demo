@@ -2,7 +2,7 @@
 
 Next.js App Router frontend for the Beacon v2–style RNA-Get API. Built as a **static export** and served by nginx under `/rnaget-beacon/`. The API is proxied at `/rnaget-beacon/api/` (see `nginx/`).
 
-API contract: server routers + [`../rnaget-beacon-schema.yaml`](../rnaget-beacon-schema.yaml). Root filtering-term discovery is **`GET /filtering_terms` only**. Slice params go under `query.requestParameters` on POST (never top-level). Expression densify uses axis lists + `expression_values` cells (no response-envelope `info.axes`).
+API contract: server routers + [`../rnaget-beacon-schema.yaml`](../rnaget-beacon-schema.yaml). Root filtering-term discovery is **`GET /filtering_terms` only**. POST bodies require `meta.apiVersion` (Beacon `beaconRequestBody`). Slice params go under `query.requestParameters` on POST (never top-level). Expression densify uses axis lists + `expression_values` cells (no response-envelope `info.axes`).
 
 ## Lenses and routes
 
@@ -13,7 +13,7 @@ API contract: server routers + [`../rnaget-beacon-schema.yaml`](../rnaget-beacon
 | `/biosamples/` | Biosamples lens: tissue/ontology filters, matrix-grouped sample strips + popovers |
 | `/biosamples/` | Biosamples lens: root `GET /filtering_terms` sidebar (scope `biosample`), compound query bar + probe, preview table (load 5 more), `?sample=` selection |
 | `/matrices/` | Matrix lens: root `GET /filtering_terms` sidebar (scope `matrix`), query bar + probe, matrix preview table |
-| `/matrices/[id]` | Matrix workspace (heatmap, provenance) |
+| `/matrices/?matrix={id}` | Matrix workspace (heatmap, provenance) on the same static page |
 
 Every page includes a floating **Show API call** drawer (last Beacon request + curl).
 
@@ -49,5 +49,5 @@ docker compose -f docker-compose-dev.yml up --build
 
 - `output: 'export'` + `basePath: '/rnaget-beacon'`
 - `NEXT_PUBLIC_API_BASE_URL` defaults to `/rnaget-beacon/api` in the nginx image build
-- Matrix detail pages are pre-rendered for known package IDs (or `MATRIX_IDS` / `API_BUILD_URL` at build time)
+- Matrix workspace is query-param based (`?matrix=`) so static export does not need per-id HTML; nginx 302s legacy `/matrices/{id}/` bookmarks
 - Feature/biosample records open in a global right sheet (`?recordKind=feature|biosample&recordId=…` on any lens route)

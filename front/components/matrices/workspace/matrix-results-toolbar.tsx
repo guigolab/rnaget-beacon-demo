@@ -9,16 +9,10 @@ import {
 } from '@/components/heatmap-colors'
 import { formatHeatmapValue } from '@/lib/heatmap-expression'
 import type { MatrixColourMode } from '@/lib/heatmap-expression'
-import type { TopExpressedPercentile } from '@/lib/matrix-workspace-query'
 
 export const MATRIX_RESULTS_PANEL_ID = 'matrix-results-panel'
 
 type MatrixResultsToolbarProps = {
-  /** Current Top expressed percentile, or null when unset / unavailable. */
-  topExpressed: TopExpressedPercentile | null
-  /** Which percentile options the matrix catalog advertises. */
-  topExpressedOptions: TopExpressedPercentile[]
-  onTopExpressedChange: (value: TopExpressedPercentile | null) => void
   colourMode: MatrixColourMode
   onColourModeChange: (mode: MatrixColourMode) => void
   featureShown: number
@@ -31,16 +25,7 @@ type MatrixResultsToolbarProps = {
   unit?: string
 }
 
-const TOP_LABELS: Record<TopExpressedPercentile, string> = {
-  '99': 'Top 1%',
-  '95': 'Top 5%',
-  '90': 'Top 10%',
-}
-
 export function MatrixResultsToolbar({
-  topExpressed,
-  topExpressedOptions,
-  onTopExpressedChange,
   colourMode,
   onColourModeChange,
   featureShown,
@@ -75,35 +60,8 @@ export function MatrixResultsToolbar({
     ? `Window percentile color scale 0 to 100 (${colourMode === 'percentileInFeature' ? 'within feature' : 'within biosample'})`
     : `Expression color scale ${scaleMinLabel} to ${scaleMaxLabel}${unit ? ` ${unit}` : ''}`
 
-  const selectValue = topExpressed ?? ''
-
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      {topExpressedOptions.length > 0 && (
-        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          Genes
-          <select
-            aria-label="Top expressed gene cohort"
-            value={selectValue}
-            onChange={(event) => {
-              const next = event.target.value
-              if (next === '99' || next === '95' || next === '90') {
-                onTopExpressedChange(next)
-                return
-              }
-              onTopExpressedChange(null)
-            }}
-            className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-          >
-            <option value="">All features</option>
-            {topExpressedOptions.map((value) => (
-              <option key={value} value={value}>
-                {TOP_LABELS[value]}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
       <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         Colour
         <select

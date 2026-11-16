@@ -22,6 +22,7 @@ import {
   type FilteringResource,
   type FilteringTerm,
 } from '@/lib/beacon'
+import { browsableTerms } from '@/lib/lens-catalog'
 import { cn } from '@/lib/utils'
 
 type HomeState =
@@ -84,7 +85,8 @@ export function HomePage() {
           status: 'ready',
           info,
           entryTypes: Object.values(entryTypes),
-          terms: filtering.terms,
+          // Same visible catalog as Explore and Matrices (hidden terms dropped).
+          terms: browsableTerms(filtering.terms),
           resources: filtering.resources,
           map,
         })

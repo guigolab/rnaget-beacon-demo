@@ -76,19 +76,19 @@ _FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
             "type": "SO",
             "id": "SO:0000704",
             "label": "gene",
-            "scopes": ["genomicFeature", "matrix"],
+            "scopes": ["genomicFeature"],
         },
         {
             "type": "SO",
             "id": "SO:0000234",
             "label": "mRNA",
-            "scopes": ["genomicFeature", "matrix"],
+            "scopes": ["genomicFeature"],
         },
         {
             "type": "SO",
             "id": "SO:0001217",
             "label": "protein_coding_gene",
-            "scopes": ["genomicFeature", "matrix"],
+            "scopes": ["genomicFeature"],
         },
         {
             "type": "GO",
@@ -109,8 +109,8 @@ _FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
             "scopes": ["biosample"],
         },
         {
-            "type": "custom",
-            "id": "matrix.profileSource",
+            "type": "alphanumeric",
+            "id": "matrix.source",
             "label": "Data source",
             "scopes": ["matrix"],
             "values": ["encode", "geo", "gtex"],
@@ -123,14 +123,14 @@ _FIXTURE_FILTERING_TERMS: Dict[str, Any] = {
             "values": ["GenCode", "NCBI Gene"],
         },
         {
-            "type": "custom",
+            "type": "alphanumeric",
             "id": "feature.biotypeFamily",
             "label": "Gene type",
             "scopes": ["genomicFeature"],
             "values": ["protein_coding", "lncRNA", "pseudogene", "sncRNA", "other"],
         },
         {
-            "type": "custom",
+            "type": "alphanumeric",
             "id": "expression.percentile",
             "label": "Top expressed",
             "scopes": ["genomicFeature"],
@@ -194,23 +194,6 @@ class FixtureStore:
             matrix=matrix,
             global_terms=global_terms,
             global_resources=global_resources,
-        )
-
-    def matrix_scoped_filtering_terms(
-        self, matrix_id: str
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        from beacon.matrix_axis_catalog import merge_matrix_scoped_filtering_terms
-
-        if not self.get_matrix(matrix_id):
-            return [], []
-        feat_terms, feat_resources = self.matrix_axis_filtering_terms(
-            matrix_id, "features"
-        )
-        bio_terms, bio_resources = self.matrix_axis_filtering_terms(
-            matrix_id, "biosamples"
-        )
-        return merge_matrix_scoped_filtering_terms(
-            feat_terms, feat_resources, bio_terms, bio_resources
         )
 
     def get_matrix(self, matrix_id: str) -> Optional[Dict[str, Any]]:
@@ -296,7 +279,9 @@ class FixtureStore:
         limit: int = 10,
         filters: Optional[Sequence[Any]] = None,
         feature_id_list: Optional[str] = None,
+        timings: Optional[Dict[str, float]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
+        del timings  # DuckDbStore parity; fixtures skip timing breakdown
         from beacon.filters import (
             feature_doc_matches,
             is_gene_public_id_filter,

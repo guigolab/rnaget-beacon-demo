@@ -64,7 +64,7 @@ export function matrixDownloadLinks(matrix: Matrix): MatrixDownloadLink[] {
   if (matrix.downloadUrl) {
     links.push({
       label: 'Matrix file',
-      text: matrix.name?.trim() || matrix.matrixId || 'Matrix file',
+      text: matrix.name?.trim() || matrix.id || 'Matrix file',
       href: matrix.downloadUrl,
     })
   }

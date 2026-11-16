@@ -84,6 +84,20 @@ export function isBeaconScope(value: string): value is BeaconScope {
   )
 }
 
+/**
+ * Alphanumeric terms shown as grouped facets (not one entry per term) on every
+ * page: tissue percentile (one term per tissue), top expressed and gene type.
+ */
+export function isFacetFilteringTerm(term: FilteringTerm): boolean {
+  if (term.type !== 'alphanumeric') return false
+  const id = term.id.trim()
+  return (
+    id.startsWith('tissue.percentile:') ||
+    id === 'expression.percentile' ||
+    id === 'feature.biotypeFamily'
+  )
+}
+
 export function namespaceLabel(
   type: string | undefined,
   termId: string,
@@ -94,8 +108,8 @@ export function namespaceLabel(
     if (termId.includes('.')) return termId.split('.').pop() ?? termId
     return termId
   }
-  if (t === 'custom') {
-    return 'custom'
+  if (t === 'facet') {
+    return 'facet'
   }
   const fromResource = resources.find((r) => r.nameSpacePrefix === t)?.name
   if (fromResource) return fromResource
@@ -125,8 +139,9 @@ export function groupTermsByNamespaceScope(
   for (const term of terms) {
     const scopes = term.scopes?.filter(isBeaconScope) ?? []
     if (scopes.length === 0) continue
-    const namespaceType = term.type ?? 'unknown'
-    const label = namespaceLabel(namespaceType, term.id, resources)
+    const facet = isFacetFilteringTerm(term)
+    const namespaceType = facet ? 'facet' : (term.type ?? 'unknown')
+    const label = facet ? 'Facets' : namespaceLabel(namespaceType, term.id, resources)
 
     for (const scope of scopes) {
       const key = `${namespaceType}|${scope}`
@@ -156,7 +171,7 @@ export function groupTermsByNamespaceScope(
 export const SCOPE_RESOURCE_IDS: Record<BeaconScope, ReadonlySet<string>> = {
   genomicFeature: new Set(['so', 'go', 'hgnc', 'ncbigene', 'ensembl', 'symbol']),
   biosample: new Set(['uberon', 'efo']),
-  matrix: new Set(['so', 'obi']),
+  matrix: new Set(['obi']),
   expressionValue: new Set(),
 }
 

@@ -40,7 +40,7 @@ const terms: FilteringTerm[] = [
     values: ['TPM'],
   },
   {
-    id: 'matrix.profileSource',
+    id: 'matrix.source',
     type: 'custom',
     scopes: ['matrix'],
     values: ['gtex', 'geo'],
@@ -101,9 +101,9 @@ assert.ok(matrixSingle?.request?.path.includes('GTEx-v8-Liver'))
 
 const ev = examples.find((e) => e.id === 'ev-top')
 assert.equal(
-  ev?.request?.opts.requestParameters?.order,
+  ev?.request?.opts.requestParameters?.expressionValue?.order,
   'desc',
-  'expression order under requestParameters'
+  'expression order under requestParameters.expressionValue'
 )
 
 console.log('home-query-examples.test.ts: ok')

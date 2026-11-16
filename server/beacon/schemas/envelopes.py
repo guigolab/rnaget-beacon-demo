@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Granularity(str, Enum):
@@ -50,13 +50,19 @@ class CustomFilter(BaseModel):
 BeaconFilter = Union[AlphanumericFilter, OntologyFilter, CustomFilter]
 
 
-class BeaconRequestParameters(BaseModel):
-    """RNAget requestParameters under query.requestParameters.
+_FLAT_REQUEST_PARAMETER_LEAVES = frozenset(
+    {
+        "featureIDList",
+        "biosampleIDList",
+        "minValue",
+        "maxValue",
+        "order",
+    }
+)
 
-    Route-specific: nested matrix features → featureIDList only; nested
-    biosamples → biosampleIDList only; expression_values → both ID lists,
-    minValue/maxValue, and order (by cell value). Cross-links use matrixIDList.
-    """
+
+class ExpressionValueRequestParameters(BaseModel):
+    """Leaf params under query.requestParameters.expressionValue."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -68,10 +74,6 @@ class BeaconRequestParameters(BaseModel):
         None,
         description="Comma-separated biosample IDs.",
     )
-    matrixIDList: Optional[str] = Field(
-        None,
-        description="Comma-separated matrix IDs (cross-link listings).",
-    )
     minValue: Optional[float] = Field(
         None,
         description="Minimum expression value (expression_values only).",
@@ -82,8 +84,36 @@ class BeaconRequestParameters(BaseModel):
     )
     order: Optional[str] = Field(
         None,
-        description="Order expression_values by cell value: asc | desc.",
+        description="Order expression_values by cell value: asc | desc (default desc).",
     )
+
+
+class BeaconRequestParameters(BaseModel):
+    """RNAget requestParameters under query.requestParameters.
+
+    Beacon framework requires each additional property to be an object.
+    Nest leaf slice fields under an entry-type key. Only ``expressionValue``
+    is defined (matrices/requestParameters.yaml); the other entry types define
+    no request parameters.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expressionValue: Optional[ExpressionValueRequestParameters] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_flat_leaf_keys(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        flat = _FLAT_REQUEST_PARAMETER_LEAVES & set(data.keys())
+        if flat:
+            raise ValueError(
+                "use query.requestParameters.expressionValue for "
+                + ", ".join(sorted(flat))
+                + "; flat leaf keys are not accepted"
+            )
+        return data
 
 
 class BeaconQuery(BaseModel):
@@ -97,15 +127,33 @@ class BeaconQuery(BaseModel):
 
 
 class BeaconRequestMeta(BaseModel):
-    apiVersion: Optional[str] = None
+    apiVersion: str
 
 
-class ResponseMeta(BaseModel):
+class ReceivedRequestSummary(BaseModel):
+    """Beacon receivedRequestSummary (extra echo fields allowed)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    apiVersion: str
+    requestedSchemas: List[Dict[str, str]]
+    pagination: Dict[str, Any]
+    requestedGranularity: Granularity
+
+
+class InformationalMeta(BaseModel):
+    """Beacon response meta for informational endpoints."""
+
     apiVersion: str
     beaconId: str
-    returnedGranularity: Optional[Granularity] = None
-    returnedSchemas: List[Dict[str, str]] = Field(default_factory=list)
-    receivedRequestSummary: Optional[Dict[str, Any]] = None
+    returnedSchemas: List[Dict[str, str]]
+
+
+class ResponseMeta(InformationalMeta):
+    """Beacon response meta for query results and errors."""
+
+    returnedGranularity: Granularity
+    receivedRequestSummary: ReceivedRequestSummary
 
 
 class ResponseSummary(BaseModel):
@@ -153,18 +201,116 @@ class BeaconErrorResponse(BaseModel):
     error: BeaconErrorBody
 
 
-class BeaconInformationalResponse(BaseModel):
-    meta: ResponseMeta
-    response: Dict[str, Any]
+class BeaconOrganization(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+
+
+class BeaconInfoBody(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    apiVersion: str
+    environment: str
+    organization: BeaconOrganization
+    description: Optional[str] = None
+
+
+class BeaconInfoResponse(BaseModel):
+    meta: InformationalMeta
+    response: BeaconInfoBody
+
+
+class BeaconConfigurationBody(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    schema_: str = Field(..., alias="$schema")
+    maturityAttributes: Dict[str, Any]
+    securityAttributes: Optional[Dict[str, Any]] = None
+    entryTypes: Dict[str, Any]
+
+
+class BeaconConfigurationResponse(BaseModel):
+    meta: InformationalMeta
+    response: BeaconConfigurationBody
+
+
+class BeaconMapBody(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    schema_: str = Field(..., alias="$schema")
+    endpointSets: Dict[str, Any]
+
+
+class BeaconMapResponse(BaseModel):
+    meta: InformationalMeta
+    response: BeaconMapBody
+
+
+class BeaconEntryTypesBody(BaseModel):
+    entryTypes: Dict[str, Any]
+
+
+class BeaconEntryTypesResponse(BaseModel):
+    meta: InformationalMeta
+    response: BeaconEntryTypesBody
+
+
+class ServiceInfoType(BaseModel):
+    group: str
+    artifact: str
+    version: str
+
+
+class ServiceInfoOrganization(BaseModel):
+    name: str
+    url: str
+
+
+class ServiceInfo(BaseModel):
+    """GA4GH service-info (bare object, not a Beacon envelope)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    type: ServiceInfoType
+    organization: ServiceInfoOrganization
+    version: str
+    description: Optional[str] = None
+    environment: Optional[str] = None
+
+
+class FilteringTermItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    type: str
+    label: Optional[str] = None
+    scopes: Optional[List[str]] = None
+    values: Optional[List[str]] = None
+
+
+class FilteringResource(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: Optional[str] = None
+    url: Optional[str] = None
+    nameSpacePrefix: Optional[str] = None
+    iriPrefix: Optional[str] = None
 
 
 class FilteringTermsPayload(BaseModel):
-    filteringTerms: List[Dict[str, Any]] = Field(default_factory=list)
-    resources: List[Dict[str, Any]] = Field(default_factory=list)
+    filteringTerms: List[FilteringTermItem] = Field(default_factory=list)
+    resources: List[FilteringResource] = Field(default_factory=list)
 
 
 class BeaconFilteringTermsResponse(BaseModel):
-    meta: ResponseMeta
+    meta: InformationalMeta
     response: FilteringTermsPayload
 
 
@@ -193,16 +339,23 @@ OPENAPI_BEACON_RESPONSES = {
     404: {"description": "Beacon error", "model": BeaconErrorResponse},
 }
 
-OPENAPI_INFORMATIONAL_RESPONSES = {
-    200: {
-        "description": "Beacon informational response",
-        "model": BeaconInformationalResponse,
-    },
-}
+def _informational(model):
+    return {
+        200: {"description": "Beacon informational response", "model": model},
+        400: {"description": "Beacon error", "model": BeaconErrorResponse},
+    }
+
+
+OPENAPI_INFO_RESPONSES = _informational(BeaconInfoResponse)
+OPENAPI_CONFIGURATION_RESPONSES = _informational(BeaconConfigurationResponse)
+OPENAPI_MAP_RESPONSES = _informational(BeaconMapResponse)
+OPENAPI_ENTRY_TYPES_RESPONSES = _informational(BeaconEntryTypesResponse)
+OPENAPI_INFORMATIONAL_RESPONSES = OPENAPI_INFO_RESPONSES
 
 OPENAPI_FILTERING_TERMS_RESPONSES = {
     200: {
         "description": "Beacon filtering terms response",
         "model": BeaconFilteringTermsResponse,
     },
+    400: {"description": "Beacon error", "model": BeaconErrorResponse},
 }

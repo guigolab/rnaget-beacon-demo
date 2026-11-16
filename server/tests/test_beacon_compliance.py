@@ -10,9 +10,15 @@ import unittest
 from pathlib import Path
 from typing import Any, Dict
 
+
 SERVER_DIR = Path(__file__).resolve().parents[1]
+TESTS_DIR = Path(__file__).resolve().parent
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
+
+from beacon_test_helpers import BEACON_META, with_meta
 
 _FIXTURES = SERVER_DIR / "beacon" / "fixtures" / "data"
 
@@ -172,11 +178,11 @@ class BeaconComplianceTest(unittest.TestCase):
 
         r = self.client.post(
             "/matrices/matrix-gene-expression-001/expression_values",
-            json={
+            json=with_meta({
                 "query": {
                     "pagination": {"skip": MAX_SKIP + 1, "limit": 5},
                 }
-            },
+            }),
         )
         self.assertEqual(r.status_code, 400, r.text)
         summary = r.json()["meta"]["receivedRequestSummary"]
@@ -190,12 +196,12 @@ class BeaconComplianceTest(unittest.TestCase):
     def test_post_filter_error_meta(self) -> None:
         r = self.client.post(
             "/matrices",
-            json={
+            json=with_meta({
                 "query": {
                     "filters": [{"id": "EFO:0009655"}],
                     "pagination": {"skip": 0, "limit": 5},
                 }
-            },
+            }),
         )
         self.assertEqual(r.status_code, 400, r.text)
         body = r.json()
@@ -206,13 +212,32 @@ class BeaconComplianceTest(unittest.TestCase):
         self.assertEqual(summary["requestedSchemas"][0]["entityType"], "matrix")
 
     def test_informational_endpoints_envelope(self) -> None:
-        for path in ("/", "/filtering_terms", "/map"):
+        for path in ("/", "/filtering_terms", "/map", "/configuration"):
             with self.subTest(path=path):
                 r = self.client.get(path)
                 self.assertEqual(r.status_code, 200, r.text)
                 body = r.json()
                 _assert_informational_meta(body["meta"])
                 self.assertIn("response", body)
+
+    def test_configuration_and_map_include_schema(self) -> None:
+        """Beacon configuration/map content schemas require `$schema`."""
+        expected = {
+            "/configuration": (
+                "https://raw.githubusercontent.com/ga4gh-beacon/beacon-v2/main/"
+                "framework/json/configuration/beaconConfigurationSchema.json"
+            ),
+            "/map": (
+                "https://raw.githubusercontent.com/ga4gh-beacon/beacon-v2/main/"
+                "framework/json/configuration/beaconMapSchema.json"
+            ),
+        }
+        for path, schema_uri in expected.items():
+            with self.subTest(path=path):
+                r = self.client.get(path)
+                self.assertEqual(r.status_code, 200, r.text)
+                response = r.json()["response"]
+                self.assertEqual(response.get("$schema"), schema_uri)
 
     def test_unknown_feature_id_empty_200(self) -> None:
         r = self.client.get(
@@ -222,37 +247,18 @@ class BeaconComplianceTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertFalse(r.json()["responseSummary"]["exists"])
 
-    def test_condition_filter_rejected_on_matrix_features(self) -> None:
+    def test_nested_matrix_features_rejects_filters(self) -> None:
         r = self.client.post(
             "/matrices/matrix-gene-expression-001/features",
-            json={
-                "query": {
-                    "filters": [
-                        {
-                            "id": "condition",
-                            "operator": "=",
-                            "value": "__none__",
-                        }
-                    ],
-                    "pagination": {"skip": 0, "limit": 5},
-                }
-            },
-        )
-        self.assertEqual(r.status_code, 400, r.text)
-        self.assertIn("condition", r.json()["error"]["errorMessage"])
-
-    def test_empty_cohort_matrix_features(self) -> None:
-        r = self.client.post(
-            "/matrices/matrix-gene-expression-001/features",
-            json={
+            json=with_meta({
                 "query": {
                     "filters": [{"id": "UBERON:0000178"}],
                     "pagination": {"skip": 0, "limit": 5},
                 }
-            },
+            }),
         )
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["responseSummary"]["numTotalResults"], 0)
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("filters are not accepted on nested", r.json()["error"]["errorMessage"])
 
     def test_root_filtering_terms_get_only(self) -> None:
         r = self.client.post("/filtering_terms", json={})
@@ -262,35 +268,66 @@ class BeaconComplianceTest(unittest.TestCase):
         mid = "matrix-gene-expression-001"
         r = self.client.post(
             f"/matrices/{mid}/expression_values",
-            json={
+            json=with_meta({
                 "query": {
                     "requestedGranularity": "count",
                     "pagination": {"skip": 0, "limit": 5},
-                    "requestParameters": {"order": "desc"},
+                    "requestParameters": {
+                        "expressionValue": {"order": "desc"},
+                    },
                 }
-            },
+            }),
         )
         self.assertEqual(r.status_code, 200, r.text)
         self.assertNotIn("info", r.json())
         self.assertIn(
             "numTotalResults", r.json()["responseSummary"]
         )
+        rp = r.json()["meta"]["receivedRequestSummary"]["requestParameters"]
+        self.assertEqual(rp["expressionValue"]["order"], "desc")
+        self.assertNotIn("order", rp)
+
+    def test_expression_values_rejects_flat_request_parameters(self) -> None:
+        mid = "matrix-gene-expression-001"
+        r = self.client.post(
+            f"/matrices/{mid}/expression_values",
+            json=with_meta({
+                "query": {
+                    "requestedGranularity": "count",
+                    "pagination": {"skip": 0, "limit": 5},
+                    "requestParameters": {"order": "desc"},
+                }
+            }),
+        )
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("expressionValue", r.text)
 
     def test_expression_values_rejects_top_level_slice_fields(self) -> None:
         mid = "matrix-gene-expression-001"
         r = self.client.post(
             f"/matrices/{mid}/expression_values",
-            json={
+            json=with_meta({
                 "featureIDList": "ENSG00000141510",
                 "query": {
                     "requestedGranularity": "count",
                     "pagination": {"skip": 0, "limit": 5},
                 },
-            },
+            }),
         )
         self.assertIn(r.status_code, (400, 422), r.text)
         text = r.text
         self.assertIn("query.requestParameters", text)
+
+    def test_post_requires_meta_with_api_version(self) -> None:
+        """beaconRequestBody requires meta; beaconRequestMeta requires apiVersion."""
+        for body in (
+            {"query": {"pagination": {"skip": 0, "limit": 1}}},
+            {"meta": {}, "query": {"pagination": {"skip": 0, "limit": 1}}},
+        ):
+            with self.subTest(body=body):
+                r = self.client.post("/features", json=body)
+                self.assertEqual(r.status_code, 400, r.text)
+                self.assertIn("error", r.json())
 
     def test_expression_values_no_envelope_info(self) -> None:
         mid = "matrix-gene-expression-001"

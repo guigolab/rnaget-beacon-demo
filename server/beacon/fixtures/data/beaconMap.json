@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/ga4gh-beacon/beacon-v2/main/framework/json/configuration/beaconMapSchema.json",
   "endpointSets": {
     "biosampleEndpoints": {
       "endpoints": {
@@ -38,7 +39,6 @@
         }
       },
       "entryType": "matrix",
-      "filteringTermsUrl": "https://exampleBeacons.org/matrices/{id}/filtering_terms",
       "rootUrl": "https://exampleBeacons.org/matrices",
       "singleEntryUrl": "https://exampleBeacons.org/matrices/{id}"
     }

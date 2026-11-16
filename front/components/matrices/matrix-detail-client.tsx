@@ -9,7 +9,6 @@ import {
   matrixPageHeaderDownloads,
 } from '@/components/matrices/matrix-detail-body'
 import { MatrixWorkspace } from '@/components/matrices/workspace/matrix-workspace'
-import { LensPageShell } from '@/components/shared/lens-page-shell'
 import { Button } from '@/components/ui/button'
 import { EmptyState, PageFrame, PageHeader } from '@/components/ui-kit'
 import { getMatrix, isAbortError, type Matrix } from '@/lib/beacon'
@@ -57,52 +56,50 @@ export function MatrixDetailClient({ routeId }: { routeId: string }) {
   }, [attempt, matrixId])
 
   return (
-    <LensPageShell>
-      <PageFrame>
-        <Link
-          href="/matrices/"
-          className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          All matrices
-        </Link>
+    <PageFrame>
+      <Link
+        href="/matrices/"
+        className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" />
+        All matrices
+      </Link>
 
-        {state.status === 'loading' && <MatrixDetailSkeleton />}
+      {state.status === 'loading' && <MatrixDetailSkeleton />}
 
-        {state.status === 'missing' && (
-          <EmptyState
-            title="Matrix not found"
-            description={`No matrix is registered with id ${matrixId}.`}
+      {state.status === 'missing' && (
+        <EmptyState
+          title="Matrix not found"
+          description={`No matrix is registered with id ${matrixId}.`}
+        />
+      )}
+
+      {state.status === 'error' && (
+        <div className="space-y-3">
+          <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {state.message}
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {state.status === 'ready' && (
+        <>
+          <PageHeader
+            title={matrixDisplayLabel(state.matrix)}
+            id={matrixId}
+            description={matrixDetailDescription(state.matrix)}
+            badges={<MatrixDetailHeaderBadges matrix={state.matrix} />}
+            downloads={matrixPageHeaderDownloads(state.matrix)}
           />
-        )}
-
-        {state.status === 'error' && (
-          <div className="space-y-3">
-            <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              {state.message}
-            </p>
-            <Button type="button" variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
-              Retry
-            </Button>
-          </div>
-        )}
-
-        {state.status === 'ready' && (
-          <>
-            <PageHeader
-              title={matrixDisplayLabel(state.matrix)}
-              id={matrixId}
-              description={matrixDetailDescription(state.matrix)}
-              badges={<MatrixDetailHeaderBadges matrix={state.matrix} />}
-              downloads={matrixPageHeaderDownloads(state.matrix)}
-            />
-            <Suspense fallback={<p className="mt-6 text-sm text-muted-foreground">Loading matrix workspace…</p>}>
-              <MatrixWorkspace key={state.matrix.matrixId} matrix={state.matrix} />
-            </Suspense>
-          </>
-        )}
-      </PageFrame>
-    </LensPageShell>
+          <Suspense fallback={<p className="mt-6 text-sm text-muted-foreground">Loading matrix workspace…</p>}>
+            <MatrixWorkspace key={state.matrix.id} matrix={state.matrix} />
+          </Suspense>
+        </>
+      )}
+    </PageFrame>
   )
 }
 

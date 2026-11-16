@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ExploreHeatmap } from '@/components/explore/explore-heatmap'
-import { BiosampleQueryBar } from '@/components/samples/biosample-query-bar'
+import { FilterChipButton } from '@/components/shared/filter-chip-button'
 import { GeneFeatureQueryBar } from '@/components/genes/gene-feature-query-bar'
 import { FilteringTermNamespaceChips } from '@/components/shared/filtering-term-namespace-chips'
 import { FilterTypeLegend } from '@/components/shared/filter-type-legend'
@@ -17,6 +17,7 @@ import { useMergedFilterScopeIndex } from '@/hooks/use-merged-filter-scope-index
 import {
   dedupeFilters,
   filterKey,
+  filterLabel,
   listFeatures,
   type Feature,
   type UiFilter,
@@ -26,6 +27,7 @@ import {
   exploreHeatmapFeatureFilters,
   exploreHeatmapTopFirstFilters,
   exploreLensSearchParams,
+  isExploreTissueSelectorFilter,
   isExploreTissueTopFirstSeed,
   mergeExploreBiosampleFilters,
   mergeExploreFeatureFilters,
@@ -37,16 +39,8 @@ import {
   tissueBandPairKey,
   type FeatureTissueBandMap,
 } from '@/lib/explore-tissue-bands'
-import { partitionExploreBiosampleFilters } from '@/lib/explore-tissue-columns'
 import { getOntologyMatrixIndex } from '@/lib/explore-tissue-matrices'
 import type { LensProbe } from '@/lib/lens-preview-note'
-
-const idleProbe: LensProbe = {
-  exists: undefined,
-  total: undefined,
-  loading: false,
-  error: '',
-}
 
 function ExploreLensContent() {
   const search = useSearchParams()
@@ -58,7 +52,12 @@ function ExploreLensContent() {
     () => parseExploreLensSearch(search, scopeIndex),
     [search, scopeIndex]
   )
-  const { featureFilters, biosampleFilters } = lens
+  const { featureFilters } = lens
+  /** Explore keeps tissue (UBERON/EFO) selectors only; other sample filters are dropped. */
+  const biosampleFilters = useMemo(
+    () => lens.biosampleFilters.filter(isExploreTissueSelectorFilter),
+    [lens.biosampleFilters]
+  )
 
   const tissueSeedIds = useMemo(
     () => tissueOntologyIdsFromBiosampleFilters(biosampleFilters),
@@ -120,17 +119,13 @@ function ExploreLensContent() {
     return () => controller.abort()
   }, [])
 
-  const { constraintFilters } = useMemo(
-    () => partitionExploreBiosampleFilters(biosampleFilters),
-    [biosampleFilters]
-  )
   /** Gene list needs feature filters or tissuePresent/Top seeds. */
   const canFetch = heatmapFilters.length > 0
   /**
    * Mount heatmap (and Option A column probes) whenever genes can load or
    * non-tissue sample constraints are active.
    */
-  const showHeatmap = canFetch || constraintFilters.length > 0
+  const showHeatmap = canFetch
   const list = useLensList<Feature>({
     queryKey: heatmapKeyLine,
     pageSize: EXPLORE_LENS_PAGE_SIZE,
@@ -142,6 +137,17 @@ function ExploreLensContent() {
         const topTotal = topTotalRef.current
         const useTop = topTotal == null || skip < topTotal
         if (useTop) {
+          // Run the "present" count alongside the first page, not after it.
+          const countPromise: Promise<number | null> =
+            presentTotalRef.current == null
+              ? listFeatures(0, 0, {
+                  filters: [tissuePresentFilter(oid)],
+                  granularity: 'count',
+                  signal,
+                })
+                  .then((countPage) => countPage.total ?? null)
+                  .catch(() => null)
+              : Promise.resolve(presentTotalRef.current)
           const page = await listFeatures(skip, limit, {
             filters: heatmapFiltersRef.current,
             granularity: 'record',
@@ -157,17 +163,8 @@ function ExploreLensContent() {
             })
           }
           if (presentTotalRef.current == null) {
-            try {
-              const countPage = await listFeatures(0, 0, {
-                filters: [tissuePresentFilter(oid)],
-                granularity: 'count',
-                signal,
-              })
-              presentTotalRef.current =
-                countPage.total ?? page.total ?? ids.length
-            } catch {
-              presentTotalRef.current = page.total ?? ids.length
-            }
+            const counted = await countPromise
+            presentTotalRef.current = counted ?? page.total ?? ids.length
           }
           return {
             ...page,
@@ -246,7 +243,7 @@ function ExploreLensContent() {
     <PageFrame>
       <PageHeader
         title="Explore"
-        description="Pick genes and/or tissues, then inspect within-tissue ≥99 / &lt;99 / not-in-matrix bands. Gene symbols are case-sensitive (Alb ≠ ALB). Sample tissues seed genes present in that tissue."
+        description="Pick genes and/or tissues, then inspect within-tissue ≥99 / &lt;99 / not-in-matrix bands. Gene symbols are case-sensitive (Alb ≠ ALB). Picked tissues seed genes present in that tissue."
         legend={<FilterTypeLegend />}
       />
 
@@ -286,16 +283,30 @@ function ExploreLensContent() {
         <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div className="px-4 py-3">
             <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Tissues and samples
+              Tissues
             </h2>
             <div className="mt-2">
-              <BiosampleQueryBar
-                filters={biosampleFilters}
-                onChange={writeBiosampleFilters}
-                probe={idleProbe}
-                scopeIndex={scopeIndex}
-                showExamples={false}
-              />
+              {biosampleFilters.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {biosampleFilters.map((filter) => (
+                    <FilterChipButton
+                      key={filterKey(filter)}
+                      label={filterLabel(filter)}
+                      onRemove={() =>
+                        writeBiosampleFilters(
+                          biosampleFilters.filter(
+                            (f) => filterKey(f) !== filterKey(filter)
+                          )
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Pick a tissue below to seed genes and focus a column.
+                </p>
+              )}
             </div>
             <div className="mt-2">
               <FilteringTermNamespaceChips
@@ -326,8 +337,8 @@ function ExploreLensContent() {
             <div className="mt-1">
               <LensMutedEndpoints
                 lines={[
-                  'GET or POST /features · tissuePresent: / tissueTop:',
-                  'POST /matrices/{id}/biosamples · count (column refine)',
+                  'POST /features · genes from your gene / tissue filters',
+                  'POST /features (boolean) per cell · symbol = <feature id> + feature.resource + tissue.percentile:<tissue> >= 99',
                 ]}
               />
             </div>
@@ -349,7 +360,7 @@ function ExploreLensContent() {
           {!showHeatmap && (
             <EmptyState
               title="Start with a gene, tissue, or sample filter"
-              description="Add a feature or UBERON/EFO tissue to load genes. Other biosample filters can refine which tissue columns appear (biosample count probes)."
+              description="Add a gene filter or pick a UBERON/EFO tissue to load genes."
             />
           )}
 
@@ -372,13 +383,6 @@ function ExploreLensContent() {
               </p>
             )}
 
-          {showHeatmap && !canFetch && (
-            <p className="mb-3 text-sm text-muted-foreground">
-              Refining tissue columns for sample filters. Add a gene or tissue to
-              load expression bands.
-            </p>
-          )}
-
           {showHeatmap && (
             <>
               {list.refreshing && (
@@ -391,7 +395,6 @@ function ExploreLensContent() {
                 terms={terms}
                 biosampleFilters={biosampleFilters}
                 featureFilters={featureFilters}
-                selectedFeatureId={null}
                 seedFocusOntologyId={seedFocusOntologyId}
                 ontologyMatrixIndex={ontologyMatrixIndex}
                 ontologyIndexReady={ontologyIndexReady}

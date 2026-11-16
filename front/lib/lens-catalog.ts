@@ -1,7 +1,8 @@
 import {
   FEATURE_BIOTYPE_FAMILY_ID,
-  isCustomId,
-  matrixProfileSourceCustomFilter,
+  matrixSourceFilter,
+  TISSUE_PERCENTILE_PREFIX,
+  tissuePercentileFilter,
 } from '@/lib/beacon/filters'
 import type { FilteringResource, FilteringTerm, UiFilter } from '@/lib/beacon/types'
 import {
@@ -22,7 +23,7 @@ const FEATURE_LOOKUP_ORDER = [
   'GO',
 ] as const
 const BIOSAMPLE_LOOKUP_ORDER = ['UBERON', 'EFO'] as const
-const MATRIX_LOOKUP_ORDER = ['OBI', 'SO'] as const
+const MATRIX_LOOKUP_ORDER = ['OBI'] as const
 
 const HIDDEN_TERM_IDS = new Set([
   'genomicfeature.symbol',
@@ -62,7 +63,7 @@ export function isHiddenFilteringTerm(term: FilteringTerm): boolean {
 
 /** Pretty-print machine catalog values for display (match wire stays unchanged). */
 export function catalogValueDisplayLabel(termId: string, value: string): string {
-  if (termId === 'matrix.profileSource') {
+  if (termId === 'matrix.source') {
     const key = value.trim().toLowerCase()
     if (key === 'encode') return 'Encode'
     if (key === 'geo') return 'GEO'
@@ -72,8 +73,13 @@ export function catalogValueDisplayLabel(termId: string, value: string): string 
 }
 
 export function termToUiFilter(term: FilteringTerm): UiFilter {
-  if (term.type === 'custom' || isCustomId(term.id)) {
-    return { kind: 'custom', id: term.id, label: term.label }
+  if (term.id.startsWith(TISSUE_PERCENTILE_PREFIX)) {
+    // Tissue is part of the term id; picking the term means "top 1% in that tissue".
+    return tissuePercentileFilter(
+      term.id.slice(TISSUE_PERCENTILE_PREFIX.length),
+      '99',
+      term.label
+    )
   }
   if (term.type === 'alphanumeric' && term.id.startsWith('expression.')) {
     return { kind: 'expression', id: term.id, label: term.label }
@@ -92,8 +98,8 @@ export function termToUiFilter(term: FilteringTerm): UiFilter {
 
 /**
  * Expand a catalog term that carries enumerated `values` into clickable UiFilters.
- * Used for catalog-`custom` feature facets (percentile, biotypeFamily) whose request
- * wire is still alphanumeric/expression.
+ * Used for alphanumeric facets (expression.percentile, feature.biotypeFamily,
+ * matrix.source) that list their values in the catalog.
  */
 export function valuedTermChips(term: FilteringTerm): UiFilter[] | null {
   const values = term.values ?? []
@@ -115,11 +121,11 @@ export function valuedTermChips(term: FilteringTerm): UiFilter[] | null {
       label: `${title} = ${value}`,
     }))
   }
-  if (term.id === 'matrix.profileSource') {
+  if (term.id === 'matrix.source') {
     const title = term.label ?? term.id
     return values.map((value) => {
       const display = catalogValueDisplayLabel(term.id, value)
-      return matrixProfileSourceCustomFilter(value, `${title} = ${display}`)
+      return matrixSourceFilter(value, `${title} = ${display}`)
     })
   }
   return null
@@ -133,7 +139,7 @@ function cataloguedOntologyPrefixes(terms: FilteringTerm[]): Set<string> {
   const present = new Set<string>()
   for (const term of terms) {
     if (isHiddenFilteringTerm(term)) continue
-    if (!term.type || term.type === 'alphanumeric' || term.type === 'custom') continue
+    if (!term.type || term.type === 'alphanumeric') continue
     // Only count namespaces that actually list pickable terms.
     if (!(term.scopes?.length ?? 0)) continue
     present.add(term.type)
@@ -219,4 +225,30 @@ export function lensQueryPlaceholder(
   const unit = terms.find((term) => term.id === 'matrix.unit')
   if (unit?.values?.[0]) parts.unshift(unit.values[0])
   return parts.length ? parts.join(', ') : 'Unit, assay, feature type'
+}
+
+export { isFacetFilteringTerm } from '@/lib/scope-theme'
+
+/**
+ * UiFilter for one enumerated value of an alphanumeric term. Percentile terms
+ * compare with `>=`; everything else is an equality.
+ */
+export function filterForTermValue(
+  term: FilteringTerm,
+  value: string,
+  label?: string
+): UiFilter {
+  if (term.id.startsWith(TISSUE_PERCENTILE_PREFIX)) {
+    return {
+      kind: 'expression',
+      id: term.id,
+      operator: '>=',
+      value,
+      label,
+    }
+  }
+  if (term.id === 'expression.percentile') {
+    return { kind: 'expression', id: term.id, operator: '>=', value, label }
+  }
+  return { kind: 'alphanumeric', id: term.id, value, label }
 }

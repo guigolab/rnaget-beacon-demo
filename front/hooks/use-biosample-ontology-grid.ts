@@ -4,11 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { mapPool } from '@/lib/async-pool'
 import {
   filterKey,
-  getFilteringTerms,
   isAbortError,
   listMatrices,
 } from '@/lib/beacon'
-import type { FilteringTerm, UiFilter } from '@/lib/beacon/types'
+import type { FilteringTerm, Matrix, UiFilter } from '@/lib/beacon/types'
 import {
   BAND_COLUMN_CONCURRENCY,
   buildOntologyRows,
@@ -22,33 +21,45 @@ import {
   type OntologyRow,
 } from '@/lib/biosample-ontology-grid'
 
-async function listAllMatrixIds(
+function biosampleTermsFromMatrix(matrix: Matrix): FilteringTerm[] {
+  return (matrix.biosampleTypes ?? [])
+    .filter((t) => t.id)
+    .map((t) => ({
+      id: t.id as string,
+      label: t.label,
+      type: (t.id as string).split(':', 1)[0]?.toUpperCase(),
+      scopes: ['biosample'],
+    }))
+}
+
+async function listMatricesForOntologyGrid(
   signal: AbortSignal,
   cap = ONTOLOGY_MATRIX_WINDOW_MAX
-): Promise<string[]> {
-  const ids: string[] = []
+): Promise<Matrix[]> {
+  const out: Matrix[] = []
+  const seen = new Set<string>()
   let skip = 0
   const pageSize = Math.min(50, cap)
-  while (ids.length < cap) {
+  while (out.length < cap) {
     if (signal.aborted) break
     const page = await listMatrices(skip, pageSize, {
       granularity: 'record',
       signal,
     })
-    const batch = (page.results ?? [])
-      .map((m) => m.matrixId?.trim())
-      .filter((id): id is string => Boolean(id))
+    const batch = page.results ?? []
     if (!batch.length) break
-    for (const id of batch) {
-      if (ids.includes(id)) continue
-      ids.push(id)
-      if (ids.length >= cap) break
+    for (const matrix of batch) {
+      const id = matrix.id?.trim()
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      out.push(matrix)
+      if (out.length >= cap) break
     }
     skip += batch.length
     if (page.total != null && skip >= page.total) break
     if (batch.length < pageSize) break
   }
-  return ids.sort((a, b) => a.localeCompare(b))
+  return out.sort((a, b) => (a.id ?? '').localeCompare(b.id ?? ''))
 }
 
 export function useBiosampleOntologyGrid(opts: {
@@ -85,28 +96,24 @@ export function useBiosampleOntologyGrid(opts: {
 
     async function run() {
       try {
-        let ids = await listAllMatrixIds(controller.signal)
+        let matrices = await listMatricesForOntologyGrid(controller.signal)
         if (cancelled || fetchGenRef.current !== gen) return
         if (focusMatrix) {
-          ids = ids.filter((id) => id === focusMatrix)
-          if (!ids.length) ids = [focusMatrix]
+          matrices = matrices.filter((m) => m.id === focusMatrix)
+          if (!matrices.length) {
+            // Keep an empty column set when the focused matrix is unknown.
+            matrices = []
+          }
         }
 
         const termsByMatrix = new Map<string, FilteringTerm[]>()
-        await mapPool(ids, BAND_COLUMN_CONCURRENCY, async (matrixId) => {
-          if (cancelled || fetchGenRef.current !== gen) return
-          try {
-            const catalog = await getFilteringTerms(
-              `/matrices/${encodeURIComponent(matrixId)}/filtering_terms`
-            )
-            termsByMatrix.set(matrixId, catalog.terms)
-          } catch (err: unknown) {
-            if (isAbortError(err) || cancelled || fetchGenRef.current !== gen) {
-              return
-            }
-            termsByMatrix.set(matrixId, [])
-          }
-        })
+        const ids: string[] = []
+        for (const matrix of matrices) {
+          const matrixId = matrix.id?.trim()
+          if (!matrixId) continue
+          ids.push(matrixId)
+          termsByMatrix.set(matrixId, biosampleTermsFromMatrix(matrix))
+        }
         if (cancelled || fetchGenRef.current !== gen) return
 
         const membership = membershipByMatrix(termsByMatrix)

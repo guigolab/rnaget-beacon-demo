@@ -156,6 +156,21 @@ def main(argv: List[str] | None = None) -> int:
     except SystemExit as exc:
         errors.append(str(exc))
 
+    for m in matrices:
+        if not isinstance(m, dict):
+            continue
+        mid = m.get("matrixId")
+        if m.get("id") != mid:
+            errors.append(f"{mid}: matrix id {m.get('id')!r} != matrixId (model id)")
+        if not m.get("source"):
+            errors.append(f"{mid}: matrix missing top-level source")
+        for legacy in ("info", "package"):
+            if legacy in m:
+                errors.append(
+                    f"{mid}: matrices.json must not carry {legacy!r} "
+                    "(packaging metadata lives in manifest.json)"
+                )
+
     by_id = {m.get("matrixId"): m for m in matrices if isinstance(m, dict)}
     for entry in manifest.get("matrices") or []:
         mid = entry.get("matrix_id")
@@ -737,34 +752,6 @@ def main(argv: List[str] | None = None) -> int:
                     f"!= filteringTerms length={len(ft_terms)}"
                 )
 
-        # Per-matrix catalogs (produced by fetch_data_package / build_all_filtering_terms)
-        by_matrix_dir = root / "filtering_terms" / "by_matrix"
-        matrix_ids = [
-            str(e.get("matrix_id") or "").strip()
-            for e in (manifest.get("matrices") or [])
-            if e.get("matrix_id")
-        ]
-        if matrix_ids and not by_matrix_dir.is_dir():
-            errors.append("missing filtering_terms/by_matrix directory")
-        elif by_matrix_dir.is_dir():
-            for mid in matrix_ids:
-                safe = mid.replace("/", "_")
-                path = by_matrix_dir / f"{safe}.json"
-                if not path.is_file():
-                    errors.append(f"missing matrix filtering_terms for {mid}")
-                    continue
-                with path.open(encoding="utf-8") as fh:
-                    mdoc = json.load(fh)
-                if not isinstance(mdoc.get("filteringTerms"), list):
-                    errors.append(f"matrix filtering_terms {mid} missing filteringTerms")
-                mres = {
-                    str(r.get("id") or "").lower()
-                    for r in (mdoc.get("resources") or [])
-                    if isinstance(r, dict)
-                }
-                if not mres:
-                    errors.append(f"matrix filtering_terms {mid} has empty resources")
-
     # Package-root feature / biosample indexes (after build_feature_indexes)
     index_paths = {
         "featureOntologyPath": "feature_ontology.parquet",
@@ -972,8 +959,9 @@ def main(argv: List[str] | None = None) -> int:
             errors.append("manifest.tissueFeatureSummary missing or incomplete")
         if not tissue_labels.is_file():
             errors.append("missing tissue_column_labels.parquet")
-        # Beacon discovery: tissueTop / tissuePresent must be catalogued when
-        # the package has a tissue summary (rebuild filtering_terms if stale).
+        # Beacon discovery: tissue.percentile:<ontologyId> alphanumeric terms must
+        # be catalogued when the package has a tissue summary (rebuild
+        # filtering_terms if stale).
         if ft_path.is_file():
             try:
                 with ft_path.open(encoding="utf-8") as fh:
@@ -983,15 +971,10 @@ def main(argv: List[str] | None = None) -> int:
                     for t in (ft_check.get("filteringTerms") or [])
                     if isinstance(t, dict)
                 }
-                if not any(i.startswith("tissueTop:") for i in ids):
+                if not any(i.startswith("tissue.percentile:") for i in ids):
                     errors.append(
                         "tissue_feature_summary present but filtering_terms "
-                        "missing tissueTop:* customs"
-                    )
-                if not any(i.startswith("tissuePresent:") for i in ids):
-                    errors.append(
-                        "tissue_feature_summary present but filtering_terms "
-                        "missing tissuePresent:* customs"
+                        "missing tissue.percentile:* terms"
                     )
             except Exception as exc:
                 errors.append(f"tissue explore filtering_terms check failed: {exc}")

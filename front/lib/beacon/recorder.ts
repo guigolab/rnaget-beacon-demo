@@ -5,6 +5,10 @@ export type RecordedCall = {
   body?: unknown
   response?: unknown
   at: string
+  /** Consecutive similar calls folded into this entry (the latest is kept). */
+  repeat?: number
+  /** Calls sharing a group fold together when consecutive (e.g. per-cell probes). */
+  group?: string
 }
 
 export const RECENT_CALL_LIMIT = 5
@@ -34,7 +38,12 @@ function notify() {
   listeners.forEach((fn) => fn(snapshot))
 }
 
-export function recordBeaconCall(call: Omit<RecordedCall, 'id' | 'at'>) {
+/** `GET /features/{id}` or `/biosamples/{id}`: a single-record lookup. */
+export function isRecordLookupPath(path: string): boolean {
+  return /^\/(features|biosamples)\/[^/?]+(\?.*)?$/.test(path)
+}
+
+export function recordBeaconCall(call: Omit<RecordedCall, 'id' | 'at' | 'repeat'>) {
   nextCallId += 1
   const next: RecordedCall = {
     ...call,
@@ -42,7 +51,18 @@ export function recordBeaconCall(call: Omit<RecordedCall, 'id' | 'at'>) {
     response: trimResponse(call.response),
     at: new Date().toISOString(),
   }
-  recentCalls = [next, ...recentCalls].slice(0, RECENT_CALL_LIMIT)
+  const previous = recentCalls[0]
+  const sameBurst =
+    previous &&
+    ((isRecordLookupPath(next.path) && isRecordLookupPath(previous.path)) ||
+      (next.group != null && next.group === previous.group))
+  if (previous && sameBurst) {
+    // A burst of label lookups / per-cell probes would push the real query out of the last 5.
+    next.repeat = (previous.repeat ?? 1) + 1
+    recentCalls = [next, ...recentCalls.slice(1)]
+  } else {
+    recentCalls = [next, ...recentCalls].slice(0, RECENT_CALL_LIMIT)
+  }
   notify()
 }
 

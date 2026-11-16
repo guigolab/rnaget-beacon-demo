@@ -12,24 +12,21 @@ const STEPS: Array<{ title: string; body: string; endpoints?: string[] }> = [
   },
   {
     title: 'Seed the gene list',
-    body: 'A single tissue with no gene filters runs tissueTop:{oid} first (every row is ≥99 for that column), then continues with tissuePresent:{oid}. Pages of 30 genes, with Load more.',
+    body: 'A single tissue with no gene filters pages genes by tissue.percentile:{oid} >= 99 first (every row is top 1% in that column), then >= 0 (present in the tissue). Pages of 30 genes, with Load more.',
     endpoints: ['GET or POST /features'],
   },
   {
     title: 'Resolve tissue columns',
-    body: 'Columns come from biosample-scope ontology terms in /filtering_terms. Non-tissue sample constraints probe POST /matrices/{id}/biosamples at count granularity and keep columns with n > 0.',
-    endpoints: [
-      'GET /filtering_terms',
-      'POST /matrices/{id}/biosamples',
-    ],
+    body: 'Columns are the tissue/cell ontologies (UBERON/EFO) of each matrix, read from the biosampleTypes on GET /matrices and the catalog in /filtering_terms. No per-column requests.',
+    endpoints: ['GET /matrices', 'GET /filtering_terms'],
   },
   {
     title: 'Local presence',
-    body: 'A gene is present in a tissue when Feature.matrixIds intersects the matrices that list that tissue (ontology→matrix index from per-matrix filtering_terms). No extra presence request.',
+    body: 'A gene is present in a tissue when Feature.matrixIds intersects the matrices that list that tissue (ontology→matrix index from matrix biosampleTypes). No extra presence request.',
   },
   {
     title: 'Band each visible cell',
-    body: '≥99 = within-tissue top 1% (tissueTop probe). <99 = present but not top. Hatched = not in any matrix for that tissue. Only on-screen columns are probed.',
+    body: '≥99 = within-tissue top 1% (tissue.percentile >= 99, narrowed by your gene filters). <99 = present but not top. Hatched = not in any matrix for that tissue. Only on-screen columns are probed.',
     endpoints: ['GET or POST /features'],
   },
   {

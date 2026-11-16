@@ -48,17 +48,17 @@ console.assert(isFeatureLensFilter(bio0) === true)
 console.assert(valuedTermChips(tissue) === null)
 
 const profileSource: FilteringTerm = {
-  id: 'matrix.profileSource',
-  type: 'custom',
+  id: 'matrix.source',
+  type: 'alphanumeric',
   label: 'Profile source',
   scopes: ['matrix'],
   values: ['gtex', 'geo'],
 }
 const profileChips = valuedTermChips(profileSource)
 console.assert(profileChips != null && profileChips.length === 2)
-console.assert(profileChips![0].kind === 'custom')
-if (profileChips![0].kind === 'custom') {
-  console.assert(profileChips![0].id === 'matrix.profileSource:gtex')
+console.assert(profileChips![0].kind === 'alphanumeric')
+if (profileChips![0].kind === 'alphanumeric') {
+  console.assert(profileChips![0].id === 'matrix.source' && profileChips![0].value === 'gtex')
 }
 
 console.log('lens-catalog-valued.test.ts: ok')

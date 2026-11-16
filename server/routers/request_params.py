@@ -24,7 +24,7 @@ def params_from_post(
         return {}, legacy
     query = body_dict.get("query") or {}
     raw = query.get("requestParameters")
-    params, err = validate_request_parameters(raw)
+    params, err = validate_request_parameters(raw, nested=True)
     if err:
         return {}, error_json(400, err, received=received)
     return params or {}, None
@@ -36,13 +36,17 @@ def params_from_get(
     **query_values: Any,
 ) -> Tuple[Dict[str, Any], Optional[JSONResponse]]:
     raw = request_parameters_from_get(**query_values)
-    params, err = validate_request_parameters(raw)
+    params, err = validate_request_parameters(raw, nested=False)
     if err:
         return {}, error_json(400, err, received=received)
     return params or {}, None
 
 
-def params_summary(params: Dict[str, Any]) -> Dict[str, Any]:
-    if not params:
+def params_summary(
+    params: Dict[str, Any], *, nest_as: str
+) -> Dict[str, Any]:
+    """Echo flat internal params nested under an entry-type key."""
+    leaves = {k: v for k, v in params.items() if v is not None}
+    if not leaves:
         return {}
-    return {"requestParameters": {k: v for k, v in params.items() if v is not None}}
+    return {"requestParameters": {nest_as: leaves}}

@@ -10,9 +10,15 @@ from pathlib import Path
 import yaml
 
 SERVER_DIR = Path(__file__).resolve().parents[1]
+TESTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SERVER_DIR.parent
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
+
+from beacon_test_helpers import BEACON_META, with_meta
+
 
 class FiltersSmokeTest(unittest.TestCase):
     @classmethod
@@ -48,8 +54,8 @@ class FiltersSmokeTest(unittest.TestCase):
         term_ids = {t["id"] for t in terms}
         self.assertNotIn("sex", term_ids)
         self.assertNotIn("condition", term_ids)
-        profile = next(t for t in terms if t["id"] == "matrix.profileSource")
-        self.assertEqual(profile["type"], "custom")
+        profile = next(t for t in terms if t["id"] == "matrix.source")
+        self.assertEqual(profile["type"], "alphanumeric")
         self.assertNotIn("GEO:sample", term_ids)
         self.assertNotIn("resource:gencode", term_ids)
         self.assertNotIn("resource:ncbigene", term_ids)
@@ -64,24 +70,24 @@ class FiltersSmokeTest(unittest.TestCase):
     def test_hgnc_and_symbol_filters(self) -> None:
         r = self.client.post(
             "/features",
-            json={
+            json=with_meta({
                 "query": {
                     "filters": [{"id": "HGNC:11998"}],
                     "pagination": {"skip": 0, "limit": 5},
                 }
-            },
+            }),
         )
         self.assertEqual(r.status_code, 200, r.text)
         self.assertGreaterEqual(r.json()["responseSummary"]["numTotalResults"], 1)
 
         r = self.client.post(
             "/features",
-            json={
+            json=with_meta({
                 "query": {
                     "filters": [{"id": "symbol:TP53"}],
                     "pagination": {"skip": 0, "limit": 5},
                 }
-            },
+            }),
         )
         self.assertEqual(r.status_code, 200, r.text)
         self.assertGreaterEqual(r.json()["responseSummary"]["numTotalResults"], 1)
@@ -114,12 +120,12 @@ class FiltersSmokeTest(unittest.TestCase):
     def test_ensembl_unversioned_curie(self) -> None:
         r = self.client.post(
             "/features",
-            json={
+            json=with_meta({
                 "query": {
                     "filters": [{"id": "ENSEMBL:ENSG00000141510"}],
                     "pagination": {"skip": 0, "limit": 5},
                 }
-            },
+            }),
         )
         self.assertEqual(r.status_code, 200, r.text)
         self.assertGreaterEqual(r.json()["responseSummary"]["numTotalResults"], 1)
@@ -127,7 +133,7 @@ class FiltersSmokeTest(unittest.TestCase):
     def test_unknown_prefix_400(self) -> None:
         r = self.client.post(
             "/features",
-            json={"query": {"filters": [{"id": "HP:0000001"}]}},
+            json=with_meta({"query": {"filters": [{"id": "HP:0000001"}]}}),
         )
         self.assertEqual(r.status_code, 400)
 

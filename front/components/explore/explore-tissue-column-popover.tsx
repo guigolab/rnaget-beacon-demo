@@ -75,7 +75,7 @@ export function ExploreTissueColumnPopover({
         {rows.length > 0 && (
           <ul className="space-y-1.5">
             {rows.map(({ matrix, biosampleCount }) => {
-              const matrixId = matrix.matrixId ?? ''
+              const matrixId = matrix.id ?? ''
               return (
                 <li
                   key={matrixId}

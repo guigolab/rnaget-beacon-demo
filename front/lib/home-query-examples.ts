@@ -2,14 +2,19 @@ import {
   FEATURE_BIOTYPE_FAMILY_ID,
   FALLBACK_MATRIX_IDS,
   isFeatureLensFilter,
-  matrixProfileSourceCustomFilter,
+  matrixSourceFilter,
   scopeOf,
-  symbolCustomFilter,
+  symbolFilter,
   type FilteringTerm,
   type UiFilter,
 } from '@/lib/beacon'
+import type { Granularity } from '@/lib/beacon'
 import type { QueryOptions } from '@/lib/beacon/query'
-import { exploreLensSearchParams } from '@/lib/explore-lens'
+import {
+  exploreLensSearchParams,
+  tissuePresentFilter,
+  tissueTopFilter,
+} from '@/lib/explore-lens'
 import { geneLensQueryExamples } from '@/lib/gene-lens'
 import { matrixLensQueryExamples } from '@/lib/matrix-lens'
 import { sampleLensQueryExamples } from '@/lib/sample-lens'
@@ -39,6 +44,11 @@ export type HomeQueryExample = {
   underlying?: Array<{ label: string; request: HomeExampleRequest }>
 }
 
+/** Granularity an example is requested at (Beacon `requestedGranularity`). */
+export function exampleGranularity(example: HomeQueryExample): Granularity {
+  return example.request?.opts.granularity ?? 'record'
+}
+
 export const HOME_EXAMPLE_TABS: Array<{ id: HomeExampleTab; label: string }> = [
   { id: 'matrix', label: 'Matrices' },
   { id: 'feature', label: 'Genomic features' },
@@ -66,16 +76,6 @@ function preferredMatrixId(matrixIds: string[]): string {
   return preferred
 }
 
-function pickOntology(
-  terms: FilteringTerm[],
-  id: string,
-  scope: string
-): FilteringTerm | undefined {
-  return terms.find(
-    (t) => t.id === id && (t.scopes?.includes(scope) ?? false)
-  )
-}
-
 function exploreHref(filters: UiFilter[]): string {
   const params = exploreLensSearchParams({
     featureFilters: filters.filter((f) => isFeatureLensFilter(f)),
@@ -88,21 +88,28 @@ function exploreHref(filters: UiFilter[]): string {
 /**
  * Build demo query examples. `matrixIds` should come from a live
  * `listMatrices` call when available; falls back to package constants.
+ *
+ * Each title is a real question a user would ask; the request answers it at the
+ * Beacon granularity that fits (boolean → yes/no, count → how many, record → which).
  */
 export function buildHomeQueryExamples(opts: {
   terms?: FilteringTerm[]
   matrixIds?: string[]
 }): HomeQueryExample[] {
   const terms = opts.terms ?? []
-  const matrixId = preferredMatrixId(opts.matrixIds ?? [])
+  const matrixIds = opts.matrixIds ?? []
+  const matrixId = preferredMatrixId(matrixIds)
+  const lungMatrixId = matrixIds.find((id) => /gtex/i.test(id) && /lung/i.test(id))
+  const matrixPath = `/matrices/${encodeURIComponent(matrixId)}`
+  const matrixHref = `/matrices/?matrix=${encodeURIComponent(matrixId)}`
 
   const geneExamples = geneLensQueryExamples(terms)
   const sampleExamples = sampleLensQueryExamples(terms)
   const matrixExamples = matrixLensQueryExamples(terms)
 
   const tp53 =
-    geneExamples.find((e) => e.label === 'TP53')?.filter ??
-    symbolCustomFilter('TP53')
+    geneExamples.find((e) => e.label === 'TP53')?.filter ?? symbolFilter('TP53')
+  const alb = symbolFilter('ALB')
   const proteinCoding =
     geneExamples.find((e) => /protein-coding/i.test(e.label))?.filter ??
     ({
@@ -110,15 +117,6 @@ export function buildHomeQueryExamples(opts: {
       id: FEATURE_BIOTYPE_FAMILY_ID,
       value: 'protein_coding',
       label: 'Gene type = protein_coding',
-    } satisfies UiFilter)
-  const top1 =
-    geneExamples.find((e) => /top 1%/i.test(e.label))?.filter ??
-    ({
-      kind: 'expression',
-      id: 'expression.percentile',
-      operator: '>=',
-      value: '99',
-      label: 'Top 1% of genes',
     } satisfies UiFilter)
 
   const liver =
@@ -128,19 +126,11 @@ export function buildHomeQueryExamples(opts: {
       id: 'UBERON:0002107',
       label: 'liver',
     } satisfies UiFilter)
-  const brain =
-    sampleExamples.find((e) => /brain/i.test(e.label))?.filter ??
-    pickOntology(terms, 'UBERON:0000955', 'biosample')
-      ? {
-          kind: 'ontology' as const,
-          id: 'UBERON:0000955',
-          label: 'brain',
-        }
-      : ({
-          kind: 'ontology',
-          id: 'UBERON:0002048',
-          label: 'lung',
-        } satisfies UiFilter)
+  const brainExample = sampleExamples.find((e) => /brain/i.test(e.label))?.filter
+  const brain: Extract<UiFilter, { kind: 'ontology' }> =
+    brainExample?.kind === 'ontology'
+      ? brainExample
+      : { kind: 'ontology', id: 'UBERON:0000955', label: 'brain' }
 
   const tpm =
     matrixExamples.find((e) => e.label === 'TPM')?.filter ??
@@ -150,9 +140,15 @@ export function buildHomeQueryExamples(opts: {
       value: 'TPM',
       label: 'unit = TPM',
     } satisfies UiFilter)
+  const fpkm = {
+    kind: 'alphanumeric',
+    id: 'matrix.unit',
+    value: 'FPKM',
+    label: 'unit = FPKM',
+  } satisfies UiFilter
   const gtex =
     matrixExamples.find((e) => /gtex/i.test(e.label))?.filter ??
-    matrixProfileSourceCustomFilter('gtex', 'profileSource = GTEx')
+    matrixSourceFilter('gtex', 'source = GTEx')
   const assay =
     matrixExamples.find((e) => /bulk rna/i.test(e.label))?.filter ??
     ({
@@ -161,188 +157,264 @@ export function buildHomeQueryExamples(opts: {
       label: 'bulk RNA-seq assay',
     } satisfies UiFilter)
 
-  const alb = symbolCustomFilter('ALB')
+  const LIVER_ID = 'UBERON:0002107'
+  // GTEx matrices are keyed by Ensembl gene version; ALB = ENSG00000163631.16.
+  const ALB_ENSEMBL = 'ENSG00000163631.16'
 
   const examples: HomeQueryExample[] = [
+    // ── Matrices ────────────────────────────────────────────────────────────
     {
-      id: 'matrix-tpm',
+      id: 'matrix-gtex-tpm',
       tab: 'matrix',
-      title: 'Matrices in TPM',
-      blurb: 'Alphanumeric filter on matrix.unit — forces POST when operators are present.',
+      title: 'Which GTEx matrices are quantified in TPM?',
+      blurb:
+        'Two alphanumeric filters on the matrix collection — matrix.source = gtex AND matrix.unit = TPM. Filters are ANDed and sent as POST.',
+      request: { path: '/matrices', opts: recordOpts([gtex, tpm]) },
+      href: '/matrices/',
+    },
+    {
+      id: 'matrix-fpkm-exists',
+      tab: 'matrix',
+      title: 'Is any matrix quantified in FPKM?',
+      blurb:
+        'A yes/no question needs no records: boolean granularity returns only responseSummary.exists.',
       request: {
         path: '/matrices',
-        opts: recordOpts([tpm]),
+        opts: recordOpts([fpkm], { granularity: 'boolean' }),
       },
       href: '/matrices/',
     },
     {
-      id: 'matrix-gtex',
+      id: 'matrix-assay-count',
       tab: 'matrix',
-      title: 'GTEx profile source',
-      blurb: 'Custom filter matrix.profileSource:gtex against the matrix collection.',
+      title: 'How many bulk RNA-seq matrices are there?',
+      blurb:
+        'Ontology filter OBI:0003090 (bulk RNA-seq assay). Count granularity returns numTotalResults without any records.',
       request: {
         path: '/matrices',
-        opts: recordOpts([gtex]),
-      },
-      href: '/matrices/',
-    },
-    {
-      id: 'matrix-assay',
-      tab: 'matrix',
-      title: 'Bulk RNA-seq assay',
-      blurb: 'Ontology filter OBI:0003090 on the matrix entry type.',
-      request: {
-        path: '/matrices',
-        opts: recordOpts([assay]),
+        opts: recordOpts([assay], { granularity: 'count' }),
       },
       href: '/matrices/',
     },
     {
       id: 'matrix-single',
       tab: 'matrix',
-      title: `Single matrix · ${matrixId}`,
-      blurb: 'GET one matrix by id (Beacon single-entry path).',
+      title: `Describe one matrix · ${matrixId}`,
+      blurb: 'Single-entry path /matrices/{id}: units, assembly, annotation and dimensions.',
       request: {
-        path: `/matrices/${encodeURIComponent(matrixId)}`,
+        path: matrixPath,
         opts: recordOpts(undefined, { limit: 1 }),
       },
-      href: `/matrices/${encodeURIComponent(matrixId)}/`,
+      href: matrixHref,
     },
+
+    // ── Genomic features ────────────────────────────────────────────────────
     {
-      id: 'feature-tp53',
+      id: 'feature-alb-liver',
       tab: 'feature',
-      title: 'Gene symbol TP53',
-      blurb: 'Custom filter symbol:TP53 — gene symbols are case-sensitive.',
+      title: 'Is ALB among the top 1% of genes in liver?',
+      blurb:
+        'Symbol = ALB AND tissue.percentile:UBERON:0002107 >= 99. Symbols are case-sensitive; boolean granularity answers yes/no.',
       request: {
         path: '/features',
-        opts: recordOpts([tp53]),
+        opts: recordOpts([alb, tissueTopFilter(LIVER_ID)], { granularity: 'boolean' }),
       },
-      href: exploreHref([tp53]),
+      href: exploreHref([alb, liver]),
     },
     {
-      id: 'feature-protein',
+      id: 'feature-tp53-liver',
       tab: 'feature',
-      title: 'Protein-coding genes',
-      blurb: 'Alphanumeric feature.biotypeFamily = protein_coding.',
+      title: 'Is TP53 among the top 1% of genes in liver?',
+      blurb:
+        'Same question for TP53 — the answer is no, which is the contrast that makes ALB a liver marker.',
       request: {
         path: '/features',
-        opts: recordOpts([proteinCoding]),
+        opts: recordOpts([tp53, tissueTopFilter(LIVER_ID)], { granularity: 'boolean' }),
       },
+      href: exploreHref([tp53, liver]),
     },
     {
-      id: 'feature-top1',
+      id: 'feature-liver-protein-count',
       tab: 'feature',
-      title: 'Top 1% by expression',
-      blurb: 'expression.percentile >= 99 across the package.',
+      title: 'How many protein-coding genes are top 1% in liver?',
+      blurb:
+        'feature.biotypeFamily = protein_coding AND tissue.percentile >= 99 in liver, counted rather than listed.',
       request: {
         path: '/features',
-        opts: recordOpts([top1]),
-      },
-    },
-    {
-      id: 'feature-matrices',
-      tab: 'feature',
-      title: 'Matrices for a feature',
-      blurb: 'Nested /features/{id}/matrices — genomicFeature → matrix link.',
-      request: {
-        path: '/features/feature-ENSG00000141510.16/matrices',
-        opts: recordOpts(undefined, { limit: 5 }),
-      },
-    },
-    {
-      id: 'biosample-liver',
-      tab: 'biosample',
-      title: 'Liver biosamples',
-      blurb: 'UBERON:0002107 ontology filter on the biosample collection.',
-      request: {
-        path: '/biosamples',
-        opts: recordOpts([liver]),
+        opts: recordOpts([proteinCoding, tissueTopFilter(LIVER_ID)], {
+          granularity: 'count',
+        }),
       },
       href: exploreHref([liver]),
     },
     {
-      id: 'biosample-brain',
+      id: 'feature-tp53',
+      tab: 'feature',
+      title: 'Look up the TP53 gene',
+      blurb:
+        'Alphanumeric filter symbol = TP53 resolves through aliases / gene lookup and returns the genomicFeature records.',
+      request: { path: '/features', opts: recordOpts([tp53]) },
+      href: exploreHref([tp53]),
+    },
+    {
+      id: 'feature-matrices',
+      tab: 'feature',
+      title: 'Which matrices measure ALB?',
+      blurb:
+        'Nested /features/{id}/matrices follows the genomicFeature → matrix link (no filters on nested routes).',
+      request: {
+        path: `/features/feature-${ALB_ENSEMBL}/matrices`,
+        opts: recordOpts(undefined, { limit: 5 }),
+      },
+    },
+
+    // ── Biosamples ──────────────────────────────────────────────────────────
+    {
+      id: 'biosample-brain-exists',
       tab: 'biosample',
-      title: `${'label' in brain && brain.label ? brain.label : 'Tissue'} biosamples`,
-      blurb: `Ontology filter ${brain.id} on biosamples.`,
+      title: 'Do we have any brain biosamples?',
+      blurb: `Ontology filter ${brain.id} (${brain.label ?? 'brain'}); boolean granularity returns only exists.`,
       request: {
         path: '/biosamples',
-        opts: recordOpts([brain]),
+        opts: recordOpts([brain], { granularity: 'boolean' }),
       },
       href: exploreHref([brain]),
     },
     {
+      id: 'biosample-liver-count',
+      tab: 'biosample',
+      title: 'How many liver biosamples are there?',
+      blurb: 'Ontology filter UBERON:0002107 on the biosample collection, counted.',
+      request: {
+        path: '/biosamples',
+        opts: recordOpts([liver], { granularity: 'count' }),
+      },
+      href: exploreHref([liver]),
+    },
+    {
+      id: 'biosample-liver',
+      tab: 'biosample',
+      title: 'Show me liver biosamples',
+      blurb: 'Same filter at record granularity: the first page of biosample records.',
+      request: { path: '/biosamples', opts: recordOpts([liver]) },
+      href: exploreHref([liver]),
+    },
+    {
       id: 'biosample-matrices',
       tab: 'biosample',
-      title: 'Matrices for a biosample',
-      blurb: 'Nested /biosamples/{id}/matrices — sample → matrix link.',
+      title: 'Which matrix holds this biosample?',
+      blurb: 'Nested /biosamples/{id}/matrices follows the biosample → matrix link.',
       request: {
         path: '/biosamples/GSM3415767/matrices',
         opts: recordOpts(undefined, { limit: 5 }),
       },
     },
+
+    // ── Expression values ───────────────────────────────────────────────────
     {
       id: 'ev-top',
       tab: 'expressionValue',
-      title: 'Highest expression cells',
+      title: `Highest expression measurements in ${matrixId}`,
       blurb:
-        'Nested expressionValue only — order=desc and minValue under query.requestParameters.',
+        'order = desc ranks cells by value under query.requestParameters.expressionValue (the only entry type with request parameters).',
       request: {
-        path: `/matrices/${encodeURIComponent(matrixId)}/expression_values`,
+        path: `${matrixPath}/expression_values`,
         opts: recordOpts(undefined, {
           limit: 5,
-          requestParameters: { order: 'desc', minValue: 1000 },
+          requestParameters: { expressionValue: { order: 'desc', minValue: 1000 } },
         }),
       },
-      href: `/matrices/${encodeURIComponent(matrixId)}/`,
+      href: matrixHref,
     },
     {
-      id: 'ev-slice',
+      id: 'ev-lowest',
       tab: 'expressionValue',
-      title: 'Feature × biosample slice',
+      title: `Lowest detected expression in ${matrixId}`,
       blurb:
-        'featureIDList + biosampleIDList under requestParameters (Beacon matrix slice).',
+        'order = asc with minValue = 0.1 skips zeros and lists the weakest detected measurements first.',
       request: {
-        path: `/matrices/${encodeURIComponent(matrixId)}/expression_values`,
+        path: `${matrixPath}/expression_values`,
+        opts: recordOpts(undefined, {
+          limit: 5,
+          requestParameters: { expressionValue: { order: 'asc', minValue: 0.1 } },
+        }),
+      },
+      href: matrixHref,
+    },
+    {
+      id: 'ev-alb-count',
+      tab: 'expressionValue',
+      title: `In how many samples is ALB expressed ≥ 1000 in ${matrixId}?`,
+      blurb:
+        'featureIDList + minValue under requestParameters.expressionValue, at count granularity: one number, no cells transferred.',
+      request: {
+        path: `${matrixPath}/expression_values`,
+        opts: recordOpts(undefined, {
+          granularity: 'count',
+          requestParameters: {
+            expressionValue: { featureIDList: ALB_ENSEMBL, minValue: 1000 },
+          },
+        }),
+      },
+      href: matrixHref,
+    },
+    {
+      id: 'ev-alb-slice',
+      tab: 'expressionValue',
+      title: `Is ALB highly expressed in ${matrixId}? Top samples`,
+      blurb:
+        'The same slice as records: ALB values across biosamples, highest first.',
+      request: {
+        path: `${matrixPath}/expression_values`,
         opts: recordOpts(undefined, {
           limit: 5,
           requestParameters: {
-            featureIDList: 'ENSG00000141510.16',
-            order: 'desc',
+            expressionValue: { featureIDList: ALB_ENSEMBL, order: 'desc' },
           },
         }),
       },
-      href: `/matrices/${encodeURIComponent(matrixId)}/`,
+      href: matrixHref,
     },
+    ...(lungMatrixId
+      ? [
+          {
+            id: 'ev-alb-lung',
+            tab: 'expressionValue',
+            title: `Is ALB expressed ≥ 1000 in ${lungMatrixId}?`,
+            blurb:
+              'The tissue-specificity check: the same boolean question against a lung matrix is false.',
+            request: {
+              path: `/matrices/${encodeURIComponent(lungMatrixId)}/expression_values`,
+              opts: recordOpts(undefined, {
+                granularity: 'boolean',
+                requestParameters: {
+                  expressionValue: { featureIDList: ALB_ENSEMBL, minValue: 1000 },
+                },
+              }),
+            },
+            href: `/matrices/?matrix=${encodeURIComponent(lungMatrixId)}`,
+          } satisfies HomeQueryExample,
+        ]
+      : []),
+
+    // ── Explore ─────────────────────────────────────────────────────────────
     {
       id: 'explore-liver',
       tab: 'explore',
-      title: 'Tissue-first Explore · liver',
+      title: 'Which genes define liver? (tissue-first Explore)',
       blurb:
-        'Single tissue with no gene filters seeds tissueTop then tissuePresent gene pages.',
+        'A single tissue with no gene filters pages genes by tissue.percentile: top 1% (>= 99) first, then every gene present in the tissue (>= 0).',
       href: exploreHref([liver]),
       request: {
         path: '/features',
-        opts: recordOpts([
-          {
-            kind: 'custom',
-            id: 'tissueTop:UBERON:0002107',
-            label: 'Top 1% in UBERON:0002107',
-          },
-        ]),
+        opts: recordOpts([tissueTopFilter(LIVER_ID)]),
       },
       underlying: [
         {
           label: 'Presence continuation (after top page)',
           request: {
             path: '/features',
-            opts: recordOpts([
-              {
-                kind: 'custom',
-                id: 'tissuePresent:UBERON:0002107',
-                label: 'Present in UBERON:0002107',
-              },
-            ]),
+            opts: recordOpts([tissuePresentFilter(LIVER_ID)]),
           },
         },
       ],
@@ -352,18 +424,11 @@ export function buildHomeQueryExamples(opts: {
       tab: 'explore',
       title: 'Gene × tissue · ALB in liver',
       blurb:
-        'Case-sensitive gene symbol plus tissue — Alb ≠ ALB. Heatmap bands probe tissueTop for visible cells.',
+        'Case-sensitive gene symbol plus tissue — Alb ≠ ALB. Heatmap bands probe tissue.percentile >= 99 for the visible genes.',
       href: exploreHref([alb, liver]),
       request: {
         path: '/features',
-        opts: recordOpts([
-          alb,
-          {
-            kind: 'custom',
-            id: 'tissuePresent:UBERON:0002107',
-            label: 'Present in UBERON:0002107',
-          },
-        ]),
+        opts: recordOpts([alb, tissuePresentFilter(LIVER_ID)]),
       },
     },
   ]

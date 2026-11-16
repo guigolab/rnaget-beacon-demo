@@ -1,6 +1,5 @@
 import { mapPool } from '@/lib/async-pool'
 import {
-  getFilteringTerms,
   isAbortError,
   listMatrices,
   probeMatrixBiosamples,
@@ -100,13 +99,13 @@ export async function listCachedMatrices(
       .then((page) => {
         const byId = new Map<string, Matrix>()
         for (const matrix of page.results ?? []) {
-          const id = matrix.matrixId?.trim()
+          const id = matrix.id?.trim()
           if (!id || byId.has(id)) continue
           byId.set(id, matrix)
           if (byId.size >= MATRIX_ID_CAP) break
         }
         return [...byId.values()].sort((a, b) =>
-          (a.matrixId ?? '').localeCompare(b.matrixId ?? '')
+          (a.id ?? '').localeCompare(b.id ?? '')
         )
       })
       .catch((err: unknown) => {
@@ -119,7 +118,11 @@ export async function listCachedMatrices(
   return matrices
 }
 
-/** Session-cached UBERON/EFO → matrix ids from each matrix filtering_terms. */
+/**
+ * Session-cached tissue/cell ontology → matrix ids from each matrix's
+ * `biosampleTypes` (one `/matrices` page). Matrices without biosampleTypes
+ * contribute no tissues.
+ */
 export async function getOntologyMatrixIndex(
   signal?: AbortSignal
 ): Promise<Map<string, string[]>> {
@@ -127,18 +130,21 @@ export async function getOntologyMatrixIndex(
     ontologyIndexPromise = (async () => {
       const matrices = await listCachedMatrices()
       const termsByMatrix = new Map<string, FilteringTerm[]>()
-      await mapPool(matrices, PROBE_CONCURRENCY, async (matrix) => {
-        const matrixId = matrix.matrixId?.trim()
-        if (!matrixId) return
-        try {
-          const catalog = await getFilteringTerms(
-            `/matrices/${encodeURIComponent(matrixId)}/filtering_terms`
-          )
-          termsByMatrix.set(matrixId, catalog.terms)
-        } catch {
-          termsByMatrix.set(matrixId, [])
-        }
-      })
+      for (const matrix of matrices) {
+        const matrixId = matrix.id?.trim()
+        if (!matrixId || !matrix.biosampleTypes?.length) continue
+        termsByMatrix.set(
+          matrixId,
+          matrix.biosampleTypes
+            .filter((t) => t.id)
+            .map((t) => ({
+              id: t.id as string,
+              label: t.label,
+              type: (t.id as string).split(':', 1)[0]?.toUpperCase(),
+              scopes: ['biosample'],
+            }))
+        )
+      }
       return buildOntologyMatrixIndex(termsByMatrix)
     })().catch((err: unknown) => {
       ontologyIndexPromise = null
@@ -150,24 +156,13 @@ export async function getOntologyMatrixIndex(
   return index
 }
 
-export async function listAllMatrixIds(
-  signal?: AbortSignal,
-  cap = MATRIX_ID_CAP
-): Promise<string[]> {
-  const matrices = await listCachedMatrices(signal)
-  return matrices
-    .map((m) => m.matrixId?.trim())
-    .filter((id): id is string => Boolean(id))
-    .slice(0, cap)
-}
-
 function matrixFromCache(
   matrices: Matrix[],
   matrixId: string
 ): Matrix | null {
   const want = matrixId.trim()
   if (!want) return null
-  return matrices.find((m) => m.matrixId?.trim() === want) ?? null
+  return matrices.find((m) => m.id?.trim() === want) ?? null
 }
 
 /**
@@ -206,9 +201,9 @@ export async function matricesForFeatureTissue(
 
   return matchedIds
     .map((id) => matrixFromCache(matrices, id))
-    .filter((matrix): matrix is Matrix => Boolean(matrix?.matrixId))
+    .filter((matrix): matrix is Matrix => Boolean(matrix?.id))
     .sort((a, b) =>
-      (a.name ?? a.matrixId ?? '').localeCompare(b.name ?? b.matrixId ?? '')
+      (a.name ?? a.id ?? '').localeCompare(b.name ?? b.id ?? '')
     )
 }
 
@@ -224,7 +219,7 @@ export async function matrixBiosampleCountsForTissue(
     try {
       const matrices = await listCachedMatrices(signal)
       const matrix = matrixFromCache(matrices, mid)
-      if (!matrix?.matrixId) return []
+      if (!matrix?.id) return []
       const page = await probeMatrixBiosamples(mid, {
         granularity: 'count',
         signal,
@@ -280,15 +275,15 @@ export async function matrixBiosampleCountsForTissue(
       return matched
         .map((hit) => {
           const matrix = matrixFromCache(matrices, hit.matrixId)
-          if (!matrix?.matrixId) return null
+          if (!matrix?.id) return null
           return { matrix, biosampleCount: hit.biosampleCount }
         })
         .filter((row): row is TissueMatrixBiosampleCount => Boolean(row))
         .sort(
           (a, b) =>
             b.biosampleCount - a.biosampleCount ||
-            (a.matrix.name ?? a.matrix.matrixId ?? '').localeCompare(
-              b.matrix.name ?? b.matrix.matrixId ?? ''
+            (a.matrix.name ?? a.matrix.id ?? '').localeCompare(
+              b.matrix.name ?? b.matrix.id ?? ''
             )
         )
     })().catch((err: unknown) => {

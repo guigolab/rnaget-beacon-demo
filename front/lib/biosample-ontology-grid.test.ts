@@ -99,13 +99,7 @@ console.assert(
     null
 )
 console.assert(
-  ontologyFilterIdSet([
-    {
-      kind: 'custom',
-      id: 'biosample.preset:female+UBERON:0002048',
-      label: 'female + lung',
-    },
-  ]) === null
+  ontologyFilterIdSet([{ kind: 'alphanumeric', id: 'age_bracket', value: 'adult' }]) === null
 )
 
 const probed = probeFiltersForOntology('UBERON:0002107', 'liver', [

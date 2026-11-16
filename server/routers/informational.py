@@ -1,7 +1,7 @@
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Query
 
@@ -9,9 +9,13 @@ from beacon import config
 from beacon.responses import build_filtering_terms_response, build_informational_response
 from beacon.schemas.envelopes import (
     OPENAPI_FILTERING_TERMS_RESPONSES,
-    OPENAPI_INFORMATIONAL_RESPONSES,
+    OPENAPI_CONFIGURATION_RESPONSES,
+    OPENAPI_ENTRY_TYPES_RESPONSES,
+    OPENAPI_INFO_RESPONSES,
+    OPENAPI_MAP_RESPONSES,
+    ServiceInfo,
 )
-from routers.common import page_filtering_terms
+from routers.common import REQUESTED_SCHEMA_DESCRIPTION, page_filtering_terms
 
 router = APIRouter(tags=["Informational endpoints"])
 
@@ -51,9 +55,11 @@ def _info_body() -> Dict[str, Any]:
     }
 
 
-@router.get("/", responses=OPENAPI_INFORMATIONAL_RESPONSES, operation_id="getBeaconRoot")
-@router.get("/info", responses=OPENAPI_INFORMATIONAL_RESPONSES, operation_id="getBeaconInfoRoot")
-def get_info():
+@router.get("/", response_model=None, responses=OPENAPI_INFO_RESPONSES, operation_id="getBeaconRoot")
+@router.get("/info", response_model=None, responses=OPENAPI_INFO_RESPONSES, operation_id="getBeaconInfoRoot")
+def get_info(
+    requestedSchema: Optional[str] = Query(None, description=REQUESTED_SCHEMA_DESCRIPTION),
+):
     return build_informational_response(
         entity_type="info",
         schema_key="info",
@@ -61,7 +67,7 @@ def get_info():
     )
 
 
-@router.get("/service-info", operation_id="getBeaconServiceInfo")
+@router.get("/service-info", response_model=ServiceInfo, operation_id="getBeaconServiceInfo")
 def get_service_info():
     """GA4GH Service Info (bare object, not a Beacon envelope)."""
     return {
@@ -80,7 +86,8 @@ def get_service_info():
 
 @router.get(
     "/configuration",
-    responses=OPENAPI_INFORMATIONAL_RESPONSES,
+    response_model=None,
+    responses=OPENAPI_CONFIGURATION_RESPONSES,
     operation_id="getBeaconConfiguration",
 )
 def get_configuration():
@@ -91,7 +98,7 @@ def get_configuration():
     )
 
 
-@router.get("/map", responses=OPENAPI_INFORMATIONAL_RESPONSES, operation_id="getBeaconMap")
+@router.get("/map", response_model=None, responses=OPENAPI_MAP_RESPONSES, operation_id="getBeaconMap")
 def get_map():
     return build_informational_response(
         entity_type="map",
@@ -102,7 +109,8 @@ def get_map():
 
 @router.get(
     "/entry_types",
-    responses=OPENAPI_INFORMATIONAL_RESPONSES,
+    response_model=None,
+    responses=OPENAPI_ENTRY_TYPES_RESPONSES,
     operation_id="getEntryTypes",
 )
 def get_entry_types():

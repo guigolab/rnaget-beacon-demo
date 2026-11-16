@@ -1,5 +1,26 @@
 # Custom filtering terms (features, biosamples, matrices)
 
+> **Update:** custom filter kinds are being dropped. The terms the Explore page
+> uses are now plain **alphanumeric** filters (`id`, `operator`, `value`) on the
+> collection roots only. They do not have to be properties of the model
+> schemas (see the beacon-v2 `genomicFeatures/filteringTerms.yaml` and
+> `matrices/filteringTerms.yaml`).
+>
+> | Old custom id | Alphanumeric term |
+> |---|---|
+> | `tissueTop:{oid}` | `tissue.percentile:{oid}` `>=` `99` |
+> | `tissuePresent:{oid}` | `tissue.percentile:{oid}` `>=` `0` (detected in the tissue) |
+> | `symbol:{SYMBOL}` | `symbol` `=` `{SYMBOL}` |
+> | `matrix.profileSource:{v}` | `matrix.source` `=` `{v}` |
+>
+> `tissue.percentile:{oid}` accepts any threshold (catalog chips 90/95/99) with
+> `>=`, `>`, `<=`, `<`, `=`. GET form: `filters=tissue.percentile:UBERON:0002107:>=:99`.
+> The old custom ids are still matched by the server for old links, but nothing
+> advertises them and the front end no longer creates them: it reads legacy ids from
+> old URLs once and rewrites them as the alphanumeric forms above.
+> Note `>= 0` means *detected* (a non-null percentile); the old `tissuePresent:`
+> also included undetected rows.
+
 This note catalogs **custom** Beacon filter ids used by the RNA-Get demo, how their
 values are **computed** into the data package, how the server **matches** them, and
 the friendlier **display labels** shipped in catalogs / UI chrome.
@@ -9,7 +30,7 @@ Related:
 - Overview of advertised terms and catalog build: [filtering-terms.md](filtering-terms.md)
 - Request shapes and catalogs: [api.md](api.md) (§ Filtering terms and `query.filters`)
 - Stats parquet build: `scripts/build_expression_stats.py`
-- Catalog emit: `scripts/build_filtering_terms.py`, `scripts/build_matrix_filtering_terms.py`
+- Catalog emit: `scripts/build_filtering_terms.py`
 - Normalize / match: `server/beacon/filters.py`
 - DuckDB SQL: `server/beacon/duckdb_store.py`
 - Labels: `server/beacon/filter_display.py`
@@ -249,9 +270,8 @@ DuckDB
 | Stats columns | `scripts/build_expression_stats.py` |
 | Stats → catalog scan | `server/beacon/expression_catalog_support.py` (`scan_matrix_expression_support`) |
 | Root catalog labels + terms | `scripts/build_filtering_terms.py` (`_append_expression_root_terms`, `_append_biotype_family_terms`, `_emit_resource_term`, `_pretty_so_term_labels`) |
-| Per-matrix catalogs | `scripts/build_matrix_filtering_terms.py` + `matrix_axis_catalog._subset_terms` |
 | Matrix alphanumeric labels | `server/beacon/matrix_catalog.py` |
-| Rebuild both | `python3 scripts/build_matrix_filtering_terms.py --package … --with-root` |
+| Rebuild root catalog | `python3 scripts/build_filtering_terms.py --package …` |
 
 ---
 

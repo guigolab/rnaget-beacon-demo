@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   isAbortError,
-  listMatrixBiosamples,
-  listMatrixFeatures,
+  lookupMatrixBiosamples,
+  lookupMatrixFeatures,
   type Biosample,
   type Feature,
 } from '@/lib/beacon'
@@ -54,13 +54,12 @@ export function useMatrixSliceLabels(input: {
       return
     }
     const controller = new AbortController()
-    listMatrixFeatures(input.matrixId, 0, Math.max(input.featureIds.length, 1), {
-      featureIDList: input.featureIds.join(','),
+    lookupMatrixFeatures(input.matrixId, input.featureIds, {
       signal: controller.signal,
     })
-      .then((page) => {
+      .then((records) => {
         if (controller.signal.aborted) return
-        setFeatureRecords(page.results)
+        setFeatureRecords(records)
         setFeatureRecordsKey(featureKey)
       })
       .catch((err: unknown) => {
@@ -78,13 +77,12 @@ export function useMatrixSliceLabels(input: {
       return
     }
     const controller = new AbortController()
-    listMatrixBiosamples(input.matrixId, 0, Math.max(input.biosampleIds.length, 1), {
-      biosampleIDList: input.biosampleIds.join(','),
+    lookupMatrixBiosamples(input.matrixId, input.biosampleIds, {
       signal: controller.signal,
     })
-      .then((page) => {
+      .then((records) => {
         if (controller.signal.aborted) return
-        setBiosampleRecords(page.results)
+        setBiosampleRecords(records)
         setBiosampleRecordsKey(biosampleKey)
       })
       .catch((err: unknown) => {
