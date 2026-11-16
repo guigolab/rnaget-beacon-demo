@@ -28,6 +28,8 @@ Extra args are appended (e.g. --force-stats, --skip-download, --tag …).
 Env:
   DATA_PACKAGE_OUT     Host output directory (default: /data/rnaget-demo)
   FETCH_PYTHON_IMAGE   Python image (default: python:3.12-slim)
+  DUCKDB_TEMP_DIR      DuckDB spill dir (default: <out parent>/.duckdb_tmp_<out name>)
+  DUCKDB_MEMORY_LIMIT  DuckDB memory cap (default: 512MB)
 EOF
   exit 0
 fi
@@ -55,12 +57,19 @@ if [[ "${OUT_PARENT}" == "/" ]]; then
   exit 1
 fi
 
-mkdir -p "${OUT_ABS}"
+# DuckDB defaults its spill dir to ./.tmp; the repo is mounted read-only at /work,
+# so point it at a writable location next to the output (beside, not inside, OUT).
+DUCKDB_TEMP_DIR="${DUCKDB_TEMP_DIR:-${OUT_PARENT}/.duckdb_tmp_${OUT_NAME}}"
+
+mkdir -p "${OUT_ABS}" "${DUCKDB_TEMP_DIR}"
 
 echo "Fetching data package into ${OUT_ABS} via ${IMAGE}…"
 docker run --rm \
   -e PIP_ROOT_USER_ACTION=ignore \
   -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
+  -e DUCKDB_TEMP_DIR="${DUCKDB_TEMP_DIR}" \
+  -e DUCKDB_MEMORY_LIMIT \
+  -e DUCKDB_THREADS \
   -v "${ROOT}:/work:ro" \
   -v "${OUT_PARENT}:${OUT_PARENT}" \
   -w /work \
@@ -72,6 +81,8 @@ docker run --rm \
     pip install --no-cache-dir "pyarrow>=14.0,<20" "duckdb>=1.1,<2"
     python scripts/fetch_data_package.py --out "$1" --force "${@:2}"
   ' bash "${OUT_ABS}" "$@"
+
+rm -rf "${DUCKDB_TEMP_DIR}" 2>/dev/null || true
 
 echo
 echo "Done. Package ready at ${OUT_ABS}"

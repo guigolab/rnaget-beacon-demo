@@ -7,6 +7,7 @@ import {
   COLOR_MID_LOW,
   COLOR_TOP,
 } from '@/components/heatmap-colors'
+import { MatrixHeatmapHelp } from './matrix-heatmap-help'
 import { formatHeatmapValue } from '@/lib/heatmap-expression'
 
 export const MATRIX_RESULTS_PANEL_ID = 'matrix-results-panel'
@@ -57,6 +58,7 @@ export function MatrixResultsToolbar({
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <MatrixHeatmapHelp />
       <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         Sort
         <select
